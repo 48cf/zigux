@@ -31,14 +31,10 @@ const PageAllocator = struct {
             return error.OutOfMemory;
         }
 
-        heap_logger.debug("Page allocator asked for {} pages (size={})", .{ pages, len });
-
         var i: usize = 0;
 
         while (i < pages) : (i += 1) {
             const page = phys.allocate(1, true) orelse return error.OutOfMemory;
-
-            heap_logger.debug("Mapping heap page 0x{X:0>16} at 0x{X:0>16}", .{ page, base + i * std.mem.page_size });
 
             virt.kernel_page_table.mapPage(
                 base + i * std.mem.page_size,

@@ -31,11 +31,7 @@ pub const Thread = struct {
         var buffer = std.io.fixedBufferStream(file);
         var ph_iter = header.program_header_iterator(buffer);
 
-        logger.info("{}", .{header});
-
         while (try ph_iter.next()) |ph| {
-            logger.info("{}", .{ph});
-
             if (ph.p_type != 1) {
                 continue;
             }
@@ -66,7 +62,7 @@ pub const Thread = struct {
 
                     std.mem.copy(u8, page_hh, source);
 
-                    logger.debug("Copying {} bytes at offset 0x{X} from file at file offset 0x{X}", .{ copy_size, offset, file_offset });
+                    // logger.debug("Copying {} bytes at offset 0x{X} from file at file offset 0x{X}", .{ copy_size, offset, file_offset });
                 }
             }
         }

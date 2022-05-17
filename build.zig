@@ -20,7 +20,7 @@ pub fn build(b: *std.build.Builder) !void {
     target.cpu_features_add.addFeature(@enumToInt(Features.soft_float));
 
     kernel.code_model = .kernel;
-    kernel.setBuildMode(.Debug);
+    kernel.setBuildMode(.ReleaseSafe);
     kernel.setLinkerScriptPath(.{ .path = "misc/linker.ld" });
     kernel.install();
     kernel.setTarget(target);
