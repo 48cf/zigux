@@ -89,6 +89,8 @@ pub const Process = struct {
     parent: u64,
     children: std.ArrayListUnmanaged(*Process) = .{},
     threads: std.ArrayListUnmanaged(*Thread) = .{},
+    fd3: std.ArrayListAlignedUnmanaged(u8, 8) = .{},
+    fd3_offset: usize = 0,
     address_space: virt.AddressSpace,
     exit_code: ?u8,
 };
@@ -234,6 +236,9 @@ fn syscallHandler(frame: *interrupts.InterruptFrame) void {
     frame.rax = syscallHandlerImpl(frame) catch |err| {
         const linux_error = @as(std.os.linux.E, switch (err) {
             error.NotImplemented => .NOSYS,
+            error.InvalidArgument => .INVAL,
+            error.BadFileDescriptor => .BADF,
+            error.OutOfMemory => .NOMEM,
         });
 
         frame.rax = @bitCast(u64, @as(i64, -@bitCast(i16, @enumToInt(linux_error))));
@@ -241,6 +246,8 @@ fn syscallHandler(frame: *interrupts.InterruptFrame) void {
         return;
     } orelse return;
 }
+
+const assemblerSource align(8) = @embedFile("../shr.shr").*;
 
 fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     const cpu_info = per_cpu.get();
@@ -250,7 +257,9 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         .open => {
             const path = std.mem.span(@intToPtr([*:0]const u8, frame.rdi));
 
-            logger.debug("Attempt to open file {s}", .{path});
+            if (std.mem.eql(u8, path, "build/out")) {
+                return 3;
+            }
 
             return error.NotImplemented;
         },
@@ -260,11 +269,69 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 cpu_info.thread = null;
 
                 logger.info("Exiting process {} with code {}", .{ thread.parent.pid, thread.parent.exit_code });
+
+                if (thread.parent.fd3.items.len > 0) {
+                    const newProcess = spawnProcess(null) catch unreachable;
+                    const newThread = spawnThread(newProcess) catch unreachable;
+
+                    newThread.exec(thread.parent.fd3.items) catch unreachable;
+                    enqueue(newThread);
+                }
             }
 
             reschedule(frame);
 
             return null;
+        },
+        .lseek => {
+            if (frame.rdi == 3) {
+                switch (frame.rdx) {
+                    std.os.linux.SEEK.SET => cpu_info.thread.?.parent.fd3_offset = frame.rsi,
+                    std.os.linux.SEEK.CUR => cpu_info.thread.?.parent.fd3_offset += frame.rsi,
+                    std.os.linux.SEEK.END => cpu_info.thread.?.parent.fd3_offset = cpu_info.thread.?.parent.fd3.items.len,
+                    else => return error.InvalidArgument,
+                }
+
+                return cpu_info.thread.?.parent.fd3_offset;
+            }
+
+            return error.BadFileDescriptor;
+        },
+        .read => {
+            if (frame.rdi == 0) {
+                const buffer = @intToPtr([*]u8, frame.rsi);
+
+                std.mem.copy(u8, buffer[0..assemblerSource.len], &assemblerSource);
+
+                return assemblerSource.len;
+            }
+
+            return error.BadFileDescriptor;
+        },
+        .write => {
+            if (frame.rdi == 3) {
+                const buffer = @intToPtr([*]const u8, frame.rsi);
+
+                if (cpu_info.thread.?.parent.fd3.items.len < cpu_info.thread.?.parent.fd3_offset + frame.rdx) {
+                    try cpu_info.thread.?.parent.fd3.resize(
+                        root.allocator,
+                        cpu_info.thread.?.parent.fd3_offset + frame.rdx,
+                    );
+                }
+
+                try cpu_info.thread.?.parent.fd3.replaceRange(
+                    root.allocator,
+                    cpu_info.thread.?.parent.fd3_offset,
+                    frame.rdx,
+                    buffer[0..frame.rdx],
+                );
+
+                cpu_info.thread.?.parent.fd3_offset += frame.rdx;
+
+                return frame.rdx;
+            }
+
+            return error.BadFileDescriptor;
         },
         else => {
             logger.warn(

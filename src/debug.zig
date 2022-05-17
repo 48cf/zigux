@@ -11,10 +11,6 @@ pub fn printStackIterator(stack_iter: std.debug.StackIterator) void {
 
     logger.err("Stack backtrace:", .{});
 
-    if (iter.first_address) |addr| {
-        printSymbol(addr);
-    }
-
     while (iter.next()) |addr| {
         printSymbol(addr);
     }
