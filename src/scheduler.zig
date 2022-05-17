@@ -114,12 +114,15 @@ pub fn init() !void {
 
     kernel_process.address_space = virt.kernel_address_space.?;
 
-    inline for (.{ &idle_thread, &kernel_thread }) |thread| {
+    inline for (.{ &kernel_thread, &idle_thread }) |thread| {
         thread.* = .{
             .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
             .parent = &kernel_process,
         };
 
+        const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+
+        thread.regs.rsp = virt.hhdm + stack + std.mem.page_size;
         thread.regs.rflags = 0x202;
         thread.regs.cs = 0x28;
         thread.regs.ss = 0x30;
@@ -128,11 +131,7 @@ pub fn init() !void {
     }
 
     idle_thread.regs.rip = @ptrToInt(idleThread);
-
-    const kernel_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
-
     kernel_thread.regs.rip = @ptrToInt(root.mainThread);
-    kernel_thread.regs.rsp = virt.hhdm + kernel_stack + std.mem.page_size;
 
     enqueue(&kernel_thread);
 }
@@ -213,7 +212,15 @@ pub fn reschedule(frame: *interrupts.InterruptFrame) void {
     if (dequeueOrNull()) |new_thread| {
         if (cpu_info.thread) |old_thread| {
             old_thread.regs = frame.*;
+
             enqueue(old_thread);
+
+            logger.debug(
+                "Switching from {}:{} to {}:{}",
+                .{ old_thread.tid, old_thread.parent.pid, new_thread.tid, new_thread.parent.pid },
+            );
+        } else {
+            logger.debug("Switching to {}:{}", .{ new_thread.tid, new_thread.parent.pid });
         }
 
         cpu_info.thread = new_thread;
@@ -248,8 +255,12 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             return error.NotImplemented;
         },
         .exit => {
-            cpu_info.thread.?.parent.exit_code = @truncate(u8, frame.rdi);
-            cpu_info.thread = null;
+            if (cpu_info.thread) |thread| {
+                thread.parent.exit_code = @truncate(u8, frame.rdi);
+                cpu_info.thread = null;
+
+                logger.info("Exiting process {} with code {}", .{ thread.parent.pid, thread.parent.exit_code });
+            }
 
             reschedule(frame);
 
@@ -266,7 +277,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     };
 }
 
-fn idleThread() callconv(.Naked) noreturn {
+fn idleThread() noreturn {
     while (true) {
         arch.halt();
     }

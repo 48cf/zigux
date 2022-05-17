@@ -92,13 +92,12 @@ fn exception_handler(frame: *InterruptFrame) void {
     if (frame.vector == 0x6) {
         const code = @intToPtr([*]const u8, frame.rip);
 
-        if (std.mem.startsWith(u8, code, .{ 0x0f, 0x05 })) {
+        if (std.mem.eql(u8, code[0..2], &.{ 0x0f, 0x05 })) {
             logger.debug("Translating #UD into syscall", .{});
 
-            handlers[syscall_vector](frame);
             frame.rip += 2;
 
-            return;
+            return @call(.{ .modifier = .always_tail }, handlers[syscall_vector], .{frame});
         }
     }
 

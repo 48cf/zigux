@@ -148,7 +148,7 @@ fn main() !void {
 
 const assemblerElf align(8) = @embedFile("../s3").*;
 
-pub fn mainThread() callconv(.C) noreturn {
+pub fn mainThread() noreturn {
     const assemblerProcess = scheduler.spawnProcess(null) catch unreachable;
     const assemblerThread = scheduler.spawnThread(assemblerProcess) catch unreachable;
 
