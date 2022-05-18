@@ -29,8 +29,8 @@ pub fn build(b: *std.build.Builder) !void {
     const image_path = b.pathJoin(&.{ b.cache_root, "image.iso" });
     const kernel_path = b.getInstallPath(kernel.install_step.?.dest_dir, kernel.out_filename);
 
-    const image = b.addSystemCommand(&.{ "/bin/sh", "misc/create-image.sh", kernel_path, image_dir, image_path });
-    const qemu = b.addSystemCommand(&.{ "/bin/sh", "misc/run-emulator.sh", image_path });
+    const image = b.addSystemCommand(&.{ "/usr/bin/env", "sh", "misc/create-image.sh", kernel_path, image_dir, image_path });
+    const qemu = b.addSystemCommand(&.{ "/usr/bin/env", "sh", "misc/run-emulator.sh", image_path });
 
     image.step.dependOn(&kernel.install_step.?.step);
     qemu.step.dependOn(&image.step);

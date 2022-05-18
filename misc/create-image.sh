@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env sh
 
 kernel_path=$1
 image_dir=$2
