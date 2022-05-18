@@ -8,8 +8,6 @@ pub const IrqSpinlock = struct {
     re_enable: bool = undefined,
 
     pub fn lock(self: *IrqSpinlock) void {
-        // debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
-
         if (arch.readEflags() & 0x200 != 0) {
             while (true) {
                 asm volatile ("cli");

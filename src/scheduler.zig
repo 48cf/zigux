@@ -96,7 +96,7 @@ var kernel_process: process.Process = .{
 };
 
 pub fn init() !void {
-    interrupts.register_handler(interrupts.syscall_vector, process.syscallHandler);
+    interrupts.registerHandler(interrupts.syscall_vector, process.syscallHandler);
 
     const root_dir = try vfs.resolve(null, "/");
     const tty = try vfs.resolve(root_dir, "dev/tty");

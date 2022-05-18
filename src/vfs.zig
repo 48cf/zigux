@@ -198,8 +198,8 @@ pub const FileSystem = struct {
 
 var root_vnode: ?*VNode = null;
 
-const assemblerElf = @embedFile("../misc/s3").*;
-const assemblerSource = @embedFile("../misc/shr.shr").*;
+const assembler_elf = @embedFile("../misc/s3").*;
+const assembler_source = @embedFile("../misc/shr.shr").*;
 
 pub fn init() !void {
     const root_node = try ram_fs.init("/", null);
@@ -221,8 +221,8 @@ pub fn init() !void {
     const s3_file = try root_node.filesystem.createFile("s3");
     const shr_file = try root_node.filesystem.createFile("shr.shr");
 
-    _ = try s3_file.write(&assemblerElf, 0);
-    _ = try shr_file.write(&assemblerSource, 0);
+    _ = try s3_file.write(&assembler_elf, 0);
+    _ = try shr_file.write(&assembler_source, 0);
 
     try bin_dir.insert(s3_file);
     try root_dir.insert(shr_file);

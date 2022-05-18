@@ -6,7 +6,7 @@ const arch = @import("arch.zig");
 const debug = @import("debug.zig");
 
 var next_vector: usize = 32;
-var handlers = [1]InterruptHandler{exception_handler} ** 32 ++ [1]InterruptHandler{unhandled_interrupt_handler} ** 224;
+var handlers = [1]InterruptHandler{exceptionHandler} ** 32 ++ [1]InterruptHandler{unhandledInterruptHandler} ** 224;
 
 pub const syscall_vector: u8 = 0x80;
 pub const spurious_vector: u8 = 0xFF;
@@ -41,19 +41,19 @@ pub const InterruptFrame = extern struct {
     ss: u64,
 };
 
-pub fn make_handlers() [256]fn () callconv(.Naked) void {
+pub fn makeHandlers() [256]fn () callconv(.Naked) void {
     var result = [1]InterruptStub{undefined} ** 256;
 
     comptime var i: usize = 0;
 
     inline while (i < 256) : (i += 1) {
-        result[i] = comptime make_handler(i);
+        result[i] = comptime makeHandler(i);
     }
 
     return result;
 }
 
-pub fn allocate_vector() u8 {
+pub fn allocateVector() u8 {
     var result = @atomicRmw(usize, &next_vector, .Add, 1, .AcqRel);
 
     if (result == syscall_vector) {
@@ -67,11 +67,11 @@ pub fn allocate_vector() u8 {
     return @truncate(u8, result);
 }
 
-pub fn register_handler(vector: u8, handler: InterruptHandler) void {
+pub fn registerHandler(vector: u8, handler: InterruptHandler) void {
     handlers[vector] = handler;
 }
 
-fn print_registers(frame: *InterruptFrame) void {
+fn printRegisters(frame: *InterruptFrame) void {
     const cr2 = asm volatile ("mov %%cr2, %[result]"
         : [result] "=r" (-> u64),
     );
@@ -88,7 +88,7 @@ fn print_registers(frame: *InterruptFrame) void {
     logger.err("  RIP={X:0>16} CR2={X:0>16} CR3={X:0>16}", .{ frame.rip, cr2, cr3 });
 }
 
-fn exception_handler(frame: *InterruptFrame) void {
+fn exceptionHandler(frame: *InterruptFrame) void {
     if (frame.vector == 0x6) {
         const code = @intToPtr([*]const u8, frame.rip);
 
@@ -103,26 +103,26 @@ fn exception_handler(frame: *InterruptFrame) void {
 
     debug.printStackIterator(std.debug.StackIterator.init(frame.rip, frame.rbp));
 
-    print_registers(frame);
+    printRegisters(frame);
 
     while (true) {
         arch.halt();
     }
 }
 
-fn unhandled_interrupt_handler(frame: *InterruptFrame) void {
+fn unhandledInterruptHandler(frame: *InterruptFrame) void {
     logger.err("An unhandled interrupt #{} occurred", .{frame.vector});
 
     debug.printStackIterator(std.debug.StackIterator.init(frame.rip, frame.rbp));
 
-    print_registers(frame);
+    printRegisters(frame);
 
     while (true) {
         arch.halt();
     }
 }
 
-fn make_handler(comptime vector: usize) InterruptStub {
+fn makeHandler(comptime vector: usize) InterruptStub {
     return struct {
         fn handler() callconv(.Naked) void {
             // https://wiki.osdev.org/Exceptions
@@ -138,7 +138,7 @@ fn make_handler(comptime vector: usize) InterruptStub {
             if (comptime (has_error_code)) {
                 asm volatile (
                     \\pushq %[vector]
-                    \\jmp interrupt_common_handler
+                    \\jmp interruptCommonHandler
                     :
                     : [vector] "rm" (vector),
                 );
@@ -146,7 +146,7 @@ fn make_handler(comptime vector: usize) InterruptStub {
                 asm volatile (
                     \\pushq $0
                     \\pushq %[vector]
-                    \\jmp interrupt_common_handler
+                    \\jmp interruptCommonHandler
                     :
                     : [vector] "rm" (vector),
                 );
@@ -155,19 +155,19 @@ fn make_handler(comptime vector: usize) InterruptStub {
     }.handler;
 }
 
-export fn interrupt_handler(frame: *InterruptFrame) callconv(.C) void {
+export fn interruptHandler(frame: *InterruptFrame) callconv(.C) void {
     const handler = handlers[frame.vector & 0xFF];
 
     handler(frame);
 }
 
-export fn swap_gs_if_needed(frame: *InterruptFrame) callconv(.C) void {
+export fn swapGsIfNeeded(frame: *InterruptFrame) callconv(.C) void {
     if (frame.cs != 0x28) {
         asm volatile ("swapgs");
     }
 }
 
-export fn interrupt_common_handler() callconv(.Naked) void {
+export fn interruptCommonHandler() callconv(.Naked) void {
     asm volatile (
         \\push %%rax
         \\push %%rbx
@@ -191,11 +191,11 @@ export fn interrupt_common_handler() callconv(.Naked) void {
         \\push %%rax
         \\
         \\mov %%rsp, %%rdi
-        \\call swap_gs_if_needed
+        \\call swapGsIfNeeded
         \\mov %%rsp, %%rdi
-        \\call interrupt_handler
+        \\call interruptHandler
         \\mov %%rsp, %%rdi
-        \\call swap_gs_if_needed
+        \\call swapGsIfNeeded
         \\
         \\pop %%rax
         \\mov %%ax, %%es

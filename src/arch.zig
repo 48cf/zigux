@@ -16,10 +16,6 @@ pub inline fn halt() void {
     asm volatile ("hlt");
 }
 
-pub inline fn spin_hint() void {
-    asm volatile ("pause");
-}
-
 pub inline fn out(comptime T: type, port: u16, value: T) void {
     switch (T) {
         u8 => asm volatile ("outb %[val], %[port]"
@@ -114,7 +110,7 @@ pub const Idt = struct {
             .base = @ptrToInt(self),
         };
 
-        for (interrupts.make_handlers()) |handler, i| {
+        for (interrupts.makeHandlers()) |handler, i| {
             self.entries[i] = IdtEntry.init(@ptrToInt(handler), 0, 0x8e);
         }
 

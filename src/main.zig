@@ -25,11 +25,11 @@ const PageAllocator = struct {
         _ = len_align;
         _ = ret_addr;
 
-        const pages = utils.align_up(usize, len, std.mem.page_size) / std.mem.page_size;
+        const pages = utils.alignUp(usize, len, std.mem.page_size) / std.mem.page_size;
         const self = @ptrCast(*PageAllocator, @alignCast(8, ptr));
         const base = self.bump;
 
-        if (phys.free_pages() < pages) {
+        if (phys.freePages() < pages) {
             return error.OutOfMemory;
         }
 
@@ -67,7 +67,7 @@ const PageAllocator = struct {
         _ = buf_align;
         _ = ret_addr;
 
-        const pages = utils.align_up(usize, buf.len, std.mem.page_size) / std.mem.page_size;
+        const pages = utils.alignUp(usize, buf.len, std.mem.page_size) / std.mem.page_size;
         const base = @ptrToInt(buf.ptr);
 
         heap_logger.debug("Attempt to free {} pages at 0x{X:0>16} (size={})", .{ pages, base, buf.len });
@@ -103,7 +103,7 @@ pub export var kernel_file_req: limine.KernelFile.Request = .{ .revision = 0 };
 pub export var rsdp_req: limine.Rsdp.Request = .{ .revision = 0 };
 pub export var kernel_addr_req: limine.KernelAddress.Request = .{ .revision = 0 };
 
-export fn platform_main() noreturn {
+export fn platformMain() noreturn {
     main() catch |err| {
         logger.err("Failed to initialize: {e}", .{err});
 
@@ -132,7 +132,7 @@ fn main() !void {
     try scheduler.init();
 
     apic.init();
-    apic.init_timer();
+    apic.initTimer();
 
     asm volatile ("sti");
 }

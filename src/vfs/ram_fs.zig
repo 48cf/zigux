@@ -89,7 +89,6 @@ const RamFS = struct {
     root: RamFSDirectory,
 
     fn createFile(fs: *vfs.FileSystem) error{OutOfMemory}!*vfs.VNode {
-        // const ramfs = @fieldParentPtr(RamFS, "filesystem", fs);
         const node = try root.allocator.create(RamFSFile);
 
         node.* = .{
@@ -103,7 +102,6 @@ const RamFS = struct {
     }
 
     fn createDir(fs: *vfs.FileSystem) error{OutOfMemory}!*vfs.VNode {
-        // const ramfs = @fieldParentPtr(RamFS, "filesystem", fs);
         const node = try root.allocator.create(RamFSDirectory);
 
         node.* = .{

@@ -28,9 +28,9 @@ const Bitmap = struct {
 var bitmap: Bitmap = undefined;
 var hhdm: u64 = undefined;
 
-pub var total_pages: usize = undefined;
-pub var used_pages: usize = undefined;
-pub var last_allocation: usize = undefined;
+var total_pages: usize = undefined;
+var used_pages: usize = undefined;
+var last_allocation: usize = undefined;
 
 pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.Response) !void {
     hhdm = hhdm_res.offset;
@@ -50,7 +50,7 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.R
         }
     }
 
-    const bitmap_size = utils.align_up(u64, highest_phys_addr, std.mem.page_size) / std.mem.page_size / 8 + 1;
+    const bitmap_size = utils.alignUp(u64, highest_phys_addr, std.mem.page_size) / std.mem.page_size / 8 + 1;
 
     logger.debug("Highest available address: 0x{X:0>16}", .{highest_phys_addr});
     logger.debug("Required bitmap size: {}KiB", .{bitmap_size / 1024});
@@ -81,8 +81,8 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.R
 
     for (entries) |entry| {
         if (entry.kind == .Usable) {
-            const base = utils.align_down(u64, entry.base, std.mem.page_size) / std.mem.page_size;
-            const length = utils.align_up(u64, entry.length, std.mem.page_size) / std.mem.page_size;
+            const base = utils.alignDown(u64, entry.base, std.mem.page_size) / std.mem.page_size;
+            const length = utils.alignUp(u64, entry.length, std.mem.page_size) / std.mem.page_size;
 
             var i: usize = 0;
 
@@ -94,8 +94,8 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.R
         }
     }
 
-    const bitmap_base = utils.align_down(u64, bitmap_region.?.base, std.mem.page_size) / std.mem.page_size;
-    const bitmap_length = utils.align_up(u64, bitmap_size, std.mem.page_size) / std.mem.page_size;
+    const bitmap_base = utils.alignDown(u64, bitmap_region.?.base, std.mem.page_size) / std.mem.page_size;
+    const bitmap_length = utils.alignUp(u64, bitmap_size, std.mem.page_size) / std.mem.page_size;
 
     var i: usize = 0;
 
@@ -143,8 +143,16 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
 // TODO: Implement free lmao
 // pub fn free() {}
 
-pub fn free_pages() usize {
+pub fn freePages() usize {
     return total_pages - used_pages;
+}
+
+pub fn totalPages() usize {
+    return total_pages;
+}
+
+pub fn usedPages() usize {
+    return used_pages;
 }
 
 fn allocate_inner(start: usize, pages: usize) ?u64 {

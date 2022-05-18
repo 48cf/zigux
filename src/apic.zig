@@ -21,30 +21,31 @@ const ApicRegister = enum(usize) {
 var timer_vector: ?u8 = null;
 var one_shot_vector: ?u8 = null;
 
-fn timer_handler(frame: *interrupts.InterruptFrame) void {
+fn timerHandler(frame: *interrupts.InterruptFrame) void {
     scheduler.reschedule(frame);
 
     eoi();
 }
 
-fn one_shot_handler(frame: *interrupts.InterruptFrame) void {
+// TODO: Implement one shot timers for scheduling
+fn oneShotHandler(frame: *interrupts.InterruptFrame) void {
     _ = frame;
 
     eoi();
 }
 
 pub fn init() void {
-    write_reg(.SpuriousVector, @as(u32, interrupts.spurious_vector) | 0x100);
+    writeRegister(.SpuriousVector, @as(u32, interrupts.spurious_vector) | 0x100);
 }
 
-pub fn init_timer() void {
+pub fn initTimer() void {
     if (timer_vector == null) {
-        timer_vector = interrupts.allocate_vector();
-        one_shot_vector = interrupts.allocate_vector();
+        timer_vector = interrupts.allocateVector();
+        one_shot_vector = interrupts.allocateVector();
     }
 
-    interrupts.register_handler(timer_vector.?, timer_handler);
-    interrupts.register_handler(one_shot_vector.?, one_shot_handler);
+    interrupts.registerHandler(timer_vector.?, timerHandler);
+    interrupts.registerHandler(one_shot_vector.?, oneShotHandler);
 
     // ░░░░░▄▄▄▄▀▀▀▀▀▀▀▀▄▄▄▄▄▄░░░░░░░░
     // ░░░░░█░░░░▒▒▒▒▒▒▒▒▒▒▒▒░░▀▀▄░░░░
@@ -63,23 +64,23 @@ pub fn init_timer() void {
     // ░░░░░░░░░░░░░░▀▄▄▄▄▄░░░░░░░░█░░
     // ░░░░░░░░░░░░░░░░░░░░▀▀▀▀▀▀▀▀░░░
 
-    write_reg(.LvtDivide, 3);
-    write_reg(.LvtTimer, @as(u32, timer_vector.?) | 0x20000);
-    write_reg(.LvtInitialCount, 0x200000);
+    writeRegister(.LvtDivide, 3);
+    writeRegister(.LvtTimer, @as(u32, timer_vector.?) | 0x20000);
+    writeRegister(.LvtInitialCount, 0x200000);
 }
 
 pub fn eoi() void {
-    write_reg(.Eoi, 0);
+    writeRegister(.Eoi, 0);
 }
 
-fn read_reg(reg: ApicRegister) u32 {
+fn readRegister(reg: ApicRegister) u32 {
     const address = per_cpu.get().lapic_base + @enumToInt(reg);
     const pointer = @intToPtr(*volatile u32, address);
 
     return pointer.*;
 }
 
-fn write_reg(reg: ApicRegister, value: u32) void {
+fn writeRegister(reg: ApicRegister, value: u32) void {
     const address = per_cpu.get().lapic_base + @enumToInt(reg);
     const pointer = @intToPtr(*volatile u32, address);
 

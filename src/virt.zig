@@ -18,7 +18,7 @@ pub const Flags = struct {
     pub const NoExecute = 1 << 63;
 };
 
-fn get_page_table(page_table: *PageTable, index: usize, allocate: bool) ?*PageTable {
+fn getPageTable(page_table: *PageTable, index: usize, allocate: bool) ?*PageTable {
     var entry = &page_table.entries[index];
 
     if (entry.getFlags() & Flags.Present != 0) {
@@ -35,7 +35,7 @@ fn get_page_table(page_table: *PageTable, index: usize, allocate: bool) ?*PageTa
     return null;
 }
 
-fn virt_to_indices(virt: u64) struct { pml4: usize, pml3: usize, pml2: usize, pml1: usize } {
+fn virtToIndices(virt: u64) struct { pml4: usize, pml3: usize, pml2: usize, pml1: usize } {
     const pml4 = @as(usize, virt >> 39) & 0x1FF;
     const pml3 = @as(usize, virt >> 30) & 0x1FF;
     const pml2 = @as(usize, virt >> 21) & 0x1FF;
@@ -73,10 +73,10 @@ const PageTable = packed struct {
     entries: [512]PageTableEntry,
 
     pub fn translate(self: *PageTable, virt_addr: u64) ?u64 {
-        const indices = virt_to_indices(virt_addr);
-        const pml3 = get_page_table(self, indices.pml4, false) orelse return error.OutOfMemory;
-        const pml2 = get_page_table(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml1 = get_page_table(pml2, indices.pml2, false) orelse return error.OutOfMemory;
+        const indices = virtToIndices(virt_addr);
+        const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
+        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
+        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return error.OutOfMemory;
         const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
@@ -87,10 +87,10 @@ const PageTable = packed struct {
     }
 
     pub fn mapPage(self: *PageTable, virt_addr: u64, phys_addr: u64, flags: u64) !void {
-        const indices = virt_to_indices(virt_addr);
-        const pml3 = get_page_table(self, indices.pml4, true) orelse return error.OutOfMemory;
-        const pml2 = get_page_table(pml3, indices.pml3, true) orelse return error.OutOfMemory;
-        const pml1 = get_page_table(pml2, indices.pml2, true) orelse return error.OutOfMemory;
+        const indices = virtToIndices(virt_addr);
+        const pml3 = getPageTable(self, indices.pml4, true) orelse return error.OutOfMemory;
+        const pml2 = getPageTable(pml3, indices.pml3, true) orelse return error.OutOfMemory;
+        const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
         const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
@@ -102,10 +102,10 @@ const PageTable = packed struct {
     }
 
     pub fn remapPage(self: *PageTable, virt_addr: u64, phys_addr: u64, flags: u64) !void {
-        const indices = virt_to_indices(virt_addr);
-        const pml3 = get_page_table(self, indices.pml4, false) orelse return error.OutOfMemory;
-        const pml2 = get_page_table(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml1 = get_page_table(pml2, indices.pml2, false) orelse return error.OutOfMemory;
+        const indices = virtToIndices(virt_addr);
+        const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
+        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
+        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return error.OutOfMemory;
         const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
@@ -122,10 +122,10 @@ const PageTable = packed struct {
     }
 
     pub fn unmapPage(self: *PageTable, virt_addr: u64) !void {
-        const indices = virt_to_indices(virt_addr);
-        const pml3 = get_page_table(self, indices.pml4, false) orelse return error.OutOfMemory;
-        const pml2 = get_page_table(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml1 = get_page_table(pml2, indices.pml2, false) orelse return error.OutOfMemory;
+        const indices = virtToIndices(virt_addr);
+        const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
+        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
+        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return error.OutOfMemory;
         const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
@@ -187,7 +187,7 @@ fn map_section(
 
     const virt_base = @ptrToInt(begin);
     const phys_base = virt_base - kernel_addr_res.virtual_base + kernel_addr_res.physical_base;
-    const size = utils.align_up(usize, @ptrToInt(end) - @ptrToInt(begin), std.mem.page_size);
+    const size = utils.alignUp(usize, @ptrToInt(end) - @ptrToInt(begin), std.mem.page_size);
 
     try page_table.map(virt_base, phys_base, size, flags);
 }
@@ -206,7 +206,7 @@ pub fn init(hhdm_res: *limine.Hhdm.Response, kernel_addr_res: *limine.KernelAddr
     var i: usize = 256;
 
     while (i < 512) : (i += 1) {
-        _ = get_page_table(kernel_page_table, i, true);
+        _ = getPageTable(kernel_page_table, i, true);
     }
 
     try kernel_page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(4) - std.mem.page_size, Flags.Present | Flags.Writable);

@@ -1,4 +1,4 @@
-ENTRY(platform_main)
+ENTRY(platformMain)
 
 PHDRS {
     null    PT_NULL FLAGS(0) ;              /* Null segment */
