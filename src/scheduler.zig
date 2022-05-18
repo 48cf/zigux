@@ -79,6 +79,69 @@ pub const Thread = struct {
     }
 };
 
+pub const Semaphore = struct {
+    const Waiter = struct {
+        count: usize = undefined,
+        thread: *Thread = undefined,
+        node: std.TailQueue(void).Node = undefined,
+    };
+
+    queue: std.TailQueue(void) = .{},
+    lock: IrqSpinlock = .{},
+    available: usize,
+
+    pub fn init(count: usize) Semaphore {
+        return .{ .available = count };
+    }
+
+    pub fn acquire(self: *Semaphore, count: usize) void {
+        const ints_enabled = self.lock.lock();
+        const thread = per_cpu.get().thread.?;
+
+        if (self.available >= count) {
+            self.available -= count;
+            self.lock.unlock();
+
+            if (ints_enabled) {
+                asm volatile ("sti");
+            }
+        } else {
+            var waiter = Waiter{
+                .count = count,
+                .thread = thread,
+            };
+
+            self.queue.append(&waiter.node);
+
+            ungrabAndReschedule(&self.lock);
+
+            if (ints_enabled) {
+                asm volatile ("sti");
+            }
+        }
+    }
+
+    pub fn release(self: *Semaphore, count: usize) void {
+        _ = self.lock.lock();
+
+        self.available += count;
+
+        if (self.queue.first) |node| {
+            const waiter = @fieldParentPtr(Waiter, "node", node);
+            const resources_needed = waiter.count;
+
+            if (self.available >= resources_needed) {
+                self.available -= resources_needed;
+                self.queue.remove(node);
+
+                enqueue(waiter.thread);
+            }
+        }
+
+        self.lock.unlock();
+    }
+};
+
 var scheduler_queue: std.TailQueue(void) = .{};
 var scheduler_lock: IrqSpinlock = .{};
 
@@ -97,6 +160,7 @@ var kernel_process: process.Process = .{
 
 pub fn init() !void {
     interrupts.registerHandler(interrupts.syscall_vector, process.syscallHandler);
+    interrupts.registerHandler(interrupts.sched_call_vector, schedCallHandler);
 
     const root_dir = try vfs.resolve(null, "/", 0);
     const tty = try vfs.resolve(null, "/dev/tty", 0);
@@ -187,8 +251,25 @@ pub fn spawnProcess(parent: ?*process.Process) !*process.Process {
     return new_process;
 }
 
+pub fn startKernelThread(entry: fn () noreturn) !*Thread {
+    const thread = try spawnThread(&kernel_process);
+    const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+
+    thread.regs.rip = @ptrToInt(entry);
+    thread.regs.rsp = virt.hhdm + stack + std.mem.page_size;
+    thread.regs.rflags = 0x202;
+    thread.regs.cs = 0x28;
+    thread.regs.ss = 0x30;
+    thread.regs.ds = 0x30;
+    thread.regs.es = 0x30;
+
+    enqueue(thread);
+
+    return thread;
+}
+
 pub fn enqueue(thread: *Thread) void {
-    scheduler_lock.lock();
+    _ = scheduler_lock.lock();
 
     defer scheduler_lock.unlock();
 
@@ -202,7 +283,7 @@ pub fn dequeue() *Thread {
 }
 
 pub fn dequeueOrNull() ?*Thread {
-    scheduler_lock.lock();
+    _ = scheduler_lock.lock();
 
     defer scheduler_lock.unlock();
 
@@ -227,6 +308,39 @@ pub fn reschedule(frame: *interrupts.InterruptFrame) void {
     } else if (cpu_info.thread == null) {
         idle_thread.switchTo(frame);
     }
+}
+
+pub fn ungrabAndReschedule(lock: *IrqSpinlock) void {
+    const callback = struct {
+        fn func(frame: *interrupts.InterruptFrame, arg: usize) void {
+            const spinlock = @intToPtr(*IrqSpinlock, arg);
+            const cpu_info = per_cpu.get();
+            const thread = cpu_info.thread.?;
+
+            thread.regs = frame.*;
+            spinlock.ungrab();
+            cpu_info.thread = null;
+
+            reschedule(frame);
+        }
+    }.func;
+
+    schedCall(callback, @ptrToInt(lock));
+}
+
+pub fn schedCall(func: fn (*interrupts.InterruptFrame, usize) void, arg: usize) void {
+    asm volatile ("int %[vec]"
+        :
+        : [vec] "i" (interrupts.sched_call_vector),
+          [_] "{rax}" (@ptrToInt(func)),
+          [_] "{rcx}" (arg),
+    );
+}
+
+fn schedCallHandler(frame: *interrupts.InterruptFrame) void {
+    const func = @intToPtr(fn (*interrupts.InterruptFrame, usize) void, frame.rax);
+
+    func(frame, frame.rcx);
 }
 
 fn idleThread() noreturn {

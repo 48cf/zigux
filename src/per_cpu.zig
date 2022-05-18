@@ -26,14 +26,17 @@ pub const PerCpu = struct {
 
 pub fn init() !void {
     const instance = try root.allocator.create(PerCpu);
-    const intr_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
 
     instance.* = .{
         .self = instance,
         .lapic_base = virt.hhdm + arch.Msr.apic.read() & ~@as(u64, 0xFFF),
     };
 
+    const intr_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const ist_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+
     instance.tss.rsp[0] = virt.hhdm + intr_stack + std.mem.page_size;
+    instance.tss.ist[0] = virt.hhdm + ist_stack + std.mem.page_size;
 
     instance.gdt.load(&instance.tss);
     instance.idt.load();

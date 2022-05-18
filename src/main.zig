@@ -3,7 +3,9 @@ const logger = std.log.scoped(.main);
 const std = @import("std");
 
 const apic = @import("apic.zig");
+const acpi = @import("acpi.zig");
 const arch = @import("arch.zig");
+const interrupts = @import("interrupts.zig");
 const debug = @import("debug.zig");
 const limine = @import("limine.zig");
 const per_cpu = @import("per_cpu.zig");
@@ -12,6 +14,7 @@ const utils = @import("utils.zig");
 const scheduler = @import("scheduler.zig");
 const virt = @import("virt.zig");
 const vfs = @import("vfs.zig");
+const ps2 = @import("drivers/ps2.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
@@ -122,6 +125,7 @@ fn main() !void {
     const hhdm_res = hhdm_req.response.?;
     const memory_map_res = memory_map_req.response.?;
     const kernel_addr_res = kernel_addr_req.response.?;
+    const rsdp_res = rsdp_req.response.?;
 
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
@@ -129,10 +133,13 @@ fn main() !void {
     try virt.init(hhdm_res, kernel_addr_res);
     try per_cpu.init();
     try vfs.init();
+    try acpi.init(rsdp_res);
     try scheduler.init();
 
     apic.init();
     apic.initTimer();
+
+    ps2.init();
 
     asm volatile ("sti");
 }
@@ -169,7 +176,7 @@ pub fn log(
     comptime fmt: []const u8,
     args: anytype,
 ) void {
-    print_lock.lock();
+    _ = print_lock.lock();
 
     defer print_lock.unlock();
 

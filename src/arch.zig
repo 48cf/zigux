@@ -111,7 +111,10 @@ pub const Idt = struct {
         };
 
         for (interrupts.makeHandlers()) |handler, i| {
-            self.entries[i] = IdtEntry.init(@ptrToInt(handler), 0, 0x8e);
+            const ist: u8 = if (i == interrupts.sched_call_vector) 1 else 0;
+            const flags: u8 = if (i == interrupts.syscall_vector) 0xee else 0x8e;
+
+            self.entries[i] = IdtEntry.init(@ptrToInt(handler), ist, flags);
         }
 
         asm volatile ("lidt (%[idtr])"

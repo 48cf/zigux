@@ -9,7 +9,8 @@ const per_cpu = @import("per_cpu.zig");
 var next_vector: usize = 32;
 var handlers = [1]InterruptHandler{exceptionHandler} ** 32 ++ [1]InterruptHandler{unhandledInterruptHandler} ** 224;
 
-pub const syscall_vector: u8 = 0x80;
+pub const syscall_vector: u8 = 0xFD;
+pub const sched_call_vector: u8 = 0xFE;
 pub const spurious_vector: u8 = 0xFF;
 
 pub const InterruptStub = fn () callconv(.Naked) void;
@@ -57,11 +58,7 @@ pub fn makeHandlers() [256]fn () callconv(.Naked) void {
 pub fn allocateVector() u8 {
     var result = @atomicRmw(usize, &next_vector, .Add, 1, .AcqRel);
 
-    if (result == syscall_vector) {
-        result = @atomicRmw(usize, &next_vector, .Add, 1, .AcqRel);
-    }
-
-    if (result >= 250) {
+    if (result >= 256 - 16) {
         @panic("No more interrupt vectors left to allocate");
     }
 

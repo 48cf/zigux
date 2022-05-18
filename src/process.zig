@@ -141,16 +141,6 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             logger.debug("Exiting process {} with code {}", .{ process.pid, process.exit_code });
 
-            if (process.files.get(3)) |s3| {
-                const new_process = scheduler.spawnProcess(process) catch unreachable;
-                const thread = scheduler.spawnThread(new_process) catch unreachable;
-
-                new_process.files.insertAt(0, process.files.get(0).?.vnode) catch unreachable;
-                thread.exec(s3.vnode) catch unreachable;
-
-                scheduler.enqueue(thread);
-            }
-
             scheduler.reschedule(frame);
 
             return null;
