@@ -155,6 +155,12 @@ pub fn mainThread() noreturn {
 
     scheduler.enqueue(thread);
 
+    while (true) {
+        var buffer = [1]u8{0};
+
+        _ = std.os.linux.read(0, &buffer, buffer.len);
+    }
+
     std.os.linux.exit(0);
 }
 
