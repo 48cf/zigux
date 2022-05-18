@@ -98,8 +98,8 @@ var kernel_process: process.Process = .{
 pub fn init() !void {
     interrupts.registerHandler(interrupts.syscall_vector, process.syscallHandler);
 
-    const root_dir = try vfs.resolve(null, "/");
-    const tty = try vfs.resolve(root_dir, "dev/tty");
+    const root_dir = try vfs.resolve(null, "/", 0);
+    const tty = try vfs.resolve(null, "/dev/tty", 0);
 
     try kernel_process.files.insertAt(0, tty);
     try kernel_process.files.insertAt(1, tty);
@@ -159,19 +159,26 @@ pub fn spawnThread(parent: *process.Process) !*Thread {
     return thread;
 }
 
-pub fn spawnProcess(parent: ?u64) !*process.Process {
+pub fn spawnProcess(parent: ?*process.Process) !*process.Process {
     var new_process = try root.allocator.create(process.Process);
 
     errdefer root.allocator.destroy(new_process);
 
     new_process.* = .{
         .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel),
-        .parent = parent orelse 0,
+        .parent = 0,
         .address_space = try virt.createAddressSpace(),
         .exit_code = null,
     };
 
-    const tty = try vfs.resolve(null, "/dev/tty");
+    if (parent) |parent_proc| {
+        new_process.parent = parent_proc.pid;
+        new_process.cwd = parent_proc.cwd;
+    } else {
+        new_process.cwd = try vfs.resolve(null, "/", 0);
+    }
+
+    const tty = try vfs.resolve(null, "/dev/tty", 0);
 
     try new_process.files.insertAt(0, tty);
     try new_process.files.insertAt(1, tty);

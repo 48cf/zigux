@@ -5,6 +5,7 @@ const arch = @import("arch.zig");
 const phys = @import("phys.zig");
 const virt = @import("virt.zig");
 const scheduler = @import("scheduler.zig");
+const process = @import("process.zig");
 
 pub const PerCpu = struct {
     self: *PerCpu,
@@ -13,6 +14,14 @@ pub const PerCpu = struct {
     idt: arch.Idt = .{},
     lapic_base: u64,
     thread: ?*scheduler.Thread = null,
+
+    pub fn currentProcess(self: *PerCpu) ?*process.Process {
+        if (self.thread) |thread| {
+            return thread.parent;
+        } else {
+            return null;
+        }
+    }
 };
 
 pub fn init() !void {

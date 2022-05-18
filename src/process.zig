@@ -40,6 +40,14 @@ const FileTable = struct {
     }
 };
 
+fn sliceToMany(comptime T: type) type {
+    comptime var typ = @typeInfo(T);
+
+    typ.Pointer.size = .Many;
+
+    return @Type(typ);
+}
+
 pub const Process = struct {
     pid: u64,
     parent: u64,
@@ -49,15 +57,30 @@ pub const Process = struct {
     files: FileTable = .{},
     address_space: virt.AddressSpace,
     exit_code: ?u8,
+
+    fn validateString(self: *Process, comptime T: type, ptr: u64) !T {
+        _ = self;
+
+        return std.mem.span(@intToPtr(sliceToMany(T), ptr));
+    }
+
+    fn validateBuffer(self: *Process, comptime T: type, ptr: u64, len: u64) !T {
+        _ = self;
+
+        return @intToPtr(sliceToMany(T), ptr)[0..len];
+    }
 };
 
 pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
     frame.rax = syscallHandlerImpl(frame) catch |err| {
         const linux_error = @as(std.os.linux.E, switch (err) {
             error.NotImplemented => .NOSYS,
-            // error.InvalidArgument => .INVAL,
-            // error.BadFileDescriptor => .BADF,
-            // error.OutOfMemory => .NOMEM,
+            error.NotFound => .NOENT,
+            error.InvalidArgument => .INVAL,
+            error.IsDirectory => .ISDIR,
+            error.NotADirectory => .NOTDIR,
+            error.OutOfMemory => .NOMEM,
+            error.BadFileDescriptor => .BADF,
         });
 
         frame.rax = @bitCast(u64, @as(i64, -@bitCast(i16, @enumToInt(linux_error))));
@@ -69,17 +92,63 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
 fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     const cpu_info = per_cpu.get();
     const syscall_num = @intToEnum(std.os.linux.SYS, frame.rax);
+    const process = cpu_info.currentProcess().?;
 
     return switch (syscall_num) {
-        .exit => {
-            if (cpu_info.thread) |thread| {
-                thread.parent.exit_code = @truncate(u8, frame.rdi);
-                cpu_info.thread = null;
+        .open => {
+            const path = try process.validateString([:0]const u8, frame.rdi);
+            const vnode = if (std.fs.path.isAbsolute(path))
+                try vfs.resolve(null, path, frame.rsi)
+            else
+                try vfs.resolve(process.cwd, path, frame.rsi);
 
-                logger.debug(
-                    "Exiting process {} with code {}",
-                    .{ thread.parent.pid, thread.parent.exit_code },
-                );
+            return try process.files.insert(vnode);
+        },
+        .read => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
+            const bytes_read = try file.vnode.read(buffer, file.offset);
+
+            file.offset += bytes_read;
+
+            return bytes_read;
+        },
+        .write => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
+            const bytes_written = try file.vnode.write(buffer, file.offset);
+
+            file.offset += bytes_written;
+
+            return bytes_written;
+        },
+        .lseek => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+
+            switch (frame.rdx) {
+                std.os.linux.SEEK.SET => file.offset = frame.rsi,
+                std.os.linux.SEEK.CUR => file.offset +%= frame.rsi,
+                std.os.linux.SEEK.END => unreachable,
+                else => return error.InvalidArgument,
+            }
+
+            return file.offset;
+        },
+        .exit => {
+            cpu_info.thread = null;
+
+            process.exit_code = @truncate(u8, frame.rdi);
+
+            logger.debug("Exiting process {} with code {}", .{ process.pid, process.exit_code });
+
+            if (process.files.get(3)) |s3| {
+                const new_process = scheduler.spawnProcess(process) catch unreachable;
+                const thread = scheduler.spawnThread(new_process) catch unreachable;
+
+                new_process.files.insertAt(0, process.files.get(0).?.vnode) catch unreachable;
+                thread.exec(s3.vnode) catch unreachable;
+
+                scheduler.enqueue(thread);
             }
 
             scheduler.reschedule(frame);

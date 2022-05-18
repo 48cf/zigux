@@ -51,9 +51,11 @@ const RamFSFile = struct {
 
         if (buffer.len + offset > self.data.items.len) {
             try self.data.resize(root.allocator, buffer.len + offset);
+
+            // TODO: Zero out the newly allocated content
         }
 
-        std.mem.copy(u8, self.data.items, buffer);
+        std.mem.copy(u8, self.data.items[offset..], buffer);
 
         return buffer.len;
     }

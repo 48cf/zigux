@@ -44,6 +44,10 @@ pub const VNode = struct {
         return self.mounted_vnode orelse self;
     }
 
+    fn getEffectiveFs(self: *VNode) *FileSystem {
+        return self.getEffectiveVNode().filesystem;
+    }
+
     pub fn open(self: *VNode, name: []const u8, flags: usize) !*VNode {
         const vnode = self.getEffectiveVNode();
 
@@ -76,6 +80,7 @@ pub const VNode = struct {
 
     pub fn insert(self: *VNode, child: *VNode) !void {
         std.debug.assert(child.name != null);
+        std.debug.assert(child.kind == .File or child.kind == .Directory);
 
         const vnode = self.getEffectiveVNode();
 
@@ -129,11 +134,7 @@ pub const VNodeStream = struct {
     }
 
     fn seekBy(self: *VNodeStream, offset: i64) SeekError!void {
-        if (offset < 0) {
-            self.offset -= @intCast(u64, -offset);
-        } else {
-            self.offset += @intCast(u64, offset);
-        }
+        self.offset +%= @bitCast(u64, offset);
     }
 
     fn getPosFn(self: *VNodeStream) GetSeekPosError!u64 {
@@ -178,7 +179,7 @@ pub const FileSystem = struct {
 
             return node;
         } else {
-            return error.NotSupported;
+            return error.NotImplemented;
         }
     }
 
@@ -191,7 +192,7 @@ pub const FileSystem = struct {
 
             return node;
         } else {
-            return error.NotSupported;
+            return error.NotImplemented;
         }
     }
 };
@@ -228,11 +229,11 @@ pub fn init() !void {
     try root_dir.insert(shr_file);
 }
 
-pub fn resolve(cwd: ?*VNode, path: []const u8) !*VNode {
+pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
     if (cwd == null) {
         std.debug.assert(std.fs.path.isAbsolute(path));
 
-        return resolve(root_vnode.?, path[1..]);
+        return resolve(root_vnode.?, path[1..], flags);
     }
 
     std.debug.assert(!std.fs.path.isAbsolute(path));
@@ -247,7 +248,32 @@ pub fn resolve(cwd: ?*VNode, path: []const u8) !*VNode {
             } else if (std.mem.eql(u8, component, "..")) {
                 next = next.parent orelse next;
             } else {
-                next = try next.open(component, 0);
+                next = next.open(component, 0) catch |err| blk: {
+                    switch (err) {
+                        error.NotFound => {
+                            const fs = next.getEffectiveFs();
+
+                            if (flags & std.os.linux.O.CREAT != 0) {
+                                if (iter.rest().len > 0) {
+                                    const node = try fs.createDir(component);
+
+                                    try next.insert(node);
+
+                                    break :blk node;
+                                } else {
+                                    const node = try fs.createFile(component);
+
+                                    try next.insert(node);
+
+                                    break :blk node;
+                                }
+                            } else {
+                                return error.NotFound;
+                            }
+                        },
+                        else => return err,
+                    }
+                };
             }
         }
     }
