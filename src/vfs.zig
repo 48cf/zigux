@@ -198,8 +198,8 @@ pub const FileSystem = struct {
 
 var root_vnode: ?*VNode = null;
 
-const assemblerElf = @embedFile("../s3").*;
-const assemblerSource = @embedFile("../shr.shr").*;
+const assemblerElf = @embedFile("../misc/s3").*;
+const assemblerSource = @embedFile("../misc/shr.shr").*;
 
 pub fn init() !void {
     const root_node = try ram_fs.init("/", null);
