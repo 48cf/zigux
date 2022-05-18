@@ -1,3 +1,7 @@
+const logger = std.log.scoped(.utils);
+
+const std = @import("std");
+
 pub fn kib(comptime value: comptime_int) comptime_int {
     return value * 1024;
 }
@@ -24,4 +28,12 @@ pub fn align_up(comptime T: type, value: T, comptime alignment: T) T {
 
 pub fn is_aligned(comptime T: type, value: T, comptime alignment: T) bool {
     return align_down(T, value, alignment) == value;
+}
+
+pub fn vital(value: anytype, comptime message: []const u8) @TypeOf(value catch unreachable) {
+    return value catch |err| {
+        logger.err("A vital check failed: {s}", .{@errorName(err)});
+
+        std.debug.panicExtra(@errorReturnTrace(), message, .{});
+    };
 }

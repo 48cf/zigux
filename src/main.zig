@@ -9,9 +9,11 @@ const limine = @import("limine.zig");
 const per_cpu = @import("per_cpu.zig");
 const phys = @import("phys.zig");
 const utils = @import("utils.zig");
-const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 const scheduler = @import("scheduler.zig");
 const virt = @import("virt.zig");
+const vfs = @import("vfs.zig");
+
+const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const PageAllocator = struct {
     bump: u64 = 0xFFFF900000000000,
@@ -104,6 +106,10 @@ pub export var kernel_addr_req: limine.KernelAddress.Request = .{ .revision = 0 
 export fn platform_main() noreturn {
     main() catch |err| {
         logger.err("Failed to initialize: {e}", .{err});
+
+        if (@errorReturnTrace()) |stack_trace| {
+            debug.printStackTrace(stack_trace);
+        }
     };
 
     while (true) {
@@ -119,21 +125,10 @@ fn main() !void {
 
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
-    // var cr4 = asm volatile ("mov %%cr4, %[cr4]"
-    //     : [cr4] "=r" (-> u64),
-    // );
-
-    // cr4 |= 1 << 20;
-    // cr4 |= 1 << 21;
-
-    // asm volatile ("mov %[cr4], %%cr4"
-    //     :
-    //     : [cr4] "r" (cr4),
-    // );
-
     try phys.init(memory_map_res, hhdm_res);
     try virt.init(hhdm_res, kernel_addr_res);
     try per_cpu.init();
+    try vfs.init();
     try scheduler.init();
 
     apic.init();
@@ -142,14 +137,13 @@ fn main() !void {
     asm volatile ("sti");
 }
 
-const assemblerElf align(8) = @embedFile("../s3").*;
-
 pub fn mainThread() noreturn {
-    const assemblerProcess = scheduler.spawnProcess(null) catch unreachable;
-    const assemblerThread = scheduler.spawnThread(assemblerProcess) catch unreachable;
+    const s3_node = utils.vital(vfs.resolve(null, "/bin/s3"), "Failed to find the executable");
+    const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
+    const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
 
-    assemblerThread.exec(&assemblerElf) catch unreachable;
-    scheduler.enqueue(assemblerThread);
+    utils.vital(thread.exec(s3_node), "Failed to execute the executable");
+    scheduler.enqueue(thread);
 
     std.os.linux.exit(0);
 }
@@ -186,27 +180,29 @@ pub fn log(
 
     const string = std.mem.span(@ptrCast([*:0]const u8, &bytes));
 
+    const old_cr3 = asm volatile ("mov %%cr3, %[cr3]"
+        : [cr3] "=r" (-> u64),
+    );
+
+    if (virt.kernel_address_space) |address_space| {
+        if (old_cr3 != address_space.cr3) {
+            asm volatile ("mov %[cr3], %%cr3"
+                :
+                : [cr3] "r" (address_space.cr3),
+            );
+        }
+    }
+
     if (term_req.response) |term_res| {
-        const old_cr3 = asm volatile ("mov %%cr3, %[cr3]"
-            : [cr3] "=r" (-> u64),
-        );
+        term_res.write_fn(term_res.terminals[0], string, string.len);
+    }
 
-        if (virt.kernel_address_space) |address_space| {
-            if (old_cr3 != address_space.cr3) {
-                asm volatile ("mov %[cr3], %%cr3"
-                    :
-                    : [cr3] "r" (address_space.cr3),
-                );
-            }
-
-            term_res.write_fn(term_res.terminals[0], string, string.len);
-
-            if (old_cr3 != address_space.cr3) {
-                asm volatile ("mov %[cr3], %%cr3"
-                    :
-                    : [cr3] "r" (old_cr3),
-                );
-            }
+    if (virt.kernel_address_space) |address_space| {
+        if (old_cr3 != address_space.cr3) {
+            asm volatile ("mov %[cr3], %%cr3"
+                :
+                : [cr3] "r" (old_cr3),
+            );
         }
     }
 
