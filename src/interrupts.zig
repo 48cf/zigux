@@ -4,6 +4,7 @@ const std = @import("std");
 
 const arch = @import("arch.zig");
 const debug = @import("debug.zig");
+const per_cpu = @import("per_cpu.zig");
 
 var next_vector: usize = 32;
 var handlers = [1]InterruptHandler{exceptionHandler} ** 32 ++ [1]InterruptHandler{unhandledInterruptHandler} ** 224;
@@ -80,12 +81,16 @@ fn printRegisters(frame: *InterruptFrame) void {
         : [result] "=r" (-> u64),
     );
 
+    if (per_cpu.get().thread) |thread| {
+        logger.err("Faulting process: {}:{}", .{ thread.parent.pid, thread.tid });
+    }
+
     logger.err("Registers:", .{});
     logger.err("  RAX={X:0>16} RBX={X:0>16} RCX={X:0>16} RDX={X:0>16}", .{ frame.rax, frame.rbx, frame.rcx, frame.rdx });
     logger.err("  RSI={X:0>16} RDI={X:0>16} RBP={X:0>16} RSP={X:0>16}", .{ frame.rsi, frame.rdi, frame.rbp, frame.rsp });
     logger.err("   R8={X:0>16}  R9={X:0>16} R10={X:0>16} R11={X:0>16}", .{ frame.r8, frame.r9, frame.r10, frame.r11 });
     logger.err("  R12={X:0>16} R13={X:0>16} R14={X:0>16} R15={X:0>16}", .{ frame.r12, frame.r13, frame.r14, frame.r15 });
-    logger.err("  RIP={X:0>16} CR2={X:0>16} CR3={X:0>16}", .{ frame.rip, cr2, cr3 });
+    logger.err("  RIP={X:0>16} CR2={X:0>16} CR3={X:0>16} ERR={X:0>16}", .{ frame.rip, cr2, cr3, frame.error_code });
 }
 
 fn exceptionHandler(frame: *InterruptFrame) void {
