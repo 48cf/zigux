@@ -1,16 +1,10 @@
 D var_addrs P P P P
 D var_names P P P P
 D tmp_label_buffer P
-D source_code_buf P P P P P P P P P P P P P P P P
-D output_buf P P P P P P P P P P P P P P P P
-
 D bss_size I 0
 D current_addr I x401000
 D next_var_addr Q var_addrs
 D next_var_name Q var_names
-
-D curr_source_ptr Q source_code_buf
-D output_ptr Q output_buf
 
 D cond_ret R
 
@@ -112,39 +106,56 @@ D curraddr
     R
 
 D read
-    A 1 curr_source_ptr
-    L 2 1
-    b 0 2
+    = 2 1
+    - 6 4 8
+    = 7 0
+    = 0 0
+    S 0 6
+    !
+    L 0 6
+    R
+
+D write8
+    = 2 1
+    - 6 4 8
+    = 7 3
+    S 0 6
+    = 0 1
+    !
+    M 0 1
+    N exit
+    C curraddr
     + 2 2 1
     S 2 1
     R
 
-D write_with_size
-
-    A 2 output_ptr
-    L 3 2
-    S 0 3
-    W 3 3 1
-    S 3 2
-
-    A 0 current_addr
-    L 2 0
-    W 2 2 1
-    S 2 0
-
+D write32
+    = 2 4
+    - 6 4 8
+    = 7 3
+    S 0 6
+    = 0 1
+    !
+    M 0 4
+    N exit
+    C curraddr
+    + 2 2 4
+    S 2 1
     R
 
-D write8
-    = 1 1
-    J write_with_size
-
-D write32
-    = 1 4
-    J write_with_size
-
 D write64
-    = 1 8
-    J write_with_size
+    = 2 8
+    - 6 4 8
+    = 7 3
+    S 0 6
+    = 0 1
+    !
+    M 0 8
+    N exit
+    C curraddr
+    + 2 2 8
+    S 2 1
+    R
 
 D writeerr8
     - 6 4 8
@@ -516,14 +527,6 @@ D op_store
     J write8
 
 D out_of_code
-    A 2 output_ptr
-    L 2 2
-    A 6 output_buf
-    w 2 6
-    = 0 1
-    = 7 3
-    !
-
     C seek_to_start
 
     A 0 bss_size
@@ -596,13 +599,6 @@ D op_entry
     S 2 0
     R
 
-D op_strlit
-    C read
-    M 0 '"
-    E cond_ret
-    C write8
-    J op_strlit
-
 D op
     C skip_read
 
@@ -632,7 +628,6 @@ D op
     M 0 'S E op_store
     M 0 'W E op_addregs
     M 0 'w E op_subregs
-    M 0 '" E op_strlit
     M 0 0  E out_of_code
 
     C writeerr8
@@ -661,12 +656,6 @@ e
     !
     M 0 3
     N exit
-
-    = 2 xFFFF
-    A 6 source_code_buf
-    = 7 0
-    = 0 0
-    !
 
     = 6 x1000
     C seek

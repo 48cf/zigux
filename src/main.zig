@@ -146,20 +146,14 @@ fn main() !void {
 
 pub fn mainThread() noreturn {
     const s3_node = utils.vital(vfs.resolve(null, "/bin/s3", 0), "Failed to find the executable");
-    const shr_node = utils.vital(vfs.resolve(null, "/root/shr.shr", 0), "Failed to find the source");
+    // const shr_node = utils.vital(vfs.resolve(null, "/root/shr.shr", 0), "Failed to find the source");
     const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
     const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
 
-    utils.vital(process.files.insertAt(0, shr_node), "Failed to setup standard input");
+    // utils.vital(process.files.insertAt(0, shr_node), "Failed to setup standard input");
     utils.vital(thread.exec(s3_node), "Failed to execute the executable");
 
     scheduler.enqueue(thread);
-
-    while (true) {
-        var buffer = [1]u8{0};
-
-        _ = std.os.linux.read(0, &buffer, buffer.len);
-    }
 
     std.os.linux.exit(0);
 }
