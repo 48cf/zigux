@@ -3,27 +3,22 @@ const logger = std.log.scoped(.vfs);
 const root = @import("root");
 const std = @import("std");
 
+const limine = @import("limine.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
 
-pub const OpenError = error{
-    NotFound,
-    InvalidArgument,
-    IsDirectory,
-    NotADirectory,
-    OutOfMemory,
-};
-
-pub const ReadWriteError = error{
-    IsDirectory,
-    OutOfMemory,
-};
+pub const OomError = error{OutOfMemory};
+pub const OpenError = std.os.OpenError || OomError;
+pub const ReadError = std.os.PReadError || OomError;
+pub const WriteError = std.os.PWriteError || OomError;
+pub const MmapError = std.os.MMapError || OomError;
 
 pub const VNodeVTable = struct {
     open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode,
-    read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadWriteError!usize,
-    write: ?fn (self: *VNode, buffer: []const u8, offset: usize) ReadWriteError!usize,
-    insert: ?fn (self: *VNode, child: *VNode) error{OutOfMemory}!void,
+    read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize,
+    write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize,
+    insert: ?fn (self: *VNode, child: *VNode) OomError!void,
+    mmap: ?fn (self: *VNode, offset: usize, flags: usize) MmapError!u64,
     // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) std.os.linux.E!usize,
 };
 
@@ -78,6 +73,22 @@ pub const VNode = struct {
         }
     }
 
+    pub fn writeAll(self: *VNode, buffer: []const u8, offset: usize) !void {
+        var buf = buffer;
+        var off = offset;
+
+        while (buf.len > 0) {
+            const written = try self.write(buf, off);
+
+            if (written == 0) {
+                return error.EndOfStream;
+            }
+
+            buf = buf[written..];
+            off += written;
+        }
+    }
+
     pub fn insert(self: *VNode, child: *VNode) !void {
         std.debug.assert(child.name != null);
         std.debug.assert(child.kind == .File or child.kind == .Directory);
@@ -97,6 +108,16 @@ pub const VNode = struct {
         }
     }
 
+    pub fn mmap(self: *VNode, offset: usize, flags: usize) !u64 {
+        const vnode = self.getEffectiveVNode();
+
+        if (vnode.vtable.mmap) |fun| {
+            return fun(vnode, offset, flags);
+        } else {
+            return error.NotImplemented;
+        }
+    }
+
     pub fn stream(self: *VNode) VNodeStream {
         return .{ .vnode = self, .offset = 0 };
     }
@@ -106,13 +127,9 @@ pub const VNodeStream = struct {
     vnode: *VNode,
     offset: u64,
 
+    pub const ReaderError = ReadError || error{NotImplemented};
     pub const SeekError = error{};
     pub const GetSeekPosError = error{};
-    pub const ReadError = error{
-        IsDirectory,
-        OutOfMemory,
-        NotImplemented,
-    };
 
     pub const SeekableStream = std.io.SeekableStream(
         *VNodeStream,
@@ -125,7 +142,7 @@ pub const VNodeStream = struct {
     );
     pub const Reader = std.io.Reader(
         *VNodeStream,
-        ReadError,
+        ReaderError,
         VNodeStream.read,
     );
 
@@ -147,7 +164,7 @@ pub const VNodeStream = struct {
         return 0;
     }
 
-    fn read(self: *VNodeStream, buffer: []u8) ReadError!usize {
+    fn read(self: *VNodeStream, buffer: []u8) ReaderError!usize {
         return self.vnode.read(buffer, self.offset);
     }
 
@@ -202,7 +219,7 @@ var root_vnode: ?*VNode = null;
 const assembler_elf = @embedFile("../misc/s3").*;
 const assembler_source = @embedFile("../misc/shr.shr").*;
 
-pub fn init() !void {
+pub fn init(modules_res: *limine.Modules.Response) !void {
     const root_node = try ram_fs.init("/", null);
 
     root_vnode = root_node;
@@ -211,22 +228,39 @@ pub fn init() !void {
     const dev_dir = try root_node.filesystem.createDir("dev");
     const lib_dir = try root_node.filesystem.createDir("lib");
     const root_dir = try root_node.filesystem.createDir("root");
-
-    dev_dir.mounted_vnode = try dev_fs.init("dev", root_node);
+    const sys_dir = try root_node.filesystem.createDir("sys");
 
     try root_node.insert(bin_dir);
     try root_node.insert(dev_dir);
     try root_node.insert(lib_dir);
     try root_node.insert(root_dir);
+    try root_node.insert(sys_dir);
 
+    // Initialize /bin and /root
     const s3_file = try root_node.filesystem.createFile("s3");
     const shr_file = try root_node.filesystem.createFile("shr.shr");
 
-    _ = try s3_file.write(&assembler_elf, 0);
-    _ = try shr_file.write(&assembler_source, 0);
+    try s3_file.writeAll(&assembler_elf, 0);
+    try shr_file.writeAll(&assembler_source, 0);
 
     try bin_dir.insert(s3_file);
     try root_dir.insert(shr_file);
+
+    // Initalize /dev
+    dev_dir.mounted_vnode = try dev_fs.init("dev", root_node);
+
+    // Initialize /sys
+    const modules_dir = try sys_dir.filesystem.createDir("modules");
+
+    for (modules_res.modules[0..modules_res.module_count]) |module| {
+        const name = std.fs.path.basename(std.mem.span(module.path));
+        const module_file = try modules_dir.filesystem.createFile(name);
+
+        try module_file.writeAll(module.address[0..module.size], 0);
+        try modules_dir.insert(module_file);
+    }
+
+    try sys_dir.insert(modules_dir);
 }
 
 pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
@@ -250,7 +284,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
             } else {
                 next = next.open(component, 0) catch |err| blk: {
                     switch (err) {
-                        error.NotFound => {
+                        error.FileNotFound => {
                             const fs = next.getEffectiveFs();
 
                             if (flags & std.os.linux.O.CREAT != 0) {

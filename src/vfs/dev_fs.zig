@@ -4,20 +4,22 @@ const root = @import("root");
 const std = @import("std");
 
 const vfs = @import("../vfs.zig");
+const per_cpu = @import("../per_cpu.zig");
 const ps2 = @import("../drivers/ps2.zig");
 const ram_fs = @import("ram_fs.zig");
 
 const tty_vtable: vfs.VNodeVTable = .{
     .open = null,
     .read = TtyVNode.read,
-    .write = null,
+    .write = TtyVNode.write,
     .insert = null,
+    .mmap = null,
 };
 
 const TtyVNode = struct {
     vnode: vfs.VNode,
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadWriteError!usize {
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
         _ = vnode;
         _ = offset;
 
@@ -86,6 +88,17 @@ const TtyVNode = struct {
             buffer[0] = ascii;
             return 1;
         }
+    }
+
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
+        _ = vnode;
+        _ = offset;
+
+        const line = std.mem.split(u8, buffer, "\n").next().?;
+
+        logger.info("{s}", .{line});
+
+        return line.len;
     }
 };
 

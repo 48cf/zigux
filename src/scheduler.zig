@@ -14,6 +14,37 @@ const vfs = @import("vfs.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
+const StackHelper = struct {
+    rsp: u64,
+    length: usize,
+
+    fn init(rsp: u64) StackHelper {
+        return .{
+            .rsp = rsp,
+            .length = 0,
+        };
+    }
+
+    fn write(self: *StackHelper, bytes: []const u8) void {
+        const stack = @intToPtr([*]u8, self.rsp - bytes.len)[0..bytes.len];
+
+        std.mem.copy(u8, stack, bytes);
+
+        self.rsp -= bytes.len;
+        self.length += bytes.len;
+    }
+
+    fn writeInt(self: *StackHelper, comptime T: type, value: T) void {
+        const length = @sizeOf(T);
+        const stack = @intToPtr([*]u8, self.rsp - length)[0..length];
+
+        std.mem.writeIntNative(T, stack, value);
+
+        self.rsp -= length;
+        self.length += length;
+    }
+};
+
 pub const Thread = struct {
     tid: u64,
     parent: *process.Process,
@@ -26,7 +57,17 @@ pub const Thread = struct {
     },
     node: std.TailQueue(void).Node = undefined,
 
-    pub fn exec(self: *Thread, file: *vfs.VNode) !void {
+    pub fn exec(
+        self: *Thread,
+        file: *vfs.VNode,
+        argv: []const []const u8,
+        envp: []const []const u8,
+    ) !void {
+        _ = self;
+        _ = file;
+        _ = argv;
+        _ = envp;
+
         var stream = file.stream();
         var header = try std.elf.Header.read(&stream);
         var ph_iter = header.program_header_iterator(&stream);
@@ -36,46 +77,99 @@ pub const Thread = struct {
                 continue;
             }
 
-            const alloc_size = std.math.max(ph.p_filesz, ph.p_memsz);
+            var flags: u64 = 0;
 
-            var offset: usize = 0;
-            var flags: u64 = virt.Flags.Present | virt.Flags.User;
+            if (ph.p_flags & std.elf.PF_R != 0)
+                flags |= std.os.linux.PROT.READ;
 
             if (ph.p_flags & std.elf.PF_W != 0)
-                flags |= virt.Flags.Writable;
+                flags |= std.os.linux.PROT.WRITE;
 
-            if (ph.p_flags & std.elf.PF_X == 0)
-                flags |= virt.Flags.NoExecute;
+            if (ph.p_flags & std.elf.PF_X != 0)
+                flags |= std.os.linux.PROT.EXEC;
 
-            while (offset < alloc_size) : (offset += std.mem.page_size) {
-                const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
-                const page_hh = @intToPtr([*]u8, virt.hhdm + page_phys)[0..std.mem.page_size];
+            const virtual_start = utils.alignDown(u64, ph.p_vaddr, std.mem.page_size);
+            const virtual_end = utils.alignUp(u64, ph.p_vaddr + ph.p_memsz, std.mem.page_size);
+            const aligned_data_size = utils.alignUp(u64, ph.p_filesz, std.mem.page_size);
+            const file_offset = utils.alignDown(u64, ph.p_offset, std.mem.page_size);
 
-                try self.parent.address_space.page_table.mapPage(ph.p_vaddr + offset, page_phys, flags);
+            const virtual_fend = ph.p_vaddr + aligned_data_size;
+            const data_size = ph.p_vaddr + ph.p_filesz - virtual_start;
 
-                std.mem.set(u8, page_hh, 0);
+            _ = (try self.parent.address_space.mmap(
+                virtual_start,
+                data_size,
+                file_offset,
+                flags,
+                std.os.linux.MAP.PRIVATE | std.os.linux.MAP.FIXED,
+                file,
+            )) orelse return error.OutOfMemory;
 
-                if (offset < ph.p_filesz) {
-                    const copy_size = std.math.min(ph.p_filesz - offset, std.mem.page_size);
-                    const file_offset = ph.p_offset + offset;
+            if (virtual_fend < virtual_end) {
+                const bss_size = virtual_end - virtual_fend;
 
-                    _ = try file.read(page_hh[0..copy_size], file_offset);
-
-                    // logger.debug("Copying {} bytes at offset 0x{X} from file at file offset 0x{X}", .{ copy_size, offset, file_offset });
-                }
+                _ = (try self.parent.address_space.mmap(
+                    virtual_fend,
+                    bss_size,
+                    0,
+                    flags,
+                    std.os.linux.MAP.PRIVATE | std.os.linux.MAP.ANONYMOUS | std.os.linux.MAP.FIXED,
+                    null,
+                )) orelse return error.OutOfMemory;
             }
         }
 
-        self.regs.rip = header.entry;
+        // var i: usize = 0;
+        // var stack_phys = page_table.translate(self.regs.rsp - std.mem.page_size).?;
+        // var stack = StackHelper.init(virt.hhdm + stack_phys + std.mem.page_size);
+        // var argv_pointers = std.ArrayListUnmanaged(u64){};
+        // var envp_pointers = std.ArrayListUnmanaged(u64){};
+
+        // defer argv_pointers.deinit(root.allocator);
+        // defer envp_pointers.deinit(root.allocator);
+
+        // // Write the arguments to the stack
+        // for (argv) |string| {
+        //     stack.writeInt(u8, 0);
+        //     stack.write(string);
+
+        //     try argv_pointers.append(root.allocator, stack.rsp);
+        // }
+
+        // // Write the environment variables to the stack
+        // for (envp) |string| {
+        //     stack.writeInt(u8, 0);
+        //     stack.write(string);
+
+        //     try envp_pointers.append(root.allocator, stack.rsp);
+        // }
+
+        // // Write the environemt variable pointers to the stack
+        // // Start with a null terminator
+        // stack.writeInt(u64, 0);
+
+        // while (i < envp_pointers.items.len) : (i += 1) {
+        //     stack.writeInt(u64, envp_pointers.items[envp_pointers.items.len - i - 1]);
+        // }
+
+        // // Write the argument pointers to the stack
+        // // Start with a null terminator
+        // stack.writeInt(u64, 0);
+
+        // while (i < argv_pointers.items.len) : (i += 1) {
+        //     stack.writeInt(u64, argv_pointers.items[argv_pointers.items.len - i - 1]);
+        // }
+
+        // stack.writeInt(u64, argv_pointers.items.len);
+
+        // self.regs.rip = header.entry;
+        // self.regs.rsp -= stack.length;
     }
 
     pub fn switchTo(self: *Thread, frame: *interrupts.InterruptFrame) void {
         frame.* = self.regs;
 
-        asm volatile ("mov %[cr3], %%cr3"
-            :
-            : [cr3] "r" (self.parent.address_space.cr3),
-        );
+        _ = self.parent.address_space.switchTo();
     }
 };
 

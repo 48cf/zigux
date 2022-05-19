@@ -5,8 +5,13 @@ const arch = @import("arch.zig");
 const limine = @import("limine.zig");
 const phys = @import("phys.zig");
 const utils = @import("utils.zig");
+const vfs = @import("vfs.zig");
 
-const flags_mask: u64 = 0xFFF0000000000FFF;
+const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
+
+const flags_mask: u64 = 0xFFF0_0000_0000_0FFF;
+const alloc_base: u64 = 0x7000_0000_0000;
+const alloc_max: u64 = 0x7FFF_FFFF_FFFF;
 
 pub const Flags = struct {
     pub const None = 0;
@@ -17,6 +22,14 @@ pub const Flags = struct {
     pub const NoCache = 1 << 4;
     pub const NoExecute = 1 << 63;
 };
+
+fn switchPageTable(cr3: u64) void {
+    asm volatile ("mov %[cr3], %%cr3"
+        :
+        : [cr3] "r" (cr3),
+        : "memory"
+    );
+}
 
 fn getPageTable(page_table: *PageTable, index: usize, allocate: bool) ?*PageTable {
     var entry = &page_table.entries[index];
@@ -74,9 +87,9 @@ const PageTable = packed struct {
 
     pub fn translate(self: *PageTable, virt_addr: u64) ?u64 {
         const indices = virtToIndices(virt_addr);
-        const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
-        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return error.OutOfMemory;
+        const pml3 = getPageTable(self, indices.pml4, false) orelse return null;
+        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return null;
+        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return null;
         const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
@@ -166,15 +179,113 @@ const PageTable = packed struct {
     }
 };
 
+const Mapping = struct {
+    protection: u64,
+    flags: u64,
+    start_addr: u64,
+    end_addr: u64,
+    file: ?*vfs.VNode = null,
+};
+
+pub const FaultReason = enum {
+    Read,
+    Write,
+    InstructionFetch,
+};
+
 pub const AddressSpace = struct {
     cr3: u64,
     page_table: *PageTable,
-    alloc_base: u64,
+    mappings: std.TailQueue(void) = .{},
+
+    pub fn init(cr3: u64) AddressSpace {
+        return .{
+            .cr3 = cr3,
+            .page_table = @intToPtr(*PageTable, hhdm + cr3),
+        };
+    }
+
+    pub fn switchTo(self: *AddressSpace) *AddressSpace {
+        _ = paging_lock.lock();
+
+        defer paging_lock.unlock();
+
+        if (current_address_space) |previous| {
+            if (self == previous) {
+                return self;
+            }
+
+            current_address_space = self;
+
+            switchPageTable(self.cr3);
+
+            return previous;
+        } else {
+            switchPageTable(self.cr3);
+
+            return self;
+        }
+    }
+
+    pub fn handlePageFault(self: *AddressSpace, address: u64, reason: FaultReason) !bool {
+        var current = self.mappings.first;
+
+        while (current != null) |mapping| : (current = mapping.next) {
+            _ = address;
+            _ = reason;
+
+            logger.debug("{}", .{mapping});
+
+            if (mapping.next == self.mappings.first) {
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn mmap(
+        self: *AddressSpace,
+        address: u64,
+        size: usize,
+        offset: usize,
+        prot: u64,
+        flags: u64,
+        file: ?*vfs.VNode,
+    ) !?u64 {
+        if (size == 0 or !utils.isAligned(usize, offset, std.mem.page_size)) {
+            return null;
+        }
+
+        var address_aligned = utils.alignDown(u64, address, std.mem.page_size);
+        var size_aligned = utils.alignUp(usize, size, std.mem.page_size);
+
+        if (address_aligned + size_aligned > alloc_max) {
+            return null;
+        }
+
+        _ = self;
+        _ = prot;
+        _ = flags;
+
+        if (file) |vnode| {
+            logger.debug(
+                "Attempting to map {} bytes of file {s} at offset {} at 0x{X}",
+                .{ size_aligned, vnode.name, offset, address_aligned },
+            );
+        } else {
+            logger.debug("Attempting to map {} bytes at 0x{X}", .{ size_aligned, address_aligned });
+        }
+
+        return null;
+    }
 };
 
 pub var hhdm: u64 = 0;
-pub var kernel_page_table: *PageTable = undefined;
 pub var kernel_address_space: ?AddressSpace = null;
+
+var paging_lock: IrqSpinlock = .{};
+var current_address_space: ?*AddressSpace = null;
 
 fn map_section(
     comptime section_name: []const u8,
@@ -193,49 +304,38 @@ fn map_section(
 }
 
 pub fn init(hhdm_res: *limine.Hhdm.Response, kernel_addr_res: *limine.KernelAddress.Response) !void {
-    const page_table = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
 
     hhdm = hhdm_res.offset;
-    kernel_page_table = @intToPtr(*PageTable, hhdm + page_table);
-    kernel_address_space = .{
-        .cr3 = page_table,
-        .page_table = kernel_page_table,
-        .alloc_base = 0,
-    };
+    kernel_address_space = AddressSpace.init(page_table_phys);
 
+    // Prepopulate the higher half of kernel address space
+    var page_table = kernel_address_space.?.page_table;
     var i: usize = 256;
 
     while (i < 512) : (i += 1) {
-        _ = getPageTable(kernel_page_table, i, true);
+        _ = getPageTable(page_table, i, true);
     }
 
-    try kernel_page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(4) - std.mem.page_size, Flags.Present | Flags.Writable);
-    try kernel_page_table.map(hhdm, 0, utils.gib(4), Flags.Present | Flags.Writable);
+    try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(4) - std.mem.page_size, Flags.Present | Flags.Writable);
+    try page_table.map(hhdm, 0, utils.gib(4), Flags.Present | Flags.Writable);
 
-    try map_section("text", kernel_page_table, kernel_addr_res, Flags.Present);
-    try map_section("rodata", kernel_page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
-    try map_section("data", kernel_page_table, kernel_addr_res, Flags.Present | Flags.NoExecute | Flags.Writable);
+    try map_section("text", page_table, kernel_addr_res, Flags.Present);
+    try map_section("rodata", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
+    try map_section("data", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute | Flags.Writable);
 
-    asm volatile ("mov %[page_table], %%cr3"
-        :
-        : [page_table] "r" (page_table),
-        : "memory"
-    );
+    _ = kernel_address_space.?.switchTo();
 }
 
 pub fn createAddressSpace() !AddressSpace {
-    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
-    const page_table = @intToPtr(*PageTable, hhdm + page_table_phys);
+    var page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+    var address_space = AddressSpace.init(page_table_phys);
 
     var i: usize = 256;
 
     while (i < 512) : (i += 1) {
-        page_table.entries[i] = kernel_page_table.entries[i];
+        address_space.page_table.entries[i] = kernel_address_space.?.page_table.entries[i];
     }
 
-    return AddressSpace{
-        .cr3 = page_table_phys,
-        .page_table = page_table,
-        .alloc_base = 0,
-    };
+    return address_space;
 }

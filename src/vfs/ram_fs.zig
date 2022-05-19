@@ -15,6 +15,7 @@ const ram_fs_file_vtable: vfs.VNodeVTable = .{
     .read = RamFSFile.read,
     .write = RamFSFile.write,
     .insert = null,
+    .mmap = RamFSFile.mmap,
 };
 
 const ram_fs_directory_vtable: vfs.VNodeVTable = .{
@@ -22,13 +23,14 @@ const ram_fs_directory_vtable: vfs.VNodeVTable = .{
     .read = null,
     .write = null,
     .insert = RamFSDirectory.insert,
+    .mmap = null,
 };
 
 const RamFSFile = struct {
     vnode: vfs.VNode,
     data: std.ArrayListAlignedUnmanaged(u8, std.mem.page_size) = .{},
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadWriteError!usize {
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
 
         if (offset >= self.data.items.len) {
@@ -46,11 +48,11 @@ const RamFSFile = struct {
         return bytes_read;
     }
 
-    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.ReadWriteError!usize {
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
 
         if (buffer.len + offset > self.data.items.len) {
-            try self.data.resize(root.allocator, buffer.len + offset);
+            self.data.resize(root.allocator, buffer.len + offset) catch return error.OutOfMemory;
 
             // TODO: Zero out the newly allocated content
         }
@@ -58,6 +60,14 @@ const RamFSFile = struct {
         std.mem.copy(u8, self.data.items[offset..], buffer);
 
         return buffer.len;
+    }
+
+    fn mmap(vnode: *vfs.VNode, offset: usize, flags: usize) vfs.MmapError!u64 {
+        _ = vnode;
+        _ = offset;
+        _ = flags;
+
+        return error.OutOfMemory;
     }
 };
 
@@ -76,7 +86,7 @@ const RamFSDirectory = struct {
             }
         }
 
-        return error.NotFound;
+        return error.FileNotFound;
     }
 
     fn insert(vnode: *vfs.VNode, child: *vfs.VNode) !void {

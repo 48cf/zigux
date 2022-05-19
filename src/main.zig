@@ -41,7 +41,7 @@ const PageAllocator = struct {
         while (i < pages) : (i += 1) {
             const page = phys.allocate(1, true) orelse return error.OutOfMemory;
 
-            virt.kernel_page_table.mapPage(
+            virt.kernel_address_space.?.page_table.mapPage(
                 base + i * std.mem.page_size,
                 page,
                 virt.Flags.Present | virt.Flags.Writable,
@@ -125,6 +125,7 @@ fn main() !void {
     const hhdm_res = hhdm_req.response.?;
     const memory_map_res = memory_map_req.response.?;
     const kernel_addr_res = kernel_addr_req.response.?;
+    const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
 
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
@@ -132,7 +133,7 @@ fn main() !void {
     try phys.init(memory_map_res, hhdm_res);
     try virt.init(hhdm_res, kernel_addr_res);
     try per_cpu.init();
-    try vfs.init();
+    try vfs.init(modules_res);
     try acpi.init(rsdp_res);
     try scheduler.init();
 
@@ -145,16 +146,16 @@ fn main() !void {
 }
 
 pub fn mainThread() noreturn {
-    const s3_node = utils.vital(vfs.resolve(null, "/bin/s3", 0), "Failed to find the executable");
-    // const shr_node = utils.vital(vfs.resolve(null, "/root/shr.shr", 0), "Failed to find the source");
     const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
     const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
+    const init = utils.vital(vfs.resolve(null, "/sys/modules/init", 0), "Failed to find the executable");
 
-    // utils.vital(process.files.insertAt(0, shr_node), "Failed to setup standard input");
-    utils.vital(thread.exec(s3_node), "Failed to execute the executable");
+    utils.vital(
+        thread.exec(init, &.{"/sys/modules/init"}, &.{ "TERM=linux", "HOME=/root" }),
+        "Failed to execute the init executable",
+    );
 
     scheduler.enqueue(thread);
-
     std.os.linux.exit(0);
 }
 
@@ -189,31 +190,14 @@ pub fn log(
     writer.writeByte(0) catch unreachable;
 
     const string = std.mem.span(@ptrCast([*:0]const u8, &bytes));
-
-    const old_cr3 = asm volatile ("mov %%cr3, %[cr3]"
-        : [cr3] "=r" (-> u64),
-    );
-
-    if (virt.kernel_address_space) |address_space| {
-        if (old_cr3 != address_space.cr3) {
-            asm volatile ("mov %[cr3], %%cr3"
-                :
-                : [cr3] "r" (address_space.cr3),
-            );
-        }
-    }
+    const previous_vm = if (virt.kernel_address_space) |*vm| vm.switchTo() else null;
 
     if (term_req.response) |term_res| {
         term_res.write_fn(term_res.terminals[0], string, string.len);
     }
 
-    if (virt.kernel_address_space) |address_space| {
-        if (old_cr3 != address_space.cr3) {
-            asm volatile ("mov %[cr3], %%cr3"
-                :
-                : [cr3] "r" (old_cr3),
-            );
-        }
+    if (previous_vm) |vm| {
+        _ = vm.switchTo();
     }
 
     for (string) |byte| {
