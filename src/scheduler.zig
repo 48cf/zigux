@@ -48,13 +48,7 @@ const StackHelper = struct {
 pub const Thread = struct {
     tid: u64,
     parent: *process.Process,
-    regs: interrupts.InterruptFrame = blk: {
-        var regs = std.mem.zeroes(interrupts.InterruptFrame);
-
-        regs.rflags = 0x202;
-
-        break :blk regs;
-    },
+    regs: interrupts.InterruptFrame = std.mem.zeroes(interrupts.InterruptFrame),
     node: std.TailQueue(void).Node = undefined,
 
     pub fn exec(
@@ -71,6 +65,13 @@ pub const Thread = struct {
         var stream = file.stream();
         var header = try std.elf.Header.read(&stream);
         var ph_iter = header.program_header_iterator(&stream);
+        var load_offset: u64 = 0;
+
+        // TODO: Check if we're loading a shared object and load it
+        // at a different offset, for example when loading the
+        // dynamic linker we don't want to load both the executable
+        // and dynamic linker at the same memory offset, otherwise
+        // we will end up overwriting one or another.
 
         while (try ph_iter.next()) |ph| {
             if (ph.p_type != 1) {
@@ -88,12 +89,12 @@ pub const Thread = struct {
             if (ph.p_flags & std.elf.PF_X != 0)
                 flags |= std.os.linux.PROT.EXEC;
 
-            const virtual_start = utils.alignDown(u64, ph.p_vaddr, std.mem.page_size);
-            const virtual_end = utils.alignUp(u64, ph.p_vaddr + ph.p_memsz, std.mem.page_size);
+            const virtual_start = load_offset + utils.alignDown(u64, ph.p_vaddr, std.mem.page_size);
+            const virtual_end = load_offset + utils.alignUp(u64, ph.p_vaddr + ph.p_memsz, std.mem.page_size);
             const aligned_data_size = utils.alignUp(u64, ph.p_filesz, std.mem.page_size);
             const file_offset = utils.alignDown(u64, ph.p_offset, std.mem.page_size);
 
-            const virtual_fend = ph.p_vaddr + aligned_data_size;
+            const virtual_fend = load_offset + ph.p_vaddr + aligned_data_size;
             const data_size = ph.p_vaddr + ph.p_filesz - virtual_start;
 
             _ = (try self.parent.address_space.mmap(

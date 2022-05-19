@@ -56,7 +56,7 @@ fn handleTable(sdt: SdtPtr) !void {
                 const record_data = data[2..size];
 
                 switch (kind) {
-                    0 => logger.debug("Unhandled LAPIC: {any}", .{record_data}),
+                    0 => {}, // logger.debug("Unhandled LAPIC: {any}", .{record_data}),
                     1 => apic.handleIoApic(
                         record_data[0],
                         std.mem.readIntNative(u32, record_data[2..6]),
@@ -68,17 +68,17 @@ fn handleTable(sdt: SdtPtr) !void {
                         std.mem.readIntNative(u32, record_data[2..6]),
                         std.mem.readIntNative(u16, record_data[6..8]),
                     ),
-                    3 => logger.debug("Unhandled IO/APIC NMI source: {any}", .{record_data}),
-                    4 => logger.debug("Unhandled LAPIC NMI: {any}", .{record_data}),
-                    5 => logger.debug("Unhandled LAPIC Address Override: {any}", .{record_data}),
-                    9 => logger.debug("Unhandled x2LAPIC: {any}", .{record_data}),
-                    else => logger.err("Unknown MADT record 0x{X}: {any}", .{ kind, record_data }),
+                    // 3 => logger.debug("Unhandled IO/APIC NMI source: {any}", .{record_data}),
+                    // 4 => logger.debug("Unhandled LAPIC NMI: {any}", .{record_data}),
+                    // 5 => logger.debug("Unhandled LAPIC Address Override: {any}", .{record_data}),
+                    // 9 => logger.debug("Unhandled x2LAPIC: {any}", .{record_data}),
+                    else => logger.warn("Unknown MADT record 0x{X}: {any}", .{ kind, record_data }),
                 }
 
                 data = data[std.math.max(2, size)..];
             }
         },
-        else => logger.debug("Unhandled ACPI table: {s}", .{sdt.signature}),
+        else => {}, // logger.debug("Unhandled ACPI table: {s}", .{sdt.signature}),
     }
 }
 

@@ -185,6 +185,7 @@ const Mapping = struct {
     start_addr: u64,
     end_addr: u64,
     file: ?*vfs.VNode = null,
+    node: std.TailQueue(void).Node = undefined,
 };
 
 pub const FaultReason = enum {
