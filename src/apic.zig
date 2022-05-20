@@ -102,7 +102,7 @@ pub fn initTimer() void {
 
     writeRegister(.LvtDivide, 3);
     writeRegister(.LvtTimer, @as(u32, timer_vector.?) | 0x20000);
-    writeRegister(.LvtInitialCount, 0x200000);
+    writeRegister(.LvtInitialCount, 0x100000);
 }
 
 pub fn eoi() void {

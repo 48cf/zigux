@@ -243,6 +243,9 @@ var scheduler_lock: IrqSpinlock = .{};
 var pid_counter: u64 = 1;
 var tid_counter: u64 = 0;
 
+var is_idle = false;
+var last_is_idle = false;
+
 var kernel_thread: Thread = undefined;
 var idle_thread: Thread = undefined;
 
@@ -400,8 +403,10 @@ pub fn reschedule(frame: *interrupts.InterruptFrame) void {
 
         cpu_info.thread = new_thread;
         new_thread.switchTo(frame);
+        is_idle = false;
     } else if (cpu_info.thread == null) {
         idle_thread.switchTo(frame);
+        is_idle = true;
     }
 }
 
@@ -440,6 +445,12 @@ fn schedCallHandler(frame: *interrupts.InterruptFrame) void {
 
 fn idleThread() noreturn {
     while (true) {
+        if (is_idle != last_is_idle) {
+            logger.debug("System is now idle", .{});
+        }
+
+        last_is_idle = is_idle;
+
         arch.halt();
     }
 }
