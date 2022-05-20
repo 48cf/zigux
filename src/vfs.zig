@@ -118,13 +118,42 @@ pub const VNode = struct {
         }
     }
 
+    pub fn getFullPath(self: *VNode) VNodePath {
+        return .{ .node = self };
+    }
+
     pub fn stream(self: *VNode) VNodeStream {
-        return .{ .vnode = self, .offset = 0 };
+        return .{ .node = self, .offset = 0 };
+    }
+};
+
+fn formatPath(node: *VNode, writer: anytype) @TypeOf(writer).Error!void {
+    if (node.parent) |parent| {
+        try formatPath(parent, writer);
+        try writer.writeByte('/');
+    }
+
+    try writer.writeAll(node.name.?);
+}
+
+pub const VNodePath = struct {
+    node: *VNode,
+
+    pub fn format(
+        value: *const VNodePath,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try formatPath(value.node, writer);
     }
 };
 
 pub const VNodeStream = struct {
-    vnode: *VNode,
+    node: *VNode,
     offset: u64,
 
     pub const ReaderError = ReadError || error{NotImplemented};
@@ -165,7 +194,7 @@ pub const VNodeStream = struct {
     }
 
     fn read(self: *VNodeStream, buffer: []u8) ReaderError!usize {
-        return self.vnode.read(buffer, self.offset);
+        return self.node.read(buffer, self.offset);
     }
 
     pub fn seekableStream(self: *VNodeStream) SeekableStream {
@@ -220,7 +249,7 @@ const assembler_elf = @embedFile("../misc/s3").*;
 const assembler_source = @embedFile("../misc/shr.shr").*;
 
 pub fn init(modules_res: *limine.Modules.Response) !void {
-    const root_node = try ram_fs.init("/", null);
+    const root_node = try ram_fs.init("", null);
 
     root_vnode = root_node;
 
