@@ -29,6 +29,7 @@ pub fn build(b: *std.build.Builder) !void {
 
     const image_dir = b.pathJoin(&.{ b.cache_root, "image_root" });
     const image_path = b.pathJoin(&.{ b.cache_root, "image.iso" });
+    const sysroot_path = b.pathJoin(&.{ b.cache_root, "sysroot.tar" });
 
     const kernel_path = b.getInstallPath(kernel.install_step.?.dest_dir, kernel.out_filename);
     const init_path = b.getInstallPath(init.install_step.?.dest_dir, init.out_filename);
@@ -40,6 +41,8 @@ pub fn build(b: *std.build.Builder) !void {
         "misc/create-image.sh",
         image_dir,
         image_path,
+        "sysroot/system-root",
+        sysroot_path,
         kernel_path,
         init_path,
     });
@@ -66,7 +69,7 @@ fn buildKernel(b: *std.build.Builder) !*std.build.LibExeObjStep {
 }
 
 fn buildProgram(b: *std.build.Builder, comptime name: []const u8) !*std.build.LibExeObjStep {
-    const kernel = b.addExecutable(name, name ++ "/main.zig");
+    const kernel = b.addExecutable(name, "user/" ++ name ++ "/main.zig");
 
     kernel.code_model = .small;
     kernel.setBuildMode(user_build_mode);
