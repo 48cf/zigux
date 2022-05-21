@@ -3,7 +3,9 @@ const builtin = @import("builtin");
 
 const Features = std.Target.x86.Feature;
 
-const mode: std.builtin.Mode = .Debug;
+const kernel_build_mode: std.builtin.Mode = .Debug;
+const user_build_mode: std.builtin.Mode = .ReleaseSafe;
+
 const target = blk: {
     var tgt = std.zig.CrossTarget{
         .cpu_arch = .x86_64,
@@ -55,7 +57,7 @@ fn buildKernel(b: *std.build.Builder) !*std.build.LibExeObjStep {
     const kernel = b.addExecutable("kernel", "src/main.zig");
 
     kernel.code_model = .kernel;
-    kernel.setBuildMode(mode);
+    kernel.setBuildMode(kernel_build_mode);
     kernel.setLinkerScriptPath(.{ .path = "misc/linker.ld" });
     kernel.install();
     kernel.setTarget(target);
@@ -67,7 +69,7 @@ fn buildProgram(b: *std.build.Builder, comptime name: []const u8) !*std.build.Li
     const kernel = b.addExecutable(name, name ++ "/main.zig");
 
     kernel.code_model = .small;
-    kernel.setBuildMode(mode);
+    kernel.setBuildMode(user_build_mode);
     kernel.install();
     kernel.setTarget(target);
 
