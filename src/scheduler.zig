@@ -328,16 +328,18 @@ pub fn spawnThread(parent: *process.Process) !*Thread {
         .parent = parent,
     };
 
+    const stack_pages = 4;
     const stack_base = 0x7FFFFFFF0000;
-    const stack_page = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const stack_page = phys.allocate(stack_pages, true) orelse return error.OutOfMemory;
 
-    try parent.address_space.page_table.mapPage(
+    try parent.address_space.page_table.map(
         stack_base,
         stack_page,
+        stack_pages * std.mem.page_size,
         virt.Flags.Present | virt.Flags.Writable | virt.Flags.User | virt.Flags.NoExecute,
     );
 
-    thread.regs.rsp = stack_base + std.mem.page_size;
+    thread.regs.rsp = stack_base + stack_pages * std.mem.page_size;
     thread.regs.rflags = 0x202;
     thread.regs.cs = 0x38 | 3;
     thread.regs.ss = 0x40 | 3;

@@ -1,2 +1,4 @@
+build
+sysroot
 zig-cache
 zig-out
