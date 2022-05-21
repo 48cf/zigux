@@ -125,6 +125,8 @@ pub const Thread = struct {
         self.parent.executable = file_to_load;
 
         if (executable.ld_path) |ld_path| {
+            logger.debug("Dynamic linker for {s} is at {s}", .{ file_to_load.getFullPath(), ld_path });
+
             const ld_node = try vfs.resolve(null, ld_path, 0);
             const ld_loaded = try self.parent.address_space.loadExecutable(ld_node, 0x4000_0000);
 

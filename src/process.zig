@@ -173,6 +173,14 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return null;
         },
+        @intToEnum(std.os.linux.SYS, 1024) => {
+            const buffer = try process.validateString([:0]const u8, frame.rdi);
+            const length = std.mem.len(buffer);
+
+            logger.info("{s}", .{buffer[0..length]});
+
+            return 0;
+        },
         else => {
             logger.warn(
                 "Unimplemented syscall {}: {{ 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X} }}",

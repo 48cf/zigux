@@ -3,6 +3,7 @@ const logger = std.log.scoped(.vfs);
 const root = @import("root");
 const std = @import("std");
 
+const tar = @import("tar.zig");
 const limine = @import("limine.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
@@ -269,15 +270,41 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
     // Initialize /sys
     const modules_dir = try sys_dir.filesystem.createDir("modules");
 
+    try sys_dir.insert(modules_dir);
+
     for (modules_res.modules[0..modules_res.module_count]) |module| {
         const name = std.fs.path.basename(std.mem.span(module.path));
         const module_file = try modules_dir.filesystem.createFile(name);
+        const data_blob = module.address[0..module.size];
 
-        try module_file.writeAll(module.address[0..module.size], 0);
+        try module_file.writeAll(data_blob, 0);
         try modules_dir.insert(module_file);
-    }
 
-    try sys_dir.insert(modules_dir);
+        if (std.mem.endsWith(u8, name, ".tar")) {
+            var iterator = try tar.iterate(data_blob);
+            var files: usize = 0;
+            var total_size: usize = 0;
+
+            while (iterator.has_file) : (iterator.next()) {
+                const file_name = iterator.file_name[2..];
+
+                if (file_name.len == 0) {
+                    continue;
+                }
+
+                const file_node = try resolve(root_node, file_name, std.os.linux.O.CREAT);
+
+                if (file_name[file_name.len - 1] != '/') {
+                    try file_node.writeAll(iterator.file_contents, 0);
+
+                    files += 1;
+                    total_size += iterator.file_contents.len;
+                }
+            }
+
+            logger.info("Loaded {} ({}KiB) files from {}", .{ files, total_size / 1024, module_file.getFullPath() });
+        }
+    }
 }
 
 pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
@@ -294,7 +321,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
 
     if (path.len > 0) {
         while (iter.next()) |component| {
-            if (std.mem.eql(u8, component, ".")) {
+            if (component.len == 0 or std.mem.eql(u8, component, ".")) {
                 continue;
             } else if (std.mem.eql(u8, component, "..")) {
                 next = next.parent orelse next;
@@ -305,7 +332,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
                             const fs = next.getEffectiveFs();
 
                             if (flags & std.os.linux.O.CREAT != 0) {
-                                if (iter.rest().len > 0) {
+                                if (path[path.len - 1] == '/') {
                                     const node = try fs.createDir(component);
 
                                     try next.insert(node);

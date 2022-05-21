@@ -148,11 +148,11 @@ fn main() !void {
 pub fn mainThread() noreturn {
     const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
     const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
-    const init = utils.vital(vfs.resolve(null, "/sys/modules/init", 0), "Failed to find the executable");
+    const hello = utils.vital(vfs.resolve(null, "/usr/bin/hello-mlibc", 0), "Failed to find the executable");
 
     utils.vital(
-        thread.exec(init, &.{ "/sys/modules/init", "test", "args" }, &.{ "TERM=linux", "HOME=/root" }),
-        "Failed to execute the init executable",
+        thread.exec(hello, &.{"/usr/bin/hello-mlibc"}, &.{ "TERM=linux", "HOME=/root" }),
+        "Failed to execute the executable",
     );
 
     scheduler.enqueue(thread);

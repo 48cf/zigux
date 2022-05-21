@@ -263,13 +263,16 @@ pub const AddressSpace = struct {
         var stream = file.stream();
         var header = try std.elf.Header.read(&stream);
         var ph_iter = header.program_header_iterator(&stream);
-        var ld_path: ?[]const u8 = null;
+        var ld_path: ?[]u8 = null;
         var entry: u64 = header.entry + base;
         var phdr: u64 = 0;
 
         while (try ph_iter.next()) |ph| {
             switch (ph.p_type) {
-                std.elf.PT_INTERP => ld_path = try root.allocator.alloc(u8, ph.p_filesz),
+                std.elf.PT_INTERP => {
+                    ld_path = try root.allocator.alloc(u8, ph.p_filesz);
+                    _ = try file.read(ld_path.?, ph.p_offset);
+                },
                 std.elf.PT_PHDR => phdr = ph.p_vaddr + base,
                 std.elf.PT_LOAD => {
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
@@ -297,7 +300,11 @@ pub const AddressSpace = struct {
 
         return LoadedExecutable{
             .entry = entry,
-            .ld_path = ld_path,
+            .ld_path = if (ld_path) |path| blk: {
+                const null_term = @ptrCast([*:0]const u8, path);
+
+                break :blk null_term[0..std.mem.len(null_term)];
+            } else null,
             .aux_vals = .{
                 .at_entry = entry,
                 .at_phdr = phdr,
