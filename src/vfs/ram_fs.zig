@@ -3,7 +3,10 @@ const logger = std.log.scoped(.ramfs);
 const root = @import("root");
 const std = @import("std");
 
+const phys = @import("../phys.zig");
+const utils = @import("../utils.zig");
 const vfs = @import("../vfs.zig");
+const virt = @import("../virt.zig");
 
 const ram_fs_vtable: vfs.FileSystemVTable = .{
     .create_file = RamFS.createFile,
@@ -15,7 +18,6 @@ const ram_fs_file_vtable: vfs.VNodeVTable = .{
     .read = RamFSFile.read,
     .write = RamFSFile.write,
     .insert = null,
-    .mmap = RamFSFile.mmap,
 };
 
 const ram_fs_directory_vtable: vfs.VNodeVTable = .{
@@ -23,7 +25,6 @@ const ram_fs_directory_vtable: vfs.VNodeVTable = .{
     .read = null,
     .write = null,
     .insert = RamFSDirectory.insert,
-    .mmap = null,
 };
 
 const RamFSFile = struct {
@@ -60,14 +61,6 @@ const RamFSFile = struct {
         std.mem.copy(u8, self.data.items[offset..], buffer);
 
         return buffer.len;
-    }
-
-    fn mmap(vnode: *vfs.VNode, offset: usize, flags: usize) vfs.MmapError!u64 {
-        _ = vnode;
-        _ = offset;
-        _ = flags;
-
-        return error.OutOfMemory;
     }
 };
 

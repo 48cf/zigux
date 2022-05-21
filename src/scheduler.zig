@@ -16,12 +16,10 @@ const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const StackHelper = struct {
     rsp: u64,
-    length: usize,
 
     fn init(rsp: u64) StackHelper {
         return .{
             .rsp = rsp,
-            .length = 0,
         };
     }
 
@@ -29,21 +27,62 @@ const StackHelper = struct {
         const stack = @intToPtr([*]u8, self.rsp - bytes.len)[0..bytes.len];
 
         std.mem.copy(u8, stack, bytes);
-
         self.rsp -= bytes.len;
-        self.length += bytes.len;
     }
 
     fn writeInt(self: *StackHelper, comptime T: type, value: T) void {
-        const length = @sizeOf(T);
-        const stack = @intToPtr([*]u8, self.rsp - length)[0..length];
+        self.write(&std.mem.toBytes(value));
+    }
 
-        std.mem.writeIntNative(T, stack, value);
-
-        self.rsp -= length;
-        self.length += length;
+    fn writeString(self: *StackHelper, string: []const u8) void {
+        self.writeInt(u8, 0);
+        self.write(string);
     }
 };
+
+const Shebang = struct {
+    path: []const u8,
+    arg: []const u8,
+};
+
+fn parseShebang(file: *vfs.VNode) !Shebang {
+    var path = std.ArrayListUnmanaged(u8){};
+    var arg = std.ArrayListUnmanaged(u8){};
+
+    var offset: usize = 2;
+    var char: u8 = 0;
+
+    _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset);
+
+    if (char == ' ') {
+        offset += 1;
+    }
+
+    while (true) {
+        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset);
+
+        offset += 1;
+
+        switch (char) {
+            ' ' => break,
+            '\n' => return Shebang{ .path = path.items, .arg = "" },
+            else => try path.append(root.allocator, char),
+        }
+    }
+
+    while (true) {
+        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset);
+
+        offset += 1;
+
+        switch (char) {
+            ' ', '\n' => break,
+            else => try arg.append(root.allocator, char),
+        }
+    }
+
+    return Shebang{ .path = path.items, .arg = arg.items };
+}
 
 pub const Thread = struct {
     tid: u64,
@@ -57,114 +96,98 @@ pub const Thread = struct {
         argv: []const []const u8,
         envp: []const []const u8,
     ) !void {
-        _ = self;
-        _ = file;
-        _ = argv;
-        _ = envp;
+        var shebang_sig = [2]u8{ 0, 0 };
 
-        var stream = file.stream();
-        var header = try std.elf.Header.read(&stream);
-        var ph_iter = header.program_header_iterator(&stream);
-        var load_offset: u64 = 0;
+        _ = try file.read(&shebang_sig, 0);
 
-        // TODO: Check if we're loading a shared object and load it
-        // at a different offset, for example when loading the
-        // dynamic linker we don't want to load both the executable
-        // and dynamic linker at the same memory offset, otherwise
-        // we will end up overwriting one or another.
+        var file_to_load = file;
+        var final_argv = argv;
 
-        while (try ph_iter.next()) |ph| {
-            if (ph.p_type != 1) {
-                continue;
+        if (std.mem.eql(u8, &shebang_sig, "#!")) {
+            var shebang = try parseShebang(file);
+            var argv_list = std.ArrayListUnmanaged([]const u8){};
+
+            try argv_list.append(root.allocator, shebang.path);
+
+            if (shebang.arg.len > 0) {
+                try argv_list.append(root.allocator, shebang.arg);
             }
 
-            var flags: u64 = 0;
+            try argv_list.appendSlice(root.allocator, argv[1..]);
 
-            if (ph.p_flags & std.elf.PF_R != 0)
-                flags |= std.os.linux.PROT.READ;
-
-            if (ph.p_flags & std.elf.PF_W != 0)
-                flags |= std.os.linux.PROT.WRITE;
-
-            if (ph.p_flags & std.elf.PF_X != 0)
-                flags |= std.os.linux.PROT.EXEC;
-
-            const virtual_start = load_offset + utils.alignDown(u64, ph.p_vaddr, std.mem.page_size);
-            const virtual_end = load_offset + utils.alignUp(u64, ph.p_vaddr + ph.p_memsz, std.mem.page_size);
-            const aligned_data_size = utils.alignUp(u64, ph.p_filesz, std.mem.page_size);
-            const file_offset = utils.alignDown(u64, ph.p_offset, std.mem.page_size);
-
-            const virtual_fend = load_offset + ph.p_vaddr + aligned_data_size;
-            const data_size = ph.p_vaddr + ph.p_filesz - virtual_start;
-
-            _ = (try self.parent.address_space.mmap(
-                virtual_start,
-                data_size,
-                file_offset,
-                flags,
-                std.os.linux.MAP.PRIVATE | std.os.linux.MAP.FIXED,
-                file,
-            )) orelse return error.OutOfMemory;
-
-            if (virtual_fend < virtual_end) {
-                const bss_size = virtual_end - virtual_fend;
-
-                _ = (try self.parent.address_space.mmap(
-                    virtual_fend,
-                    bss_size,
-                    0,
-                    flags,
-                    std.os.linux.MAP.PRIVATE | std.os.linux.MAP.ANONYMOUS | std.os.linux.MAP.FIXED,
-                    null,
-                )) orelse return error.OutOfMemory;
-            }
+            file_to_load = try vfs.resolve(null, shebang.path, 0);
+            final_argv = argv_list.items;
         }
 
-        // var i: usize = 0;
-        // var stack_phys = page_table.translate(self.regs.rsp - std.mem.page_size).?;
-        // var stack = StackHelper.init(virt.hhdm + stack_phys + std.mem.page_size);
-        // var argv_pointers = std.ArrayListUnmanaged(u64){};
-        // var envp_pointers = std.ArrayListUnmanaged(u64){};
+        var executable = try self.parent.address_space.loadExecutable(file_to_load, 0);
+        var entry = executable.entry;
 
-        // defer argv_pointers.deinit(root.allocator);
-        // defer envp_pointers.deinit(root.allocator);
+        self.parent.executable = file_to_load;
 
-        // // Write the arguments to the stack
-        // for (argv) |string| {
-        //     stack.writeInt(u8, 0);
-        //     stack.write(string);
+        if (executable.ld_path) |ld_path| {
+            const ld_node = try vfs.resolve(null, ld_path, 0);
+            const ld_loaded = try self.parent.address_space.loadExecutable(ld_node, 0x4000_0000);
 
-        //     try argv_pointers.append(root.allocator, stack.rsp);
-        // }
+            entry = ld_loaded.entry;
+        }
 
-        // // Write the environment variables to the stack
-        // for (envp) |string| {
-        //     stack.writeInt(u8, 0);
-        //     stack.write(string);
+        var stack = StackHelper.init(self.regs.rsp);
+        var old_vm = self.parent.address_space.switchTo();
+        var argv_pointers = std.ArrayList(u64).init(root.allocator);
+        var envp_pointers = std.ArrayList(u64).init(root.allocator);
 
-        //     try envp_pointers.append(root.allocator, stack.rsp);
-        // }
+        defer argv_pointers.deinit();
+        defer envp_pointers.deinit();
 
-        // // Write the environemt variable pointers to the stack
-        // // Start with a null terminator
-        // stack.writeInt(u64, 0);
+        for (final_argv) |string| {
+            stack.writeString(string);
+            try argv_pointers.append(stack.rsp);
+        }
 
-        // while (i < envp_pointers.items.len) : (i += 1) {
-        //     stack.writeInt(u64, envp_pointers.items[envp_pointers.items.len - i - 1]);
-        // }
+        for (envp) |string| {
+            stack.writeString(string);
+            try envp_pointers.append(stack.rsp);
+        }
 
-        // // Write the argument pointers to the stack
-        // // Start with a null terminator
-        // stack.writeInt(u64, 0);
+        // Align the stack before writing the rest
+        stack.rsp &= ~@intCast(u64, 0xF);
 
-        // while (i < argv_pointers.items.len) : (i += 1) {
-        //     stack.writeInt(u64, argv_pointers.items[argv_pointers.items.len - i - 1]);
-        // }
+        // Write the auxilary vector
+        const auxv = [_][2]u64{
+            .{ 0, 0 },
+            .{ std.elf.AT_ENTRY, executable.aux_vals.at_entry },
+            .{ std.elf.AT_PHDR, executable.aux_vals.at_phdr },
+            .{ std.elf.AT_PHENT, executable.aux_vals.at_phent },
+            .{ std.elf.AT_PHNUM, executable.aux_vals.at_phnum },
+        };
 
-        // stack.writeInt(u64, argv_pointers.items.len);
+        for (auxv) |pair| {
+            stack.writeInt(u64, pair[1]);
+            stack.writeInt(u64, pair[0]);
+        }
 
-        // self.regs.rip = header.entry;
-        // self.regs.rsp -= stack.length;
+        // Write the environemnt variable pointers
+        stack.writeInt(u64, 0);
+
+        for (envp_pointers.items) |pointer| {
+            stack.writeInt(u64, pointer);
+        }
+
+        // Write the argument pointers
+        stack.writeInt(u64, 0);
+
+        for (argv_pointers.items) |pointer| {
+            stack.writeInt(u64, pointer);
+        }
+
+        // Write the argument count
+        stack.writeInt(u64, final_argv.len);
+
+        // Set up the registers
+        self.regs.rsp = stack.rsp;
+        self.regs.rip = entry;
+
+        _ = old_vm.switchTo();
     }
 
     pub fn switchTo(self: *Thread, frame: *interrupts.InterruptFrame) void {
@@ -372,12 +395,6 @@ pub fn enqueue(thread: *Thread) void {
     defer scheduler_lock.unlock();
 
     scheduler_queue.append(&thread.node);
-}
-
-pub fn dequeue() *Thread {
-    while (true) {
-        return dequeueOrNull() orelse continue;
-    }
 }
 
 pub fn dequeueOrNull() ?*Thread {

@@ -52,6 +52,7 @@ pub const Process = struct {
     pid: u64,
     parent: u64,
     cwd: *vfs.VNode = undefined,
+    executable: *vfs.VNode = undefined,
     children: std.ArrayListUnmanaged(*Process) = .{},
     threads: std.ArrayListUnmanaged(*scheduler.Thread) = .{},
     files: FileTable = .{},
@@ -81,7 +82,7 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
             error.NoDevice => .NXIO,
             error.FileNotFound => .NOENT,
             error.NameTooLong => .NAMETOOLONG,
-            error.SystemResources => .NOMEM, // ?
+            error.SystemResources => .NOMEM,
             error.FileTooBig => .FBIG,
             error.IsDir => .ISDIR,
             error.NoSpaceLeft => .NOSPC,

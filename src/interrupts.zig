@@ -91,6 +91,8 @@ fn printRegisters(frame: *InterruptFrame) void {
 }
 
 fn exceptionHandler(frame: *InterruptFrame) void {
+    const cpu_info = per_cpu.get();
+
     if (frame.vector == 0x6) {
         const code = @intToPtr([*]const u8, frame.rip);
 
@@ -103,19 +105,30 @@ fn exceptionHandler(frame: *InterruptFrame) void {
 
     logger.err("An exception #{} occurred", .{frame.vector});
 
-    debug.printStackIterator(std.debug.StackIterator.init(frame.rip, frame.rbp));
+    debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
 
     printRegisters(frame);
 
-    while (true) {
-        arch.halt();
+    if (cpu_info.currentProcess()) |process| {
+        // TODO: Implement signals and stuff like that so we can properly
+        // terminate processes that violate memory protections
+
+        logger.info("Killed {}:{} because of a protection violation", .{ process.pid, cpu_info.thread.?.tid });
+
+        process.exit_code = 0xff;
+
+        cpu_info.thread = null;
+    } else {
+        while (true) {
+            arch.halt();
+        }
     }
 }
 
 fn unhandledInterruptHandler(frame: *InterruptFrame) void {
     logger.err("An unhandled interrupt #{} occurred", .{frame.vector});
 
-    debug.printStackIterator(std.debug.StackIterator.init(frame.rip, frame.rbp));
+    debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
 
     printRegisters(frame);
 
@@ -142,7 +155,7 @@ fn makeHandler(comptime vector: usize) InterruptStub {
                     \\pushq %[vector]
                     \\jmp interruptCommonHandler
                     :
-                    : [vector] "rm" (vector),
+                    : [vector] "i" (vector),
                 );
             } else {
                 asm volatile (
@@ -150,7 +163,7 @@ fn makeHandler(comptime vector: usize) InterruptStub {
                     \\pushq %[vector]
                     \\jmp interruptCommonHandler
                     :
-                    : [vector] "rm" (vector),
+                    : [vector] "i" (vector),
                 );
             }
         }

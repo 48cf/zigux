@@ -4,7 +4,7 @@ export fn _start() callconv(.Naked) noreturn {
     asm volatile (
         \\mov (%%rsp), %%rdi
         \\lea 0x8(%%rsp), %%rsi
-        \\lea 0x10(%%rsp, %%rdi, 0x08), %%rsi
+        \\lea 0x10(%%rsp, %%rdi, 0x08), %%rdx
         \\call main
         \\mov %%rax, %%rdi
         \\mov $0x3C, %%rax
@@ -30,6 +30,8 @@ export fn main(
     for (std.mem.span(envp)) |env| {
         std.log.info("- {s}", .{std.mem.span(env)});
     }
+
+    std.log.info("Hello, {s}!", .{"world"});
 
     return 69;
 }

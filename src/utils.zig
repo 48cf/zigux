@@ -26,6 +26,10 @@ pub fn alignUp(comptime T: type, value: T, comptime alignment: T) T {
     return alignDown(T, value + alignment - 1, alignment);
 }
 
+pub fn divRoundUp(comptime T: type, value: T, comptime alignment: T) T {
+    return (value + (alignment - 1)) / alignment;
+}
+
 pub fn isAligned(comptime T: type, value: T, comptime alignment: T) bool {
     return alignDown(T, value, alignment) == value;
 }

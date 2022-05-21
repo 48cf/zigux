@@ -1,6 +1,8 @@
-const logger = std.log.scoped(.phys);
+const logger = std.log.scoped(.virt);
 
+const root = @import("root");
 const std = @import("std");
+
 const arch = @import("arch.zig");
 const limine = @import("limine.zig");
 const phys = @import("phys.zig");
@@ -10,8 +12,6 @@ const vfs = @import("vfs.zig");
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const flags_mask: u64 = 0xFFF0_0000_0000_0FFF;
-const alloc_base: u64 = 0x7000_0000_0000;
-const alloc_max: u64 = 0x7FFF_FFFF_FFFF;
 
 pub const Flags = struct {
     pub const None = 0;
@@ -60,6 +60,21 @@ fn virtToIndices(virt: u64) struct { pml4: usize, pml3: usize, pml2: usize, pml1
         .pml2 = pml2,
         .pml1 = pml1,
     };
+}
+
+inline fn protToFlags(prot: u64, user: bool) u64 {
+    var flags: u64 = Flags.Present;
+
+    if (user)
+        flags |= Flags.User;
+
+    if (prot & std.os.linux.PROT.WRITE != 0)
+        flags |= Flags.Writable;
+
+    if (prot & std.os.linux.PROT.EXEC == 0)
+        flags |= Flags.NoExecute;
+
+    return flags;
 }
 
 const PageTableEntry = packed struct {
@@ -157,6 +172,10 @@ const PageTable = packed struct {
     pub fn map(self: *PageTable, virt_addr: u64, phys_addr: u64, size: usize, flags: u64) !void {
         var i: u64 = 0;
 
+        std.debug.assert(utils.isAligned(u64, virt_addr, std.mem.page_size));
+        std.debug.assert(utils.isAligned(u64, phys_addr, std.mem.page_size));
+        std.debug.assert(utils.isAligned(u64, size, std.mem.page_size));
+
         while (i < size) : (i += std.mem.page_size) {
             try self.mapPage(virt_addr + i, phys_addr + i, flags);
         }
@@ -164,6 +183,10 @@ const PageTable = packed struct {
 
     pub fn remap(self: *PageTable, virt_addr: u64, phys_addr: u64, size: usize, flags: u64) !void {
         var i: u64 = 0;
+
+        std.debug.assert(utils.isAligned(u64, virt_addr, std.mem.page_size));
+        std.debug.assert(utils.isAligned(u64, phys_addr, std.mem.page_size));
+        std.debug.assert(utils.isAligned(u64, size, std.mem.page_size));
 
         while (i < size) : (i += std.mem.page_size) {
             try self.remapPage(virt_addr + i, phys_addr + i, flags);
@@ -173,31 +196,37 @@ const PageTable = packed struct {
     pub fn unmap(self: *PageTable, virt_addr: u64, size: usize) !void {
         var i: u64 = 0;
 
+        std.debug.assert(utils.isAligned(u64, virt_addr, std.mem.page_size));
+        std.debug.assert(utils.isAligned(u64, size, std.mem.page_size));
+
         while (i < size) : (i += std.mem.page_size) {
             try self.unmapPage(virt_addr + i);
         }
     }
 };
 
-const Mapping = struct {
-    protection: u64,
-    flags: u64,
-    start_addr: u64,
-    end_addr: u64,
-    file: ?*vfs.VNode = null,
-    node: std.TailQueue(void).Node = undefined,
+pub const LoadedExecutable = struct {
+    entry: u64,
+    ld_path: ?[]const u8,
+    aux_vals: struct {
+        at_entry: u64,
+        at_phdr: u64,
+        at_phent: u64,
+        at_phnum: u64,
+    },
 };
 
-pub const FaultReason = enum {
-    Read,
-    Write,
-    InstructionFetch,
+pub const FaultReason = struct {
+    pub const Present = 1 << 0;
+    pub const Write = 1 << 1;
+    pub const User = 1 << 2;
+    pub const InstructionFetch = 1 << 4;
 };
 
 pub const AddressSpace = struct {
     cr3: u64,
     page_table: *PageTable,
-    mappings: std.TailQueue(void) = .{},
+    lock: IrqSpinlock = .{},
 
     pub fn init(cr3: u64) AddressSpace {
         return .{
@@ -222,63 +251,60 @@ pub const AddressSpace = struct {
 
             return previous;
         } else {
+            current_address_space = self;
+
             switchPageTable(self.cr3);
 
             return self;
         }
     }
 
-    pub fn handlePageFault(self: *AddressSpace, address: u64, reason: FaultReason) !bool {
-        var current = self.mappings.first;
+    pub fn loadExecutable(self: *AddressSpace, file: *vfs.VNode, base: u64) !LoadedExecutable {
+        var stream = file.stream();
+        var header = try std.elf.Header.read(&stream);
+        var ph_iter = header.program_header_iterator(&stream);
+        var ld_path: ?[]const u8 = null;
+        var entry: u64 = header.entry + base;
+        var phdr: u64 = 0;
 
-        while (current != null) |mapping| : (current = mapping.next) {
-            _ = address;
-            _ = reason;
+        while (try ph_iter.next()) |ph| {
+            switch (ph.p_type) {
+                std.elf.PT_INTERP => ld_path = try root.allocator.alloc(u8, ph.p_filesz),
+                std.elf.PT_PHDR => phdr = ph.p_vaddr + base,
+                std.elf.PT_LOAD => {
+                    const misalign = ph.p_vaddr & (std.mem.page_size - 1);
+                    const page_count = utils.divRoundUp(u64, misalign + ph.p_memsz, std.mem.page_size);
+                    const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
+                    const page_hh = @intToPtr([*]u8, hhdm + page_phys + misalign);
 
-            logger.debug("{}", .{mapping});
+                    var flags: u64 = Flags.Present | Flags.User;
 
-            if (mapping.next == self.mappings.first) {
-                break;
+                    if (ph.p_flags & std.elf.PF_W != 0)
+                        flags |= Flags.Writable;
+
+                    if (ph.p_flags & std.elf.PF_X == 0)
+                        flags |= Flags.NoExecute;
+
+                    const virt_addr = utils.alignDown(u64, ph.p_vaddr, std.mem.page_size) + base;
+
+                    try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, flags);
+
+                    _ = try file.read(page_hh[0..ph.p_filesz], ph.p_offset);
+                },
+                else => continue,
             }
         }
 
-        return false;
-    }
-
-    pub fn mmap(
-        self: *AddressSpace,
-        address: u64,
-        size: usize,
-        offset: usize,
-        prot: u64,
-        flags: u64,
-        file: ?*vfs.VNode,
-    ) !?u64 {
-        if (size == 0 or !utils.isAligned(usize, offset, std.mem.page_size)) {
-            return null;
-        }
-
-        var address_aligned = utils.alignDown(u64, address, std.mem.page_size);
-        var size_aligned = utils.alignUp(usize, size, std.mem.page_size);
-
-        if (address_aligned + size_aligned > alloc_max) {
-            return null;
-        }
-
-        _ = self;
-        _ = prot;
-        _ = flags;
-
-        if (file) |vnode| {
-            logger.debug(
-                "Attempting to map {} bytes of file {s} at offset {} at 0x{X}",
-                .{ size_aligned, vnode.name, offset, address_aligned },
-            );
-        } else {
-            logger.debug("Attempting to map {} bytes at 0x{X}", .{ size_aligned, address_aligned });
-        }
-
-        return null;
+        return LoadedExecutable{
+            .entry = entry,
+            .ld_path = ld_path,
+            .aux_vals = .{
+                .at_entry = entry,
+                .at_phdr = phdr,
+                .at_phent = header.phentsize,
+                .at_phnum = header.phnum,
+            },
+        };
     }
 };
 
@@ -305,13 +331,12 @@ fn map_section(
 }
 
 pub fn init(hhdm_res: *limine.Hhdm.Response, kernel_addr_res: *limine.KernelAddress.Response) !void {
-    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
-
     hhdm = hhdm_res.offset;
-    kernel_address_space = AddressSpace.init(page_table_phys);
 
-    // Prepopulate the higher half of kernel address space
-    var page_table = kernel_address_space.?.page_table;
+    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const page_table = @intToPtr(*PageTable, hhdm + page_table_phys);
+
+    // Pre-populate the higher half of kernel address space
     var i: usize = 256;
 
     while (i < 512) : (i += 1) {
@@ -324,6 +349,9 @@ pub fn init(hhdm_res: *limine.Hhdm.Response, kernel_addr_res: *limine.KernelAddr
     try map_section("text", page_table, kernel_addr_res, Flags.Present);
     try map_section("rodata", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
     try map_section("data", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute | Flags.Writable);
+
+    // Prepare for the address space switch
+    kernel_address_space = AddressSpace.init(page_table_phys);
 
     _ = kernel_address_space.?.switchTo();
 }

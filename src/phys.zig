@@ -141,7 +141,9 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
 }
 
 // TODO: Implement free lmao
-// pub fn free() {}
+pub fn free(address: u64, pages: usize) void {
+    logger.warn("Physical free is a stub, attempt to free {} pages at 0x{X}", .{ pages, address });
+}
 
 pub fn freePages() usize {
     return total_pages - used_pages;

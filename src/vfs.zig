@@ -11,14 +11,12 @@ pub const OomError = error{OutOfMemory};
 pub const OpenError = std.os.OpenError || OomError;
 pub const ReadError = std.os.PReadError || OomError;
 pub const WriteError = std.os.PWriteError || OomError;
-pub const MmapError = std.os.MMapError || OomError;
 
 pub const VNodeVTable = struct {
     open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode,
     read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize,
     write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize,
     insert: ?fn (self: *VNode, child: *VNode) OomError!void,
-    mmap: ?fn (self: *VNode, offset: usize, flags: usize) MmapError!u64,
     // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) std.os.linux.E!usize,
 };
 
@@ -105,16 +103,6 @@ pub const VNode = struct {
             return fun(vnode, child);
         } else {
             @panic("An insert operation is required");
-        }
-    }
-
-    pub fn mmap(self: *VNode, offset: usize, flags: usize) !u64 {
-        const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.mmap) |fun| {
-            return fun(vnode, offset, flags);
-        } else {
-            return error.NotImplemented;
         }
     }
 

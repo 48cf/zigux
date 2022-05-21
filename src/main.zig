@@ -171,9 +171,9 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
     }
 }
 
-pub fn log(
+pub fn logImpl(
     comptime level: std.log.Level,
-    comptime scope: anytype,
+    scope: []const u8,
     comptime fmt: []const u8,
     args: anytype,
 ) void {
@@ -185,7 +185,7 @@ pub fn log(
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
 
-    writer.print("{s}({s}): ", .{ @tagName(level), @tagName(scope) }) catch unreachable;
+    writer.print("{s}({s}): ", .{ @tagName(level), scope }) catch unreachable;
     writer.print(fmt ++ "\n", args) catch unreachable;
     writer.writeByte(0) catch unreachable;
 
@@ -203,4 +203,13 @@ pub fn log(
     for (string) |byte| {
         arch.out(u8, 0xE9, byte);
     }
+}
+
+pub fn log(
+    comptime level: std.log.Level,
+    comptime scope: anytype,
+    comptime fmt: []const u8,
+    args: anytype,
+) void {
+    logImpl(level, @tagName(scope), fmt, args);
 }

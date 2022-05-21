@@ -13,7 +13,6 @@ const tty_vtable: vfs.VNodeVTable = .{
     .read = TtyVNode.read,
     .write = TtyVNode.write,
     .insert = null,
-    .mmap = null,
 };
 
 const TtyVNode = struct {
@@ -95,8 +94,9 @@ const TtyVNode = struct {
         _ = offset;
 
         const line = std.mem.split(u8, buffer, "\n").next().?;
+        const process = per_cpu.get().currentProcess().?;
 
-        logger.info("{s}", .{line});
+        root.logImpl(.info, process.executable.name.?, "{s}", .{line});
 
         return line.len;
     }
