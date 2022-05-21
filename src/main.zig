@@ -151,7 +151,7 @@ pub fn mainThread() noreturn {
     const init = utils.vital(vfs.resolve(null, "/sys/modules/init", 0), "Failed to find the executable");
 
     utils.vital(
-        thread.exec(init, &.{"/sys/modules/init"}, &.{ "TERM=linux", "HOME=/root" }),
+        thread.exec(init, &.{ "/sys/modules/init", "test", "args" }, &.{ "TERM=linux", "HOME=/root" }),
         "Failed to execute the init executable",
     );
 

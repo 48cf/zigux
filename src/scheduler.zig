@@ -166,6 +166,9 @@ pub const Thread = struct {
             stack.writeInt(u64, pair[0]);
         }
 
+        std.mem.reverse(u64, envp_pointers.items);
+        std.mem.reverse(u64, argv_pointers.items);
+
         // Write the environemnt variable pointers
         stack.writeInt(u64, 0);
 
