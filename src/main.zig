@@ -146,6 +146,7 @@ fn main() !void {
 }
 
 pub fn mainThread() noreturn {
+    const cpu_info = per_cpu.get();
     const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
     const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
     const hello = utils.vital(vfs.resolve(null, "/usr/bin/hello-mlibc", 0), "Failed to find the executable");
@@ -156,7 +157,17 @@ pub fn mainThread() noreturn {
     );
 
     scheduler.enqueue(thread);
-    std.os.linux.exit(0);
+
+    if (cpu_info.thread) |this_thread| {
+        cpu_info.thread = null;
+
+        this_thread.parent.exit_code = @truncate(u8, 0);
+    }
+
+    // Wait to get rescheduled away
+    while (true) {
+        arch.halt();
+    }
 }
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {

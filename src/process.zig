@@ -9,6 +9,19 @@ const scheduler = @import("scheduler.zig");
 const per_cpu = @import("per_cpu.zig");
 const virt = @import("virt.zig");
 
+pub const SyscallNumber = enum(u64) {
+    Exit = 0x0,
+    Log = 0x1,
+
+    Open = 0x100,
+    Close = 0x101,
+    Read = 0x102,
+    Write = 0x103,
+    Seek = 0x104,
+
+    _,
+};
+
 const FileDescriptor = struct {
     vnode: *vfs.VNode,
     offset: usize,
@@ -73,8 +86,8 @@ pub const Process = struct {
 };
 
 pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
-    frame.rax = syscallHandlerImpl(frame) catch |err| {
-        const linux_error = @as(std.os.linux.E, switch (err) {
+    frame.rax = syscallHandlerImpl(frame) catch |err| blk: {
+        const errno = @as(std.os.linux.E, switch (err) {
             error.AccessDenied => .ACCES,
             error.SymLinkLoop => .LOOP,
             error.ProcessFdQuotaExceeded => .DQUOT,
@@ -111,58 +124,17 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
             error.InvalidArgument => .INVAL,
         });
 
-        frame.rax = @bitCast(u64, @as(i64, -@bitCast(i16, @enumToInt(linux_error))));
-
-        return;
+        break :blk @bitCast(u64, @as(i64, -@bitCast(i16, @enumToInt(errno))));
     } orelse return;
 }
 
 fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     const cpu_info = per_cpu.get();
-    const syscall_num = @intToEnum(std.os.linux.SYS, frame.rax);
+    const syscall_num = @intToEnum(SyscallNumber, frame.rax);
     const process = cpu_info.currentProcess().?;
 
     return switch (syscall_num) {
-        .open => {
-            const path = try process.validateString([:0]const u8, frame.rdi);
-            const vnode = if (std.fs.path.isAbsolute(path))
-                try vfs.resolve(null, path, frame.rsi)
-            else
-                try vfs.resolve(process.cwd, path, frame.rsi);
-
-            return try process.files.insert(vnode);
-        },
-        .read => {
-            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
-            const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
-            const bytes_read = try file.vnode.read(buffer, file.offset);
-
-            file.offset += bytes_read;
-
-            return bytes_read;
-        },
-        .write => {
-            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
-            const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
-            const bytes_written = try file.vnode.write(buffer, file.offset);
-
-            file.offset += bytes_written;
-
-            return bytes_written;
-        },
-        .lseek => {
-            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
-
-            switch (frame.rdx) {
-                std.os.linux.SEEK.SET => file.offset = frame.rsi,
-                std.os.linux.SEEK.CUR => file.offset +%= frame.rsi,
-                std.os.linux.SEEK.END => unreachable,
-                else => return error.InvalidArgument,
-            }
-
-            return file.offset;
-        },
-        .exit => {
+        .Exit => {
             cpu_info.thread = null;
 
             process.exit_code = @truncate(u8, frame.rdi);
@@ -173,13 +145,52 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return null;
         },
-        @intToEnum(std.os.linux.SYS, 1024) => {
+        .Log => {
             const buffer = try process.validateString([:0]const u8, frame.rdi);
             const length = std.mem.len(buffer);
 
             logger.info("{s}", .{buffer[0..length]});
 
             return 0;
+        },
+        .Open => {
+            const path = try process.validateString([:0]const u8, frame.rdi);
+            const vnode = if (std.fs.path.isAbsolute(path))
+                try vfs.resolve(null, path, frame.rsi)
+            else
+                try vfs.resolve(process.cwd, path, frame.rsi);
+
+            return try process.files.insert(vnode);
+        },
+        .Read => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
+            const bytes_read = try file.vnode.read(buffer, file.offset);
+
+            file.offset += bytes_read;
+
+            return bytes_read;
+        },
+        .Write => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
+            const bytes_written = try file.vnode.write(buffer, file.offset);
+
+            file.offset += bytes_written;
+
+            return bytes_written;
+        },
+        .Seek => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+
+            switch (frame.rdx) {
+                std.os.linux.SEEK.SET => file.offset = frame.rsi,
+                std.os.linux.SEEK.CUR => file.offset +%= frame.rsi,
+                std.os.linux.SEEK.END => unreachable,
+                else => return error.InvalidArgument,
+            }
+
+            return file.offset;
         },
         else => {
             logger.warn(
