@@ -4,6 +4,7 @@ const root = @import("root");
 const std = @import("std");
 
 const abi = @import("abi.zig");
+const arch = @import("arch.zig");
 const vfs = @import("vfs.zig");
 const interrupts = @import("interrupts.zig");
 const scheduler = @import("scheduler.zig");
@@ -16,6 +17,7 @@ const all_flags: u64 = abi.MAP_SHARED | abi.MAP_PRIVATE | abi.MAP_FIXED | abi.MA
 pub const SyscallNumber = enum(u64) {
     ProcExit = 0x0,
     ProcLog = 0x1,
+    ProcArchCtl = 0x2,
 
     FileOpen = 0x100,
     FileClose = 0x101,
@@ -136,8 +138,6 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
             error.InvalidArgument => abi.EINVAL,
         };
 
-        std.os.linux.ARCH;
-
         break :blk @bitCast(u64, @as(i64, -@bitCast(i16, errno)));
     } orelse return;
 }
@@ -166,6 +166,16 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             logger.info("{s}", .{buffer[0..length]});
 
             return 0;
+        },
+        .ProcArchCtl => {
+            switch (frame.rdi) {
+                abi.ARCH_SET_FS => {
+                    arch.Msr.fs_base.write(frame.rsi);
+
+                    return 0;
+                },
+                else => return error.InvalidArgument,
+            }
         },
         .FileOpen => {
             const path = try process.validateString([:0]const u8, frame.rdi);
