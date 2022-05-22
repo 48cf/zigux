@@ -260,6 +260,8 @@ pub const AddressSpace = struct {
     }
 
     pub fn loadExecutable(self: *AddressSpace, file: *vfs.VNode, base: u64) !LoadedExecutable {
+        logger.debug("Trying to load executable {} at 0x{X}", .{ file.getFullPath(), base });
+
         var stream = file.stream();
         var header = try std.elf.Header.read(&stream);
         var ph_iter = header.program_header_iterator(&stream);
@@ -275,6 +277,11 @@ pub const AddressSpace = struct {
                 },
                 std.elf.PT_PHDR => phdr = ph.p_vaddr + base,
                 std.elf.PT_LOAD => {
+                    logger.debug(
+                        "  PT_LOAD {{ .p_offset=0x{X}, .p_vaddr=0x{X}, .p_filesz=0x{X}, .p_memsz=0x{X}, .p_flags=0x{X} }}",
+                        .{ ph.p_offset, ph.p_vaddr, ph.p_filesz, ph.p_memsz, ph.p_flags },
+                    );
+
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
                     const page_count = utils.divRoundUp(u64, misalign + ph.p_memsz, std.mem.page_size);
                     const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
