@@ -163,14 +163,14 @@ fn mapIrqToGsi(irq: u8) SourceOverride {
 
 fn readRegister(reg: ApicRegister) u32 {
     const address = per_cpu.get().lapic_base + @enumToInt(reg);
-    const pointer = @intToPtr(*volatile u32, address);
+    const pointer = @intToPtr(*align(4) volatile u32, address);
 
     return pointer.*;
 }
 
 fn writeRegister(reg: ApicRegister, value: u32) void {
     const address = per_cpu.get().lapic_base + @enumToInt(reg);
-    const pointer = @intToPtr(*volatile u32, address);
+    const pointer = @intToPtr(*align(4) volatile u32, address);
 
     pointer.* = value;
 }
