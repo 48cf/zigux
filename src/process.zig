@@ -10,14 +10,18 @@ const per_cpu = @import("per_cpu.zig");
 const virt = @import("virt.zig");
 
 pub const SyscallNumber = enum(u64) {
-    Exit = 0x0,
-    Log = 0x1,
+    ProcExit = 0x0,
+    ProcLog = 0x1,
 
-    Open = 0x100,
-    Close = 0x101,
-    Read = 0x102,
-    Write = 0x103,
-    Seek = 0x104,
+    FileOpen = 0x100,
+    FileClose = 0x101,
+    FileRead = 0x102,
+    FileWrite = 0x103,
+    FileSeek = 0x104,
+
+    MemMap = 0x200,
+    MemUnmap = 0x201,
+    MemProtect = 0x202,
 
     _,
 };
@@ -134,7 +138,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     const process = cpu_info.currentProcess().?;
 
     return switch (syscall_num) {
-        .Exit => {
+        .ProcExit => {
             cpu_info.thread = null;
 
             process.exit_code = @truncate(u8, frame.rdi);
@@ -145,7 +149,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return null;
         },
-        .Log => {
+        .ProcLog => {
             const buffer = try process.validateString([:0]const u8, frame.rdi);
             const length = std.mem.len(buffer);
 
@@ -153,7 +157,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return 0;
         },
-        .Open => {
+        .FileOpen => {
             const path = try process.validateString([:0]const u8, frame.rdi);
             const vnode = if (std.fs.path.isAbsolute(path))
                 try vfs.resolve(null, path, frame.rsi)
@@ -162,7 +166,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return try process.files.insert(vnode);
         },
-        .Read => {
+        .FileRead => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
             const bytes_read = try file.vnode.read(buffer, file.offset);
@@ -171,7 +175,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return bytes_read;
         },
-        .Write => {
+        .FileWrite => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
             const bytes_written = try file.vnode.write(buffer, file.offset);
@@ -180,7 +184,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return bytes_written;
         },
-        .Seek => {
+        .FileSeek => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
             switch (frame.rdx) {
