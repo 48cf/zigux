@@ -55,6 +55,10 @@ const FileTable = struct {
     pub fn get(self: *FileTable, fd: u64) ?*FileDescriptor {
         return self.files.getPtr(fd);
     }
+
+    pub fn remove(self: *FileTable, fd: u64) bool {
+        return self.files.swapRemove(fd);
+    }
 };
 
 fn sliceToMany(comptime T: type) type {
@@ -165,6 +169,13 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 try vfs.resolve(process.cwd, path, frame.rsi);
 
             return try process.files.insert(vnode);
+        },
+        .FileClose => {
+            if (process.files.remove(frame.rdi)) {
+                return 0;
+            } else {
+                return error.BadFileDescriptor;
+            }
         },
         .FileRead => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
