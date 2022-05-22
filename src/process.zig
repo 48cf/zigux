@@ -3,11 +3,15 @@ const logger = std.log.scoped(.process);
 const root = @import("root");
 const std = @import("std");
 
+const abi = @import("abi.zig");
 const vfs = @import("vfs.zig");
 const interrupts = @import("interrupts.zig");
 const scheduler = @import("scheduler.zig");
 const per_cpu = @import("per_cpu.zig");
 const virt = @import("virt.zig");
+
+const all_prot: u64 = abi.PROT_READ | abi.PROT_WRITE | abi.PROT_EXEC;
+const all_flags: u64 = abi.MAP_SHARED | abi.MAP_PRIVATE | abi.MAP_FIXED | abi.MAP_ANON;
 
 pub const SyscallNumber = enum(u64) {
     ProcExit = 0x0,
@@ -95,44 +99,46 @@ pub const Process = struct {
 
 pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
     frame.rax = syscallHandlerImpl(frame) catch |err| blk: {
-        const errno = @as(std.os.linux.E, switch (err) {
-            error.AccessDenied => .ACCES,
-            error.SymLinkLoop => .LOOP,
-            error.ProcessFdQuotaExceeded => .DQUOT,
-            error.SystemFdQuotaExceeded => .DQUOT,
-            error.NoDevice => .NXIO,
-            error.FileNotFound => .NOENT,
-            error.NameTooLong => .NAMETOOLONG,
-            error.SystemResources => .NOMEM,
-            error.FileTooBig => .FBIG,
-            error.IsDir => .ISDIR,
-            error.NoSpaceLeft => .NOSPC,
-            error.NotDir => .NOTDIR,
-            error.PathAlreadyExists => .EXIST,
-            error.DeviceBusy => .BUSY,
-            error.FileLocksNotSupported => .NOLCK,
-            error.BadPathName => .FAULT,
-            error.InvalidUtf8 => .INVAL,
-            error.FileBusy => .BUSY,
-            error.WouldBlock => .AGAIN,
+        const errno = switch (err) {
+            error.AccessDenied => abi.EACCES,
+            error.SymLinkLoop => abi.ELOOP,
+            error.ProcessFdQuotaExceeded => abi.EDQUOT,
+            error.SystemFdQuotaExceeded => abi.EDQUOT,
+            error.NoDevice => abi.ENXIO,
+            error.FileNotFound => abi.ENOENT,
+            error.NameTooLong => abi.ENAMETOOLONG,
+            error.SystemResources => abi.ENOMEM,
+            error.FileTooBig => abi.EFBIG,
+            error.IsDir => abi.EISDIR,
+            error.NoSpaceLeft => abi.ENOSPC,
+            error.NotDir => abi.ENOTDIR,
+            error.PathAlreadyExists => abi.EEXIST,
+            error.DeviceBusy => abi.EBUSY,
+            error.FileLocksNotSupported => abi.ENOLCK,
+            error.BadPathName => abi.EFAULT,
+            error.InvalidUtf8 => abi.EINVAL,
+            error.FileBusy => abi.EBUSY,
+            error.WouldBlock => abi.EAGAIN,
             error.Unexpected => unreachable,
-            error.OutOfMemory => .NOMEM,
-            error.NotImplemented => .NOSYS,
-            error.NotFound => .NOENT,
-            error.BadFileDescriptor => .BADFD,
-            error.InputOutput => .IO,
-            error.OperationAborted => .CANCELED,
-            error.BrokenPipe => .PIPE,
-            error.ConnectionResetByPeer => .CONNRESET,
-            error.ConnectionTimedOut => .TIMEDOUT,
-            error.NotOpenForReading => .BADF,
-            error.Unseekable => .SPIPE,
-            error.DiskQuota => .DQUOT,
-            error.NotOpenForWriting => .ROFS,
-            error.InvalidArgument => .INVAL,
-        });
+            error.OutOfMemory => abi.ENOMEM,
+            error.NotImplemented => abi.ENOSYS,
+            error.NotFound => abi.ENOENT,
+            error.BadFileDescriptor => abi.EBADFD,
+            error.InputOutput => abi.EIO,
+            error.OperationAborted => abi.ECANCELED,
+            error.BrokenPipe => abi.EPIPE,
+            error.ConnectionResetByPeer => abi.ECONNRESET,
+            error.ConnectionTimedOut => abi.ETIMEDOUT,
+            error.NotOpenForReading => abi.EBADF,
+            error.Unseekable => abi.ESPIPE,
+            error.DiskQuota => abi.EDQUOT,
+            error.NotOpenForWriting => abi.EROFS,
+            error.InvalidArgument => abi.EINVAL,
+        };
 
-        break :blk @bitCast(u64, @as(i64, -@bitCast(i16, @enumToInt(errno))));
+        std.os.linux.ARCH;
+
+        break :blk @bitCast(u64, @as(i64, -@bitCast(i16, errno)));
     } orelse return;
 }
 
@@ -199,13 +205,35 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
             switch (frame.rdx) {
-                std.os.linux.SEEK.SET => file.offset = frame.rsi,
-                std.os.linux.SEEK.CUR => file.offset +%= frame.rsi,
-                std.os.linux.SEEK.END => unreachable,
+                abi.SEEK_SET => file.offset = frame.rsi,
+                abi.SEEK_CUR => file.offset +%= frame.rsi,
+                abi.SEEK_END => unreachable,
                 else => return error.InvalidArgument,
             }
 
             return file.offset;
+        },
+        .MemMap => {
+            // All stuff that we don't support (currently) :/
+            // I'm not sure whether PROT_NONE is used anywhere..?
+            if (frame.rdx == 0 or frame.rdx & ~all_prot != 0 or frame.r10 & ~all_flags != 0) {
+                return error.InvalidArgument;
+            }
+
+            // And I definitely don't support file mappings at the moment.
+            if (frame.r8 != @bitCast(u64, @intCast(i64, -1)) or frame.r9 != 0) {
+                return error.InvalidArgument;
+            }
+
+            // Also the length has to be non zero :)
+            if (frame.rsi == 0) {
+                return error.InvalidArgument;
+            }
+
+            // const vnode = if (frame.r8 != -1) process.files.get(frame.r8) orelse return error.BadFileDescriptor else null;
+            const address = try process.address_space.mmap(frame.rdi, frame.rsi, frame.rdx, frame.r10, null, frame.r9);
+
+            return address orelse error.OutOfMemory;
         },
         else => {
             logger.warn(

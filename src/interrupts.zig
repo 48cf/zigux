@@ -101,6 +101,20 @@ fn exceptionHandler(frame: *InterruptFrame) void {
 
             return @call(.{ .modifier = .always_tail }, handlers[syscall_vector], .{frame});
         }
+    } else if (frame.vector == 0xE) blk: {
+        const cr2 = asm volatile ("mov %%cr2, %[result]"
+            : [result] "=r" (-> u64),
+        );
+
+        const handled = cpu_info.currentProcess().?.address_space.handlePageFault(cr2, frame.error_code) catch |err| {
+            logger.err("Failed to handle the page fault: {e}", .{err});
+
+            break :blk;
+        };
+
+        if (handled) {
+            return;
+        }
     }
 
     logger.err("An exception #{} occurred", .{frame.vector});

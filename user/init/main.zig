@@ -52,9 +52,10 @@ pub fn log(
     writer.print(fmt ++ "\n", args) catch unreachable;
     writer.writeByte(0) catch unreachable;
 
-    _ = std.os.linux.write(
-        1,
-        &bytes,
-        std.mem.len(@ptrCast([*:0]const u8, &bytes)),
-    );
+    // TODO: Fix this to use our own syscall interface
+    // _ = std.os.linux.write(
+    //     1,
+    //     &bytes,
+    //     std.mem.len(@ptrCast([*:0]const u8, &bytes)),
+    // );
 }

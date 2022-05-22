@@ -3,6 +3,7 @@ const logger = std.log.scoped(.vfs);
 const root = @import("root");
 const std = @import("std");
 
+const abi = @import("abi.zig");
 const tar = @import("tar.zig");
 const limine = @import("limine.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
@@ -18,7 +19,7 @@ pub const VNodeVTable = struct {
     read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize,
     write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize,
     insert: ?fn (self: *VNode, child: *VNode) OomError!void,
-    // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) std.os.linux.E!usize,
+    // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) !usize,
 };
 
 pub const VNodeKind = enum {
@@ -292,7 +293,7 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
                     continue;
                 }
 
-                const file_node = try resolve(root_node, file_name, std.os.linux.O.CREAT);
+                const file_node = try resolve(root_node, file_name, abi.O_CREAT);
 
                 if (file_name[file_name.len - 1] != '/') {
                     try file_node.writeAll(iterator.file_contents, 0);
@@ -331,7 +332,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
                         error.FileNotFound => {
                             const fs = next.getEffectiveFs();
 
-                            if (flags & std.os.linux.O.CREAT != 0) {
+                            if (flags & abi.O_CREAT != 0) {
                                 if (path[path.len - 1] == '/') {
                                     const node = try fs.createDir(component);
 

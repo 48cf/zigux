@@ -4,12 +4,19 @@ const root = @import("root");
 const std = @import("std");
 
 const arch = @import("arch.zig");
+const abi = @import("abi.zig");
 const limine = @import("limine.zig");
 const phys = @import("phys.zig");
 const utils = @import("utils.zig");
 const vfs = @import("vfs.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
+
+// The base address for all user allocations
+const user_alloc_base: u64 = 0x7000_0000_0000;
+// Right before the end of user stack
+// TODO: Perhaps we should use mmap for the stack too?
+const user_alloc_max: u64 = 0x7FFF_FFFF_0000;
 
 const flags_mask: u64 = 0xFFF0_0000_0000_0FFF;
 
@@ -68,10 +75,10 @@ inline fn protToFlags(prot: u64, user: bool) u64 {
     if (user)
         flags |= Flags.User;
 
-    if (prot & std.os.linux.PROT.WRITE != 0)
+    if (prot & abi.PROT_WRITE != 0)
         flags |= Flags.Writable;
 
-    if (prot & std.os.linux.PROT.EXEC == 0)
+    if (prot & abi.PROT_EXEC == 0)
         flags |= Flags.NoExecute;
 
     return flags;
@@ -223,10 +230,20 @@ pub const FaultReason = struct {
     pub const InstructionFetch = 1 << 4;
 };
 
+pub const Mapping = struct {
+    base: u64,
+    length: u64,
+    prot: u64,
+    flags: u64,
+    node: std.TailQueue(void).Node = undefined,
+};
+
 pub const AddressSpace = struct {
     cr3: u64,
     page_table: *PageTable,
     lock: IrqSpinlock = .{},
+    mappings: std.TailQueue(void) = .{},
+    alloc_base: u64 = user_alloc_base,
 
     pub fn init(cr3: u64) AddressSpace {
         return .{
@@ -319,6 +336,86 @@ pub const AddressSpace = struct {
                 .at_phnum = header.phnum,
             },
         };
+    }
+
+    pub fn handlePageFault(self: *AddressSpace, address: u64, reason: u64) !bool {
+        // std.debug.assert(reason & FaultReason.User != 0);
+
+        var iter = self.mappings.first;
+
+        logger.debug("Mapping 0x{X} on demand with reason 0x{X}", .{ address, reason });
+
+        while (iter) |node| : (iter = node.next) {
+            const mapping = @fieldParentPtr(Mapping, "node", node);
+
+            if (address >= mapping.base and address <= mapping.base + mapping.length) {
+                const base = utils.alignDown(u64, address, std.mem.page_size);
+                const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+                const flags = protToFlags(mapping.prot, true);
+
+                try current_address_space.?.page_table.mapPage(base, page_phys, flags);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn mmap(
+        self: *AddressSpace,
+        hint: u64,
+        length: usize,
+        prot: u64,
+        flags: u64,
+        file: ?*vfs.VNode,
+        offset: usize,
+    ) !?u64 {
+        std.debug.assert(file == null);
+        std.debug.assert(offset == 0);
+
+        if (hint != 0 and hint >= user_alloc_base) {
+            return null;
+        }
+
+        var address = utils.alignDown(u64, hint, std.mem.page_size);
+        var size = utils.alignUp(u64, length, std.mem.page_size);
+
+        if (address == 0) {
+            address = self.alloc_base;
+            self.alloc_base += size;
+        }
+
+        const mapping = try root.allocator.create(Mapping);
+
+        mapping.* = .{
+            .base = address,
+            .length = size,
+            .prot = prot,
+            .flags = flags,
+        };
+
+        self.insertMapping(mapping);
+
+        return address;
+    }
+
+    fn insertMapping(self: *AddressSpace, new_mapping: *Mapping) void {
+        var iter = self.mappings.first;
+
+        while (iter) |node| : (iter = node.next) {
+            const mapping = @fieldParentPtr(Mapping, "node", node);
+
+            if (new_mapping.base < mapping.base) {
+                std.debug.assert(new_mapping.base + new_mapping.length <= mapping.base);
+
+                self.mappings.insertBefore(node, &new_mapping.node);
+
+                return;
+            }
+        }
+
+        self.mappings.append(&new_mapping.node);
     }
 };
 
