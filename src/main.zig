@@ -182,9 +182,9 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
     }
 }
 
-pub fn logImpl(
+pub fn log(
     comptime level: std.log.Level,
-    scope: []const u8,
+    comptime scope: anytype,
     comptime fmt: []const u8,
     args: anytype,
 ) void {
@@ -196,31 +196,9 @@ pub fn logImpl(
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
 
-    writer.print("{s}({s}): ", .{ @tagName(level), scope }) catch unreachable;
+    writer.print("{s}({s}): ", .{ @tagName(level), @tagName(scope) }) catch unreachable;
     writer.print(fmt ++ "\n", args) catch unreachable;
     writer.writeByte(0) catch unreachable;
 
-    const string = std.mem.span(@ptrCast([*:0]const u8, &bytes));
-    const previous_vm = if (virt.kernel_address_space) |*vm| vm.switchTo() else null;
-
-    if (term_req.response) |term_res| {
-        term_res.write_fn(term_res.terminals[0], string, string.len);
-    }
-
-    if (previous_vm) |vm| {
-        _ = vm.switchTo();
-    }
-
-    for (string) |byte| {
-        arch.out(u8, 0xE9, byte);
-    }
-}
-
-pub fn log(
-    comptime level: std.log.Level,
-    comptime scope: anytype,
-    comptime fmt: []const u8,
-    args: anytype,
-) void {
-    logImpl(level, @tagName(scope), fmt, args);
+    arch.debugPrint(std.mem.span(@ptrCast([*:0]const u8, &bytes)));
 }

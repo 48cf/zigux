@@ -353,7 +353,7 @@ pub const AddressSpace = struct {
                 const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
                 const flags = protToFlags(mapping.prot, true);
 
-                try current_address_space.?.page_table.mapPage(base, page_phys, flags);
+                try self.page_table.mapPage(base, page_phys, flags);
 
                 return true;
             }

@@ -3,10 +3,13 @@ const logger = std.log.scoped(.devfs);
 const root = @import("root");
 const std = @import("std");
 
+const arch = @import("../arch.zig");
 const vfs = @import("../vfs.zig");
 const per_cpu = @import("../per_cpu.zig");
 const ps2 = @import("../drivers/ps2.zig");
 const ram_fs = @import("ram_fs.zig");
+
+const RingBuffer = @import("../containers/ring_buffer.zig").RingBuffer;
 
 const tty_vtable: vfs.VNodeVTable = .{
     .open = null,
@@ -14,6 +17,8 @@ const tty_vtable: vfs.VNodeVTable = .{
     .write = TtyVNode.write,
     .insert = null,
 };
+
+var tty_buffer: RingBuffer(u8, 2048) = .{};
 
 const TtyVNode = struct {
     vnode: vfs.VNode,
@@ -93,12 +98,21 @@ const TtyVNode = struct {
         _ = vnode;
         _ = offset;
 
-        const line = std.mem.split(u8, buffer, "\n").next().?;
-        const process = per_cpu.get().currentProcess().?;
+        var written: usize = 0;
 
-        root.logImpl(.info, process.executable.name.?, "{s}", .{line});
+        for (buffer) |byte| {
+            written += 1;
 
-        return line.len;
+            _ = tty_buffer.push(byte);
+
+            if (byte == '\n') {
+                while (tty_buffer.pop()) |tty_byte| {
+                    arch.debugPrint(&.{tty_byte});
+                }
+            }
+        }
+
+        return written;
     }
 };
 
