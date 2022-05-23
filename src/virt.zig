@@ -339,11 +339,11 @@ pub const AddressSpace = struct {
     }
 
     pub fn handlePageFault(self: *AddressSpace, address: u64, reason: u64) !bool {
-        // std.debug.assert(reason & FaultReason.User != 0);
+        if (reason & FaultReason.Present != 0) {
+            return false;
+        }
 
         var iter = self.mappings.first;
-
-        logger.debug("Mapping 0x{X} on demand with reason 0x{X}", .{ address, reason });
 
         while (iter) |node| : (iter = node.next) {
             const mapping = @fieldParentPtr(Mapping, "node", node);
