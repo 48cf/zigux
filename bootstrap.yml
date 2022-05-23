@@ -214,3 +214,22 @@ packages:
       - args: ["ninja", "install"]
         environ:
           DESTDIR: "@THIS_COLLECT_DIR@"
+
+  - name: "binutils"
+    from_source: "binutils"
+    tools_required: ["host-gcc"]
+    configure:
+      - args:
+          - "@THIS_SOURCE_DIR@/configure"
+          - "--host=@OPTION:arch-triple@"
+          - "--target=@OPTION:arch-triple@"
+          - "--prefix=/usr"
+          - "--with-sysroot=/"
+          - "--disable-nls"
+          - "--disable-werror"
+          - "CFLAGS=-O2"
+    build:
+      - args: ["make", "-j@PARALLELISM@", "all-binutils", "all-gas", "all-ld"]
+      - args: ["make", "install-binutils", "install-gas", "install-ld"]
+        environ:
+          DESTDIR: "@THIS_COLLECT_DIR@"

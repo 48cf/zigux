@@ -89,7 +89,7 @@ index 3b24d638..8e2789de 100644
  #endif
  
 +#if defined(__zigux__)
-+#define uint unsigned int
++typedef unsigned int uint;
 +#endif
 +
  #include "safe-ctype.h"
