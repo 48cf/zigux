@@ -20,6 +20,20 @@ const tty_vtable: vfs.VNodeVTable = .{
 
 var tty_buffer: RingBuffer(u8, 2048) = .{};
 
+pub fn writeToTty(buffer: []const u8) void {
+    for (buffer) |byte| {
+        if (!tty_buffer.push(byte)) {
+            arch.debugPrint(&.{byte});
+        }
+
+        if (tty_buffer.full() or byte == '\n') {
+            while (tty_buffer.pop()) |tty_byte| {
+                arch.debugPrint(&.{tty_byte});
+            }
+        }
+    }
+}
+
 const TtyVNode = struct {
     vnode: vfs.VNode,
 
@@ -98,21 +112,9 @@ const TtyVNode = struct {
         _ = vnode;
         _ = offset;
 
-        var written: usize = 0;
+        writeToTty(buffer);
 
-        for (buffer) |byte| {
-            written += 1;
-
-            _ = tty_buffer.push(byte);
-
-            if (byte == '\n') {
-                while (tty_buffer.pop()) |tty_byte| {
-                    arch.debugPrint(&.{tty_byte});
-                }
-            }
-        }
-
-        return written;
+        return buffer.len;
     }
 };
 
