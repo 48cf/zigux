@@ -1,4 +1,4 @@
-build
+ports
 sysroot
 zig-cache
 zig-out
