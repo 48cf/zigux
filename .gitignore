@@ -2,3 +2,5 @@ ports
 sysroot
 zig-cache
 zig-out
+
+*.xbstrap
