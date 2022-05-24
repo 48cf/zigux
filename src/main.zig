@@ -9,6 +9,7 @@ const interrupts = @import("interrupts.zig");
 const debug = @import("debug.zig");
 const limine = @import("limine.zig");
 const per_cpu = @import("per_cpu.zig");
+const pci = @import("pci.zig");
 const phys = @import("phys.zig");
 const utils = @import("utils.zig");
 const scheduler = @import("scheduler.zig");
@@ -135,6 +136,7 @@ fn main() !void {
     try per_cpu.init();
     try vfs.init(modules_res);
     try acpi.init(rsdp_res);
+    try pci.init();
     try scheduler.init();
 
     apic.init();
