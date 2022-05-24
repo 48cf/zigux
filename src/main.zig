@@ -149,10 +149,10 @@ pub fn mainThread() noreturn {
     const cpu_info = per_cpu.get();
     const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
     const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
-    const hello = utils.vital(vfs.resolve(null, "/usr/bin/hello-mlibc", 0), "Failed to find the executable");
+    const hello = utils.vital(vfs.resolve(null, "/usr/bin/init", 0), "Failed to find the executable");
 
     utils.vital(
-        thread.exec(hello, &.{"/usr/bin/hello-mlibc"}, &.{ "TERM=linux", "HOME=/root" }),
+        thread.exec(hello, &.{"/usr/bin/init"}, &.{ "TERM=linux", "HOME=/root" }),
         "Failed to execute the executable",
     );
 
@@ -160,8 +160,7 @@ pub fn mainThread() noreturn {
 
     if (cpu_info.thread) |this_thread| {
         cpu_info.thread = null;
-
-        this_thread.parent.exit_code = @truncate(u8, 0);
+        this_thread.parent.exit_code = 0;
     }
 
     // Wait to get rescheduled away

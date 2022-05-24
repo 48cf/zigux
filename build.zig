@@ -24,15 +24,18 @@ const target = blk: {
 };
 
 pub fn build(b: *std.build.Builder) !void {
+    // const init = try buildProgram(b, "init");
+    // const init_path = b.getInstallPath(init.install_step.?.dest_dir, init.out_filename);
+    //
+    // image.step.dependOn(&init.install_step.?.step);
+
     const kernel = try buildKernel(b);
-    const init = try buildProgram(b, "init");
 
     const image_dir = b.pathJoin(&.{ b.cache_root, "image_root" });
     const image_path = b.pathJoin(&.{ b.cache_root, "image.iso" });
     const sysroot_path = b.pathJoin(&.{ b.cache_root, "sysroot.tar" });
 
     const kernel_path = b.getInstallPath(kernel.install_step.?.dest_dir, kernel.out_filename);
-    const init_path = b.getInstallPath(init.install_step.?.dest_dir, init.out_filename);
 
     const qemu = b.addSystemCommand(&.{ "/usr/bin/env", "sh", "misc/run-emulator.sh", image_path });
     const image = b.addSystemCommand(&.{
@@ -44,12 +47,9 @@ pub fn build(b: *std.build.Builder) !void {
         "sysroot/system-root",
         sysroot_path,
         kernel_path,
-        init_path,
     });
 
     image.step.dependOn(&kernel.install_step.?.step);
-    image.step.dependOn(&init.install_step.?.step);
-
     qemu.step.dependOn(&image.step);
 
     b.step("image", "Builds the image").dependOn(&image.step);
