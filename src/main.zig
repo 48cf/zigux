@@ -122,6 +122,8 @@ export fn platformMain() noreturn {
 }
 
 fn main() !void {
+    asm volatile ("cli");
+
     const boot_info_res = boot_info_req.response.?;
     const hhdm_res = hhdm_req.response.?;
     const memory_map_res = memory_map_req.response.?;
