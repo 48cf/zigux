@@ -108,6 +108,15 @@ pub const VNode = struct {
         }
     }
 
+    pub fn mount(self: *VNode, other: *VNode) void {
+        std.debug.assert(self.mounted_vnode == null);
+        std.debug.assert(other.parent == null);
+
+        self.mounted_vnode = other;
+
+        other.parent = self;
+    }
+
     pub fn getFullPath(self: *VNode) VNodePath {
         return .{ .node = self };
     }
@@ -266,7 +275,7 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
     try root_dir.insert(shr_file);
 
     // Initalize /dev
-    dev_dir.mounted_vnode = try dev_fs.init("dev", root_node);
+    dev_dir.mount(try dev_fs.init("dev", null));
 
     // Initialize /sys
     const modules_dir = try sys_dir.filesystem.createDir("modules");
