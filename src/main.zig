@@ -173,6 +173,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
     }
 }
 
+var bytes: [16 * 4096]u8 = undefined;
+
 pub fn log(
     comptime level: std.log.Level,
     comptime scope: anytype,
@@ -183,7 +185,6 @@ pub fn log(
 
     defer print_lock.unlock();
 
-    var bytes: [1024]u8 = undefined;
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
 
