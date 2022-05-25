@@ -25,6 +25,7 @@ const Bitmap = struct {
     }
 };
 
+var lock: std.Thread.Mutex.AtomicMutex = .{};
 var bitmap: Bitmap = undefined;
 var hhdm: u64 = undefined;
 
@@ -109,6 +110,10 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.R
 }
 
 pub fn allocate(pages: usize, zero: bool) ?u64 {
+    lock.lock();
+
+    defer lock.unlock();
+
     if (pages > total_pages - used_pages) {
         return null;
     }
@@ -134,7 +139,7 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
         const allocation_ptr = @intToPtr(*u8, hhdm + address);
         const allocation_data = @ptrCast([*]u8, allocation_ptr);
 
-        std.mem.set(u8, allocation_data[0..std.mem.page_size], 0);
+        @memset(allocation_data, 0, pages * std.mem.page_size);
     }
 
     return address;
