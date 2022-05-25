@@ -52,6 +52,10 @@ pub fn build(b: *std.build.Builder) !void {
     image.step.dependOn(&kernel.install_step.?.step);
     qemu.step.dependOn(&image.step);
 
+    if (b.args) |args| {
+        qemu.addArgs(args);
+    }
+
     b.step("image", "Builds the image").dependOn(&image.step);
     b.step("run", "Runs the image").dependOn(&qemu.step);
 }
