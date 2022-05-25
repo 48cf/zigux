@@ -70,11 +70,6 @@ const PageAllocator = struct {
         _ = buf;
         _ = buf_align;
         _ = ret_addr;
-
-        const pages = utils.alignUp(usize, buf.len, std.mem.page_size) / std.mem.page_size;
-        const base = @ptrToInt(buf.ptr);
-
-        heap_logger.debug("Attempt to free {} pages at 0x{X:0>16} (size={})", .{ pages, base, buf.len });
     }
 };
 
@@ -150,30 +145,23 @@ fn main() !void {
 }
 
 pub fn mainThread() noreturn {
-    const cpu_info = per_cpu.get();
-    const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
-    const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
-    const hello = utils.vital(vfs.resolve(null, "/usr/bin/init", 0), "Failed to find the executable");
+    // const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
+    // const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
+    // const hello = utils.vital(vfs.resolve(null, "/usr/bin/init", 0), "Failed to find the executable");
 
-    utils.vital(
-        thread.exec(hello, &.{"/usr/bin/init"}, &.{ "TERM=linux", "HOME=/root" }),
-        "Failed to execute the executable",
-    );
+    // utils.vital(
+    //     thread.exec(hello, &.{"/usr/bin/init"}, &.{ "TERM=linux", "HOME=/root" }),
+    //     "Failed to execute the executable",
+    // );
 
-    scheduler.enqueue(thread);
+    // scheduler.enqueue(thread);
 
-    if (cpu_info.thread) |this_thread| {
-        cpu_info.thread = null;
-        this_thread.parent.exit_code = 0;
-    }
-
-    // Wait to get rescheduled away
-    while (true) {
-        arch.halt();
-    }
+    scheduler.exitThread();
 }
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+    asm volatile ("cli");
+
     _ = stack_trace;
 
     logger.err("Kernel panic: {s}", .{message});

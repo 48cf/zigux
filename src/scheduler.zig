@@ -376,12 +376,36 @@ pub fn spawnProcess(parent: ?*process.Process) !*process.Process {
     return new_process;
 }
 
-pub fn startKernelThread(entry: fn () noreturn) !*Thread {
-    const thread = try spawnThread(&kernel_process);
+pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
+    const thread = try root.allocator.create(Thread);
     const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
 
-    thread.regs.rip = @ptrToInt(entry);
+    errdefer root.allocator.destroy(thread);
+
+    thread.* = .{
+        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
+        .parent = &kernel_process,
+    };
+
+    const wrapper = struct {
+        fn handler(arg: u64) callconv(.C) noreturn {
+            const entry_type = @typeInfo(@TypeOf(entry)).Fn;
+            const result = @call(.{ .modifier = .always_inline }, entry, .{@intToPtr(entry_type.args[0].arg_type.?, arg)});
+
+            switch (@typeInfo(@TypeOf(result))) {
+                .ErrorUnion => result catch |err| {
+                    std.debug.panicExtra(@errorReturnTrace(), "Unhandled error occurred: {err}", .{err});
+                },
+                else => {},
+            }
+
+            exitThread();
+        }
+    };
+
+    thread.regs.rip = @ptrToInt(wrapper.handler);
     thread.regs.rsp = virt.hhdm + stack + std.mem.page_size;
+    thread.regs.rdi = @ptrToInt(context);
     thread.regs.rflags = 0x202;
     thread.regs.cs = 0x28;
     thread.regs.ss = 0x30;
@@ -391,6 +415,15 @@ pub fn startKernelThread(entry: fn () noreturn) !*Thread {
     enqueue(thread);
 
     return thread;
+}
+
+pub fn exitThread() noreturn {
+    per_cpu.get().thread = null;
+
+    yield();
+
+    // Shouldn't be reached
+    unreachable;
 }
 
 pub fn enqueue(thread: *Thread) void {
@@ -427,6 +460,16 @@ pub fn reschedule(frame: *interrupts.InterruptFrame) void {
     } else if (cpu_info.thread == null) {
         idle_thread.switchTo(frame);
     }
+}
+
+pub fn yield() void {
+    schedCall(struct {
+        fn handler(frame: *interrupts.InterruptFrame, arg: usize) void {
+            _ = arg;
+
+            reschedule(frame);
+        }
+    }.handler, undefined);
 }
 
 pub fn ungrabAndReschedule(lock: *IrqSpinlock) void {
