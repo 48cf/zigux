@@ -419,7 +419,7 @@ pub const AddressSpace = struct {
     }
 };
 
-pub var hhdm: u64 = 0;
+pub var hhdm: u64 = undefined;
 pub var kernel_address_space: ?AddressSpace = null;
 
 var paging_lock: IrqSpinlock = .{};

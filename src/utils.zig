@@ -2,6 +2,38 @@ const logger = std.log.scoped(.utils);
 
 const std = @import("std");
 
+const units = [_][]const u8{ "B", "KiB", "MiB", "GiB", "TiB" };
+
+pub const BinarySize = struct {
+    bytes: usize,
+
+    pub fn init(bytes: usize) BinarySize {
+        return .{ .bytes = bytes };
+    }
+
+    pub fn format(
+        self: BinarySize,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        var i: usize = 0;
+        var value = self.bytes;
+        var unit = units[0];
+
+        while (value >= 1024 and i + 1 < units.len) {
+            value /= 1024;
+            unit = units[i + 1];
+            i += 1;
+        }
+
+        try writer.print("{d}{s}", .{ value, unit });
+    }
+};
+
 pub fn kib(comptime value: comptime_int) comptime_int {
     return value * 1024;
 }

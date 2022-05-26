@@ -402,7 +402,12 @@ const PortState = struct {
             return error.NoSectors;
         }
 
-        logger.info("0x{X}: Disk has 0x{X} sectors of size {d}", .{ @ptrToInt(self.mmio), self.num_sectors, self.sector_size });
+        const disk_size = self.num_sectors * self.sector_size;
+
+        logger.info(
+            "0x{X}: Disk has 0x{X} sectors of size {d} ({} in total)",
+            .{ @ptrToInt(self.mmio), self.num_sectors, self.sector_size, utils.BinarySize.init(disk_size) },
+        );
     }
 
     fn finalizeIo(self: *PortState, command_slot: u5, lba: u48, sector_count: u16, mode: ReadOrWrite) void {
@@ -481,11 +486,7 @@ fn takeOverController(abar: *volatile Abar) void {
 fn initializePort(port: *volatile Port) !void {
     var state = try PortState.init(port);
 
-    state.finalizeIo(0, 0, 1, .Read);
-
-    const buffer = port.getBuffer(0, 0)[0..5];
-
-    logger.debug("0x{X}: {any} ({s})", .{ @ptrToInt(port), buffer.*, buffer });
+    _ = state;
 }
 
 fn controllerThread(abar: *volatile Abar) !void {
