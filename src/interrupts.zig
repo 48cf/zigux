@@ -5,6 +5,7 @@ const std = @import("std");
 const arch = @import("arch.zig");
 const debug = @import("debug.zig");
 const per_cpu = @import("per_cpu.zig");
+const virt = @import("virt.zig");
 
 var next_vector: usize = 32;
 var handlers = [1]InterruptHandler{exceptionHandler} ** 32 ++ [1]InterruptHandler{unhandledInterruptHandler} ** 224;
@@ -106,7 +107,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
             : [result] "=r" (-> u64),
         );
 
-        const handled = cpu_info.currentProcess().?.address_space.handlePageFault(cr2, frame.error_code) catch |err| {
+        const handled = virt.handlePageFault(cr2, frame.error_code) catch |err| {
             logger.err("Failed to handle the page fault: {e}", .{err});
 
             break :blk;

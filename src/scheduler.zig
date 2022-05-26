@@ -303,7 +303,7 @@ pub fn init() !void {
 
         const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
 
-        thread.regs.rsp = virt.hhdm + stack + std.mem.page_size;
+        thread.regs.rsp = virt.asHigherHalf(stack + std.mem.page_size);
         thread.regs.rflags = 0x202;
         thread.regs.cs = 0x28;
         thread.regs.ss = 0x30;
@@ -404,7 +404,7 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     };
 
     thread.regs.rip = @ptrToInt(wrapper.handler);
-    thread.regs.rsp = virt.hhdm + stack + std.mem.page_size;
+    thread.regs.rsp = virt.asHigherHalf(stack + std.mem.page_size);
     thread.regs.rdi = @ptrToInt(context);
     thread.regs.rflags = 0x202;
     thread.regs.cs = 0x28;

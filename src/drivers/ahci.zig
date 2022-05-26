@@ -56,7 +56,13 @@ const FisH2D = packed struct {
     count: u16,
     icc: u8,
     control: u8,
+
+    reserved_10: u32,
 };
+
+comptime {
+    std.debug.assert(@sizeOf(FisH2D) == 0x14);
+}
 
 const CommandFis = extern union {
     bytes: [0x40]u8,
@@ -90,7 +96,7 @@ const CommandTableHeader = packed struct {
     pub fn table(self: *volatile CommandTableHeader) *volatile CommandTable {
         const addr = read_u64(&self.command_table_addr);
 
-        return @intToPtr(*volatile CommandTable, virt.hhdm + addr);
+        return @intToPtr(*volatile CommandTable, virt.asHigherHalfUncached(addr));
     }
 };
 
@@ -185,7 +191,7 @@ const Port = extern struct {
 
     fn getCommandHeaders(self: *const volatile Port) *volatile [32]CommandTableHeader {
         const addr = read_u64(&self.command_list_base);
-        const cmd_list = @intToPtr(*volatile CommandList, virt.hhdm + addr);
+        const cmd_list = @intToPtr(*volatile CommandList, virt.asHigherHalfUncached(addr));
 
         return &cmd_list.command_headers;
     }
@@ -219,7 +225,7 @@ const Port = extern struct {
         const buf_addr = read_u64(&prd_ptr.data_base_addr);
         const buf_size = @as(usize, prd_ptr.sizem1) + 1;
 
-        return @intToPtr([*]u8, virt.hhdm + buf_addr)[0..buf_size];
+        return @intToPtr([*]u8, virt.asHigherHalfUncached(buf_addr))[0..buf_size];
     }
 
     fn issueCommands(self: *volatile Port, slot_bits: u32) void {
@@ -380,7 +386,8 @@ const PortState = struct {
 
         identify_fis.command = if (self.port_type == .Atapi) 0xA1 else 0xEC;
         identify_fis.c = 1;
-        identify_fis.device = 0;
+        identify_fis.device = 0xA0 | (1 << 6);
+        identify_fis.control = 0x08;
 
         self.issueCommandOnSlot(0);
 
@@ -443,7 +450,7 @@ pub fn handleDevice(device: pci.Device) !void {
     );
 
     const bar5 = device.getBar(5).?;
-    const abar = @intToPtr(*volatile Abar, virt.hhdm + bar5.base);
+    const abar = @intToPtr(*volatile Abar, virt.asHigherHalfUncached(bar5.base));
 
     if (abar.hba_capabilities & 1 << 31 == 0) {
         logger.warn("Controller is 32-bit only, ignoring", .{});

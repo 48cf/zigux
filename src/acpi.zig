@@ -86,7 +86,7 @@ fn parse(comptime T: type, bytes: []const u8) !void {
     const entries = std.mem.bytesAsSlice(T, bytes);
 
     for (entries) |entry| {
-        try handleTable(@intToPtr(SdtPtr, virt.hhdm + entry));
+        try handleTable(@intToPtr(SdtPtr, virt.asHigherHalf(entry)));
     }
 }
 
@@ -94,8 +94,8 @@ pub fn init(rsdp_res: *limine.Rsdp.Response) !void {
     const rsdp = @intToPtr(RsdpPtr, rsdp_res.address);
 
     switch (rsdp.revision) {
-        0 => try parse(u32, @intToPtr(SdtPtr, virt.hhdm + rsdp.rsdt_address).getData()),
-        2 => try parse(u64, @intToPtr(SdtPtr, virt.hhdm + rsdp.xsdt_address).getData()),
+        0 => try parse(u32, @intToPtr(SdtPtr, virt.asHigherHalf(rsdp.rsdt_address)).getData()),
+        2 => try parse(u64, @intToPtr(SdtPtr, virt.asHigherHalf(rsdp.xsdt_address)).getData()),
         else => std.debug.panic("Unknown ACPI revision: {}", .{rsdp.revision}),
     }
 }

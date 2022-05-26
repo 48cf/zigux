@@ -4,6 +4,7 @@ const std = @import("std");
 const arch = @import("arch.zig");
 const limine = @import("limine.zig");
 const utils = @import("utils.zig");
+const virt = @import("virt.zig");
 
 const Bitmap = struct {
     data: []u8,
@@ -27,20 +28,17 @@ const Bitmap = struct {
 
 var lock: std.Thread.Mutex.AtomicMutex = .{};
 var bitmap: Bitmap = undefined;
-var hhdm: u64 = undefined;
+var highest_phys_addr: u64 = 0;
 
 var total_pages: usize = undefined;
 var used_pages: usize = undefined;
 var last_allocation: usize = undefined;
 
-pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.Response) !void {
-    hhdm = hhdm_res.offset;
-
+pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
     const entries = memory_map_res.entries[0..memory_map_res.entry_count];
 
     logger.info("Current system memory map:", .{});
 
-    var highest_phys_addr: u64 = 0;
     var bitmap_region: ?*limine.MemoryMap.Entry = null;
 
     for (entries) |entry| {
@@ -68,7 +66,7 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response, hhdm_res: *limine.Hhdm.R
     }
 
     bitmap = blk: {
-        const bitmap_ptr = @intToPtr(*u8, bitmap_region.?.base + hhdm);
+        const bitmap_ptr = @intToPtr(*u8, virt.asHigherHalf(bitmap_region.?.base));
         const bitmap_data = @ptrCast([*]u8, bitmap_ptr);
 
         break :blk Bitmap.init(bitmap_data[0..bitmap_size]);
@@ -136,7 +134,7 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
     const address = allocation.? * std.mem.page_size;
 
     if (zero) {
-        const allocation_ptr = @intToPtr(*u8, hhdm + address);
+        const allocation_ptr = @intToPtr(*u8, virt.asHigherHalf(address));
         const allocation_data = @ptrCast([*]u8, allocation_ptr);
 
         @memset(allocation_data, 0, pages * std.mem.page_size);
@@ -148,6 +146,10 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
 // TODO: Implement free lmao
 pub fn free(address: u64, pages: usize) void {
     logger.warn("Physical free is a stub, attempt to free {} pages at 0x{X}", .{ pages, address });
+}
+
+pub fn highestAddress() u64 {
+    return highest_phys_addr;
 }
 
 pub fn freePages() usize {

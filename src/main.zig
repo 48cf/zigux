@@ -19,8 +19,9 @@ const ps2 = @import("drivers/ps2.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
+// TODO: Demand page that bitch :^)
 const PageAllocator = struct {
-    bump: u64 = 0xFFFF900000000000,
+    bump: u64 = 0xFFFF_A000_0000_0000,
 
     const heap_logger = std.log.scoped(.heap);
 
@@ -126,10 +127,12 @@ fn main() !void {
     const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
 
+    std.debug.assert(hhdm_res.offset == virt.asHigherHalf(0));
+
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
-    try phys.init(memory_map_res, hhdm_res);
-    try virt.init(hhdm_res, kernel_addr_res);
+    try phys.init(memory_map_res);
+    try virt.init(kernel_addr_res);
     try per_cpu.init();
     try vfs.init(modules_res);
     try acpi.init(rsdp_res);

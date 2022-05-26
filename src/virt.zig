@@ -9,16 +9,15 @@ const limine = @import("limine.zig");
 const phys = @import("phys.zig");
 const utils = @import("utils.zig");
 const vfs = @import("vfs.zig");
+const per_cpu = @import("per_cpu.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
-// The base address for all user allocations
 const user_alloc_base: u64 = 0x7000_0000_0000;
-// Right before the end of user stack
-// TODO: Perhaps we should use mmap for the stack too?
 const user_alloc_max: u64 = 0x7FFF_FFFF_0000;
-
 const flags_mask: u64 = 0xFFF0_0000_0000_0FFF;
+const hhdm: u64 = 0xFFFF_8000_0000_0000;
+const hhdm_uc: u64 = 0xFFFF_9000_0000_0000;
 
 pub const Flags = struct {
     pub const None = 0;
@@ -42,14 +41,14 @@ fn getPageTable(page_table: *PageTable, index: usize, allocate: bool) ?*PageTabl
     var entry = &page_table.entries[index];
 
     if (entry.getFlags() & Flags.Present != 0) {
-        return @intToPtr(*PageTable, hhdm + entry.getAddress());
+        return @intToPtr(*PageTable, asHigherHalf(entry.getAddress()));
     } else if (allocate) {
         const new_page_table = phys.allocate(1, true) orelse return null;
 
         entry.setAddress(new_page_table);
         entry.setFlags(Flags.Present | Flags.Writable | Flags.User);
 
-        return @intToPtr(*PageTable, hhdm + new_page_table);
+        return @intToPtr(*PageTable, asHigherHalf(new_page_table));
     }
 
     return null;
@@ -165,7 +164,7 @@ const PageTable = packed struct {
 
         if (entry.getFlags() & Flags.Present != 0) {
             entry.setAddress(0);
-            entry.setFlags(.None);
+            entry.setFlags(Flags.None);
 
             asm volatile ("invlpg %[page]"
                 :
@@ -248,7 +247,7 @@ pub const AddressSpace = struct {
     pub fn init(cr3: u64) AddressSpace {
         return .{
             .cr3 = cr3,
-            .page_table = @intToPtr(*PageTable, hhdm + cr3),
+            .page_table = @intToPtr(*PageTable, asHigherHalf(cr3)),
         };
     }
 
@@ -302,7 +301,7 @@ pub const AddressSpace = struct {
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
                     const page_count = utils.divRoundUp(u64, misalign + ph.p_memsz, std.mem.page_size);
                     const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
-                    const page_hh = @intToPtr([*]u8, hhdm + page_phys + misalign);
+                    const page_hh = @intToPtr([*]u8, asHigherHalf(page_phys + misalign));
 
                     var flags: u64 = Flags.Present | Flags.User;
 
@@ -419,7 +418,6 @@ pub const AddressSpace = struct {
     }
 };
 
-pub var hhdm: u64 = undefined;
 pub var kernel_address_space: ?AddressSpace = null;
 
 var paging_lock: IrqSpinlock = .{};
@@ -441,11 +439,9 @@ fn map_section(
     try page_table.map(virt_base, phys_base, size, flags);
 }
 
-pub fn init(hhdm_res: *limine.Hhdm.Response, kernel_addr_res: *limine.KernelAddress.Response) !void {
-    hhdm = hhdm_res.offset;
-
+pub fn init(kernel_addr_res: *limine.KernelAddress.Response) !void {
     const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
-    const page_table = @intToPtr(*PageTable, hhdm + page_table_phys);
+    const page_table = @intToPtr(*PageTable, asHigherHalf(page_table_phys));
 
     // Pre-populate the higher half of kernel address space
     var i: usize = 256;
@@ -454,8 +450,9 @@ pub fn init(hhdm_res: *limine.Hhdm.Response, kernel_addr_res: *limine.KernelAddr
         _ = getPageTable(page_table, i, true);
     }
 
-    try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(4) - std.mem.page_size, Flags.Present | Flags.Writable);
-    try page_table.map(hhdm, 0, utils.gib(4), Flags.Present | Flags.Writable);
+    try page_table.map(0, 0, utils.gib(16), Flags.Present | Flags.Writable);
+    try page_table.map(hhdm, 0, utils.gib(16), Flags.Present | Flags.Writable);
+    try page_table.unmap(0, std.mem.page_size);
 
     try map_section("text", page_table, kernel_addr_res, Flags.Present);
     try map_section("rodata", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
@@ -478,4 +475,32 @@ pub fn createAddressSpace() !AddressSpace {
     }
 
     return address_space;
+}
+
+pub fn handlePageFault(address: u64, reason: u64) !bool {
+    if (address >= hhdm_uc and address <= hhdm_uc + utils.gib(16)) {
+        const page = utils.alignDown(u64, address, std.mem.page_size);
+
+        try kernel_address_space.?.page_table.mapPage(
+            page,
+            page - hhdm_uc,
+            Flags.Present | Flags.Writable | Flags.NoCache,
+        );
+
+        return true;
+    }
+
+    if (per_cpu.get().currentProcess()) |process| {
+        return process.address_space.handlePageFault(address, reason);
+    }
+
+    return false;
+}
+
+pub fn asHigherHalf(addr: u64) u64 {
+    return addr + hhdm;
+}
+
+pub fn asHigherHalfUncached(addr: u64) u64 {
+    return addr + hhdm_uc;
 }

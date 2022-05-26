@@ -67,12 +67,12 @@ pub const Device = struct {
         arch.out(u32, 0xCF8, address | offset);
     }
 
-    fn read(self: Device, comptime T: type, offset: u8) T {
+    pub fn read(self: Device, comptime T: type, offset: u8) T {
         self.selectField(offset);
         return arch.in(T, 0xCFC + @as(u16, offset & 0x3));
     }
 
-    fn write(self: Device, comptime T: type, offset: u8, value: T) void {
+    pub fn write(self: Device, comptime T: type, offset: u8, value: T) void {
         self.selectField(offset);
         arch.out(T, 0xCFC + @as(u16, offset & 0x3), value);
     }
