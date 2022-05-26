@@ -3,6 +3,7 @@ const logger = std.log.scoped(.ahci);
 const std = @import("std");
 
 const arch = @import("../arch.zig");
+const apic = @import("../apic.zig");
 const pci = @import("../pci.zig");
 const phys = @import("../phys.zig");
 const scheduler = @import("../scheduler.zig");
@@ -411,6 +412,18 @@ const PortState = struct {
 
         const disk_size = self.num_sectors * self.sector_size;
 
+        for (std.mem.bytesAsSlice(u16, buffer[20..40])) |*value| {
+            value.* = @byteSwap(u16, value.*);
+        }
+
+        for (std.mem.bytesAsSlice(u16, buffer[54..94])) |*value| {
+            value.* = @byteSwap(u16, value.*);
+        }
+
+        const serial_str = std.mem.trimRight(u8, buffer[20..40], " ");
+        const model_str = std.mem.trimRight(u8, buffer[54..94], " ");
+
+        logger.info("0x{X}: Identified as {s} with serial {s}", .{ @ptrToInt(self.mmio), model_str, serial_str });
         logger.info(
             "0x{X}: Disk has 0x{X} sectors of size {d} ({} in total)",
             .{ @ptrToInt(self.mmio), self.num_sectors, self.sector_size, utils.BinarySize.init(disk_size) },
