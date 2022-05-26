@@ -66,8 +66,7 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
     }
 
     bitmap = blk: {
-        const bitmap_ptr = @intToPtr(*u8, virt.asHigherHalf(bitmap_region.?.base));
-        const bitmap_data = @ptrCast([*]u8, bitmap_ptr);
+        const bitmap_data = virt.asHigherHalf([*]u8, bitmap_region.?.base);
 
         break :blk Bitmap.init(bitmap_data[0..bitmap_size]);
     };
@@ -134,8 +133,7 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
     const address = allocation.? * std.mem.page_size;
 
     if (zero) {
-        const allocation_ptr = @intToPtr(*u8, virt.asHigherHalf(address));
-        const allocation_data = @ptrCast([*]u8, allocation_ptr);
+        const allocation_data = virt.asHigherHalf([*]u8, address);
 
         @memset(allocation_data, 0, pages * std.mem.page_size);
     }

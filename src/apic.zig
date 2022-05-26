@@ -24,13 +24,13 @@ const IoApic = struct {
     base_gsi: u32,
 
     fn read(self: *const IoApic, offset: u32) u32 {
-        @intToPtr(*volatile u32, virt.asHigherHalf(self.address + 0x00)).* = offset;
-        return @intToPtr(*volatile u32, virt.asHigherHalf(self.address + 0x10)).*;
+        virt.asHigherHalf(*volatile u32, self.address + 0x00).* = offset;
+        return virt.asHigherHalf(*volatile u32, self.address + 0x10).*;
     }
 
     fn write(self: *const IoApic, offset: u32, value: u32) void {
-        @intToPtr(*volatile u32, virt.asHigherHalf(self.address + 0x00)).* = offset;
-        @intToPtr(*volatile u32, virt.asHigherHalf(self.address + 0x10)).* = value;
+        virt.asHigherHalf(*volatile u32, self.address + 0x00).* = offset;
+        virt.asHigherHalf(*volatile u32, self.address + 0x10).* = value;
     }
 
     fn gsi_count(self: *const IoApic) u32 {

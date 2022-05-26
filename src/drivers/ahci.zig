@@ -96,7 +96,7 @@ const CommandTableHeader = packed struct {
     pub fn table(self: *volatile CommandTableHeader) *volatile CommandTable {
         const addr = read_u64(&self.command_table_addr);
 
-        return @intToPtr(*volatile CommandTable, virt.asHigherHalfUncached(addr));
+        return virt.asHigherHalfUncached(*volatile CommandTable, addr);
     }
 };
 
@@ -191,7 +191,7 @@ const Port = extern struct {
 
     fn getCommandHeaders(self: *const volatile Port) *volatile [32]CommandTableHeader {
         const addr = read_u64(&self.command_list_base);
-        const cmd_list = @intToPtr(*volatile CommandList, virt.asHigherHalfUncached(addr));
+        const cmd_list = virt.asHigherHalfUncached(*volatile CommandList, addr);
 
         return &cmd_list.command_headers;
     }
@@ -225,7 +225,7 @@ const Port = extern struct {
         const buf_addr = read_u64(&prd_ptr.data_base_addr);
         const buf_size = @as(usize, prd_ptr.sizem1) + 1;
 
-        return @intToPtr([*]u8, virt.asHigherHalfUncached(buf_addr))[0..buf_size];
+        return virt.asHigherHalfUncached([*]u8, buf_addr)[0..buf_size];
     }
 
     fn issueCommands(self: *volatile Port, slot_bits: u32) void {
@@ -450,7 +450,7 @@ pub fn handleDevice(device: pci.Device) !void {
     );
 
     const bar5 = device.getBar(5).?;
-    const abar = @intToPtr(*volatile Abar, virt.asHigherHalfUncached(bar5.base));
+    const abar = virt.asHigherHalfUncached(*volatile Abar, bar5.base);
 
     if (abar.hba_capabilities & 1 << 31 == 0) {
         logger.warn("Controller is 32-bit only, ignoring", .{});

@@ -41,14 +41,14 @@ fn getPageTable(page_table: *PageTable, index: usize, allocate: bool) ?*PageTabl
     var entry = &page_table.entries[index];
 
     if (entry.getFlags() & Flags.Present != 0) {
-        return @intToPtr(*PageTable, asHigherHalf(entry.getAddress()));
+        return asHigherHalf(*PageTable, entry.getAddress());
     } else if (allocate) {
         const new_page_table = phys.allocate(1, true) orelse return null;
 
         entry.setAddress(new_page_table);
         entry.setFlags(Flags.Present | Flags.Writable | Flags.User);
 
-        return @intToPtr(*PageTable, asHigherHalf(new_page_table));
+        return asHigherHalf(*PageTable, new_page_table);
     }
 
     return null;
@@ -247,7 +247,7 @@ pub const AddressSpace = struct {
     pub fn init(cr3: u64) AddressSpace {
         return .{
             .cr3 = cr3,
-            .page_table = @intToPtr(*PageTable, asHigherHalf(cr3)),
+            .page_table = asHigherHalf(*PageTable, cr3),
         };
     }
 
@@ -301,7 +301,7 @@ pub const AddressSpace = struct {
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
                     const page_count = utils.divRoundUp(u64, misalign + ph.p_memsz, std.mem.page_size);
                     const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
-                    const page_hh = @intToPtr([*]u8, asHigherHalf(page_phys + misalign));
+                    const page_hh = asHigherHalf([*]u8, page_phys + misalign);
 
                     var flags: u64 = Flags.Present | Flags.User;
 
@@ -441,7 +441,7 @@ fn map_section(
 
 pub fn init(kernel_addr_res: *limine.KernelAddress.Response) !void {
     const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
-    const page_table = @intToPtr(*PageTable, asHigherHalf(page_table_phys));
+    const page_table = asHigherHalf(*PageTable, page_table_phys);
 
     // Pre-populate the higher half of kernel address space
     var i: usize = 256;
@@ -450,6 +450,7 @@ pub fn init(kernel_addr_res: *limine.KernelAddress.Response) !void {
         _ = getPageTable(page_table, i, true);
     }
 
+    // TODO: Map all of the memory map entries too
     try page_table.map(0, 0, utils.gib(16), Flags.Present | Flags.Writable);
     try page_table.map(hhdm, 0, utils.gib(16), Flags.Present | Flags.Writable);
     try page_table.unmap(0, std.mem.page_size);
@@ -478,6 +479,7 @@ pub fn createAddressSpace() !AddressSpace {
 }
 
 pub fn handlePageFault(address: u64, reason: u64) !bool {
+    // TODO: Map all of the memory map entries too
     if (address >= hhdm_uc and address <= hhdm_uc + utils.gib(16)) {
         const page = utils.alignDown(u64, address, std.mem.page_size);
 
@@ -497,10 +499,22 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
     return false;
 }
 
-pub fn asHigherHalf(addr: u64) u64 {
-    return addr + hhdm;
+pub fn asHigherHalf(comptime T: type, addr: u64) T {
+    const result = addr + hhdm;
+
+    if (@typeInfo(T) == .Pointer) {
+        return @intToPtr(T, result);
+    } else {
+        return result;
+    }
 }
 
-pub fn asHigherHalfUncached(addr: u64) u64 {
-    return addr + hhdm_uc;
+pub fn asHigherHalfUncached(comptime T: type, addr: u64) T {
+    const result = addr + hhdm_uc;
+
+    if (@typeInfo(T) == .Pointer) {
+        return @intToPtr(T, result);
+    } else {
+        return result;
+    }
 }

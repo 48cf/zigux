@@ -127,7 +127,7 @@ fn main() !void {
     const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
 
-    std.debug.assert(hhdm_res.offset == virt.asHigherHalf(0));
+    std.debug.assert(hhdm_res.offset == virt.asHigherHalf(u64, 0));
 
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
