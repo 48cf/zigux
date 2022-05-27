@@ -44,13 +44,18 @@ pub const Device = struct {
     slot: u8,
     function: u8,
 
-    pub const vendor_id = configField(u16, 0x0);
-    pub const device_id = configField(u16, 0x2);
-    pub const command = configField(u16, 0x4);
-    pub const prog_if = configField(u8, 0x9);
-    pub const subclass_id = configField(u8, 0xA);
-    pub const class_id = configField(u8, 0xB);
-    pub const header_type = configField(u8, 0xE);
+    pub const vendor_id = configField(u16, 0x00);
+    pub const device_id = configField(u16, 0x02);
+    pub const command = configField(u16, 0x04);
+    pub const status = configField(u16, 0x06);
+    pub const prog_if = configField(u8, 0x09);
+    pub const header_type = configField(u8, 0x0E);
+    pub const class_id = configField(u8, 0x0B);
+    pub const subclass_id = configField(u8, 0x0A);
+    pub const secondary_bus = configField(u8, 0x19);
+    pub const cap_ptr = configField(u8, 0x34);
+    pub const int_line = configField(u8, 0x3C);
+    pub const int_pin = configField(u8, 0x3D);
 
     fn init(bus: u8, slot: u8, function: u8) Device {
         std.debug.assert(bus & 0b10000000 == 0);
@@ -129,7 +134,7 @@ pub const Device = struct {
     }
 };
 
-fn checkFunction(device: Device) !void {
+fn checkFunction(device: Device) anyerror!void {
     try devices.append(root.allocator, device);
 
     const vendor_id = device.vendor_id().read();
@@ -143,24 +148,28 @@ fn checkFunction(device: Device) !void {
         .{ vendor_id, device_id, device.bus, device.slot, device.function },
     );
 
-    inline for (@typeInfo(@TypeOf(drivers.pci_drivers)).Struct.fields) |field| {
-        const driver = @field(drivers.pci_drivers, field.name);
-        const discovery = @as(drivers.PciDriverDiscovery, driver.discovery);
+    if (class_id == 0x6 and subclass_id == 0x4) {
+        try checkBus(device.secondary_bus().read());
+    } else {
+        inline for (@typeInfo(@TypeOf(drivers.pci_drivers)).Struct.fields) |field| {
+            const driver = @field(drivers.pci_drivers, field.name);
+            const discovery = @as(drivers.PciDriverDiscovery, driver.discovery);
 
-        switch (discovery) {
-            .all => try driver.handler(device),
-            .id => |id| {
-                if (vendor_id == id.vendor and device_id == id.device) {
-                    try driver.handler(device);
-                }
-            },
-            .class => |class| {
-                if (class_id == class.class_id and subclass_id == class.subclass_id) {
-                    if (class.prog_if == null or prog_if == class.prog_if.?) {
+            switch (discovery) {
+                .all => try driver.handler(device),
+                .id => |id| {
+                    if (vendor_id == id.vendor and device_id == id.device) {
                         try driver.handler(device);
                     }
-                }
-            },
+                },
+                .class => |class| {
+                    if (class_id == class.class_id and subclass_id == class.subclass_id) {
+                        if (class.prog_if == null or prog_if == class.prog_if.?) {
+                            try driver.handler(device);
+                        }
+                    }
+                },
+            }
         }
     }
 }
@@ -199,19 +208,5 @@ fn checkBus(bus: u8) !void {
 var devices: std.ArrayListUnmanaged(Device) = .{};
 
 pub fn init() !void {
-    const root_bus = Device.init(0, 0, 0);
-
-    if (root_bus.header_type().read() & 0x80 == 0) {
-        try checkBus(0);
-    } else {
-        var function: u8 = 0;
-
-        while (function < 8) : (function += 1) {
-            const bus_header = Device.init(0, 0, function);
-
-            if (bus_header.vendor_id().read() != 0xFFFF) {
-                try checkBus(function);
-            }
-        }
-    }
+    return checkBus(0);
 }
