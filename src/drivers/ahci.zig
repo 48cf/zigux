@@ -6,6 +6,7 @@ const arch = @import("../arch.zig");
 const apic = @import("../apic.zig");
 const pci = @import("../pci.zig");
 const phys = @import("../phys.zig");
+const dev_fs = @import("../vfs/dev_fs.zig");
 const interrupts = @import("../interrupts.zig");
 const scheduler = @import("../scheduler.zig");
 const virt = @import("../virt.zig");
@@ -429,6 +430,8 @@ const PortState = struct {
             "0x{X}: Disk has 0x{X} sectors of size {d} ({} in total)",
             .{ @ptrToInt(self.mmio), self.num_sectors, self.sector_size, utils.BinarySize.init(disk_size) },
         );
+
+        try dev_fs.wrapBlockDevice("sata", self);
     }
 
     fn finalizeIo(self: *PortState, command_slot: u5, lba: u48, sector_count: u16, mode: ReadOrWrite) void {

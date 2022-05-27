@@ -113,8 +113,7 @@ pub const VNode = struct {
         std.debug.assert(other.parent == null);
 
         self.mounted_vnode = other;
-
-        other.parent = self;
+        other.parent = self.parent;
     }
 
     pub fn getFullPath(self: *VNode) VNodePath {

@@ -15,6 +15,39 @@ const tty_vtable: vfs.VNodeVTable = .{
     .insert = null,
 };
 
+var disk_number: usize = 1;
+
+fn BlockDeviceWrapper(comptime T: type) type {
+    return struct {
+        vnode: vfs.VNode,
+        device: T,
+        name: [20]u8 = undefined,
+
+        const vtable: vfs.VNodeVTable = .{
+            .open = null,
+            .read = @This().read,
+            .write = @This().write,
+            .insert = null,
+        };
+
+        fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
+            _ = vnode;
+            _ = buffer;
+            _ = offset;
+
+            return error.InputOutput;
+        }
+
+        fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
+            _ = vnode;
+            _ = buffer;
+            _ = offset;
+
+            return error.InputOutput;
+        }
+    };
+}
+
 const TtyVNode = struct {
     vnode: vfs.VNode,
 
@@ -120,4 +153,27 @@ pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
     try ramfs.insert(&tty.vnode);
 
     return ramfs;
+}
+
+pub fn wrapBlockDevice(name: []const u8, device: anytype) !void {
+    const WrappedDevice = BlockDeviceWrapper(@TypeOf(device));
+
+    const dev = try vfs.resolve(null, "/dev", 0);
+    const node = try root.allocator.create(WrappedDevice);
+    const disk_id = @atomicRmw(usize, &disk_number, .Add, 1, .AcqRel);
+
+    node.* = .{
+        .vnode = undefined,
+        .device = device,
+    };
+
+    node.vnode = .{
+        .vtable = &WrappedDevice.vtable,
+        .filesystem = dev.filesystem,
+        .name = try std.fmt.bufPrint(&node.name, "{s}{d}", .{ name, disk_id }),
+    };
+
+    try dev.insert(&node.vnode);
+
+    logger.debug("{}", .{node.vnode.getFullPath()});
 }
