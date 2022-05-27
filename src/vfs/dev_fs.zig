@@ -5,11 +5,8 @@ const std = @import("std");
 
 const arch = @import("../arch.zig");
 const vfs = @import("../vfs.zig");
-const per_cpu = @import("../per_cpu.zig");
 const ps2 = @import("../drivers/ps2.zig");
 const ram_fs = @import("ram_fs.zig");
-
-const RingBuffer = @import("../containers/ring_buffer.zig").RingBuffer;
 
 const tty_vtable: vfs.VNodeVTable = .{
     .open = null,
@@ -17,22 +14,6 @@ const tty_vtable: vfs.VNodeVTable = .{
     .write = TtyVNode.write,
     .insert = null,
 };
-
-var tty_buffer: RingBuffer(u8, 2048) = .{};
-
-pub fn writeToTty(buffer: []const u8) void {
-    for (buffer) |byte| {
-        if (!tty_buffer.push(byte)) {
-            arch.debugPrint(&.{byte});
-        }
-
-        if (tty_buffer.full() or byte == '\n') {
-            while (tty_buffer.pop()) |tty_byte| {
-                arch.debugPrint(&.{tty_byte});
-            }
-        }
-    }
-}
 
 const TtyVNode = struct {
     vnode: vfs.VNode,
@@ -112,7 +93,11 @@ const TtyVNode = struct {
         _ = vnode;
         _ = offset;
 
-        writeToTty(buffer);
+        const km_buffer = try root.allocator.dupe(u8, buffer);
+
+        defer root.allocator.free(km_buffer);
+
+        arch.debugPrint(km_buffer);
 
         return buffer.len;
     }
@@ -121,6 +106,8 @@ const TtyVNode = struct {
 pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
     const ramfs = try ram_fs.init(name, parent);
     const tty = try root.allocator.create(TtyVNode);
+
+    ramfs.filesystem.name = "DevFS";
 
     tty.* = .{
         .vnode = .{
