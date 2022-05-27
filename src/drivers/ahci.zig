@@ -6,6 +6,7 @@ const arch = @import("../arch.zig");
 const apic = @import("../apic.zig");
 const pci = @import("../pci.zig");
 const phys = @import("../phys.zig");
+const interrupts = @import("../interrupts.zig");
 const scheduler = @import("../scheduler.zig");
 const virt = @import("../virt.zig");
 const utils = @import("../utils.zig");
@@ -475,10 +476,20 @@ pub fn handleDevice(device: pci.Device) !void {
         return;
     }
 
-    // Set bus mastering bit
-    device.command().write(device.command().read() | 0x6);
+    const vector = interrupts.allocateVector();
+    const msi = device.getMsi().?;
+
+    device.enableDma();
+    interrupts.registerHandler(vector, interruptHandler);
+    msi.enable(apic.localApicId(), vector);
 
     _ = try scheduler.startKernelThread(controllerThread, abar);
+}
+
+fn interruptHandler(frame: *interrupts.InterruptFrame) void {
+    _ = frame;
+
+    logger.debug("AHCI interrupt", .{});
 }
 
 fn takeOverController(abar: *volatile Abar) void {

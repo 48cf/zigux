@@ -39,6 +39,52 @@ pub const BarInfo = struct {
     kind: BarSpace,
 };
 
+pub const Capability = struct {
+    device: Device,
+    offset: u8,
+
+    pub fn next(self: *Capability) ?Capability {
+        if (self.offset == 0) {
+            return null;
+        } else {
+            const result = self.*;
+            self.offset = self.device.read(u8, self.offset + 0x01);
+            return result;
+        }
+    }
+
+    pub fn vendor(self: Capability) u8 {
+        return self.device.read(u8, self.offset + 0x00);
+    }
+
+    pub fn read(self: Capability, comptime T: type, offset: u8) T {
+        return self.device.read(T, self.offset + offset);
+    }
+
+    pub fn write(self: Capability, comptime T: type, offset: u8, value: T) void {
+        self.device.write(T, self.offset + offset, value);
+    }
+};
+
+pub const Msi = struct {
+    pci_cap: Capability,
+
+    pub fn enable(self: Msi, lapic_id: u32, vector: u8) void {
+        const msi_data = @as(u16, vector); // | 1 << 15); // Level trigger
+        const msi_addr: u64 = 0xFEE00000 | (lapic_id << 12);
+
+        self.pci_cap.write(u16, 12, msi_data);
+        self.pci_cap.write(u32, 4, @truncate(u32, msi_addr));
+        self.pci_cap.write(u32, 8, @intCast(u32, msi_addr >> 32));
+        self.pci_cap.write(u16, 2, self.pci_cap.read(u16, 2) | 1);
+        self.pci_cap.write(u32, 16, 0);
+
+        const cmd = self.pci_cap.device.command();
+
+        cmd.write(cmd.read() & ~@as(u16, 1 << 10));
+    }
+};
+
 pub const Device = struct {
     bus: u8,
     slot: u8,
@@ -131,6 +177,31 @@ pub const Device = struct {
                 .kind = .Port,
             };
         }
+    }
+
+    pub fn enableDma(self: Device) void {
+        self.command().write(self.command().read() | 0x6);
+    }
+
+    pub fn capabilities(self: Device) Capability {
+        if (self.status().read() & (1 << 4) == 0) {
+            return .{ .device = undefined, .offset = 0 };
+        } else {
+            return .{ .device = self, .offset = self.cap_ptr().read() & 0xFC };
+        }
+    }
+
+    pub fn getMsi(self: Device) ?Msi {
+        var caps = self.capabilities();
+
+        while (caps.next()) |cap| {
+            switch (cap.vendor()) {
+                0x5 => return Msi{ .pci_cap = cap },
+                else => continue,
+            }
+        }
+
+        return null;
     }
 };
 
