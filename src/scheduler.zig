@@ -295,26 +295,22 @@ pub fn init() !void {
     kernel_process.address_space = virt.kernel_address_space.?;
     kernel_process.cwd = root_dir;
 
-    inline for (.{ &kernel_thread, &idle_thread }) |thread| {
-        thread.* = .{
-            .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
-            .parent = &kernel_process,
-        };
+    const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
 
-        const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+    idle_thread = .{
+        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
+        .parent = &kernel_process,
+    };
 
-        thread.regs.rsp = virt.asHigherHalf(u64, stack + std.mem.page_size);
-        thread.regs.rflags = 0x202;
-        thread.regs.cs = 0x28;
-        thread.regs.ss = 0x30;
-        thread.regs.ds = 0x30;
-        thread.regs.es = 0x30;
-    }
-
+    idle_thread.regs.rsp = virt.asHigherHalf(u64, stack + std.mem.page_size);
     idle_thread.regs.rip = @ptrToInt(idleThread);
-    kernel_thread.regs.rip = @ptrToInt(root.mainThread);
+    idle_thread.regs.rflags = 0x202;
+    idle_thread.regs.cs = 0x28;
+    idle_thread.regs.ss = 0x30;
+    idle_thread.regs.ds = 0x30;
+    idle_thread.regs.es = 0x30;
 
-    enqueue(&kernel_thread);
+    _ = try startKernelThread(root.mainThread, 0);
 }
 
 pub fn spawnThread(parent: *process.Process) !*Thread {
@@ -378,7 +374,7 @@ pub fn spawnProcess(parent: ?*process.Process) !*process.Process {
 
 pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     const thread = try root.allocator.create(Thread);
-    const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const stack = phys.allocate(4, true) orelse return error.OutOfMemory;
 
     errdefer root.allocator.destroy(thread);
 
@@ -390,7 +386,10 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     const wrapper = struct {
         fn handler(arg: u64) callconv(.C) noreturn {
             const entry_type = @typeInfo(@TypeOf(entry)).Fn;
-            const result = @call(.{ .modifier = .always_inline }, entry, .{@intToPtr(entry_type.args[0].arg_type.?, arg)});
+            const result = switch (@typeInfo(entry_type.args[0].arg_type.?)) {
+                .Pointer => @call(.{ .modifier = .always_inline }, entry, .{@intToPtr(entry_type.args[0].arg_type.?, arg)}),
+                else => @call(.{ .modifier = .always_inline }, entry, .{@as(entry_type.args[0].arg_type.?, arg)}),
+            };
 
             switch (@typeInfo(@TypeOf(result))) {
                 .ErrorUnion => result catch |err| {
@@ -404,8 +403,11 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     };
 
     thread.regs.rip = @ptrToInt(wrapper.handler);
-    thread.regs.rsp = virt.asHigherHalf(u64, stack + std.mem.page_size);
-    thread.regs.rdi = @ptrToInt(context);
+    thread.regs.rsp = virt.asHigherHalf(u64, stack + 4 * std.mem.page_size - 0x10);
+    thread.regs.rdi = switch (@typeInfo(@TypeOf(context))) {
+        .Pointer => @ptrToInt(context),
+        else => @as(u64, context),
+    };
     thread.regs.rflags = 0x202;
     thread.regs.cs = 0x28;
     thread.regs.ss = 0x30;
@@ -420,10 +422,9 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
 pub fn exitThread() noreturn {
     per_cpu.get().thread = null;
 
-    yield();
-
-    // Shouldn't be reached
-    unreachable;
+    while (true) {
+        yield();
+    }
 }
 
 pub fn enqueue(thread: *Thread) void {
@@ -439,7 +440,7 @@ pub fn dequeueOrNull() ?*Thread {
 
     defer scheduler_lock.unlock();
 
-    if (scheduler_queue.pop()) |thread| {
+    if (scheduler_queue.popFirst()) |thread| {
         return @fieldParentPtr(Thread, "node", thread);
     }
 
@@ -466,7 +467,6 @@ pub fn yield() void {
     schedCall(struct {
         fn handler(frame: *interrupts.InterruptFrame, arg: usize) void {
             _ = arg;
-
             reschedule(frame);
         }
     }.handler, undefined);

@@ -124,9 +124,10 @@ fn exceptionHandler(frame: *InterruptFrame) void {
 
     printRegisters(frame);
 
-    if (cpu_info.currentProcess()) |process| {
+    if (frame.cs & 3 != 0 and cpu_info.currentProcess() != null) {
         // TODO: Implement signals and stuff like that so we can properly
         // terminate processes that violate memory protections
+        const process = cpu_info.currentProcess().?;
 
         logger.info("Killed {}:{} because of a protection violation", .{ process.pid, cpu_info.thread.?.tid });
 

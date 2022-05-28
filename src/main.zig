@@ -147,7 +147,9 @@ fn main() !void {
     asm volatile ("sti");
 }
 
-pub fn mainThread() noreturn {
+pub fn mainThread(arg: usize) void {
+    _ = arg;
+
     // const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
     // const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
     // const hello = utils.vital(vfs.resolve(null, "/usr/bin/init", 0), "Failed to find the executable");
@@ -158,8 +160,6 @@ pub fn mainThread() noreturn {
     // );
 
     // scheduler.enqueue(thread);
-
-    scheduler.exitThread();
 }
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
