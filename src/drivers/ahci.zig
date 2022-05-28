@@ -1,5 +1,6 @@
 const logger = std.log.scoped(.ahci);
 
+const root = @import("root");
 const std = @import("std");
 
 const arch = @import("../arch.zig");
@@ -322,19 +323,25 @@ const ReadOrWrite = enum {
 };
 
 const PortState = struct {
-    mmio: *volatile Port = undefined,
-    num_sectors: usize = undefined,
-    sector_size: usize = 512,
-    port_type: SataPortType = undefined,
+    mmio: *volatile Port,
+    sector_size: usize,
+    sector_count: usize,
+    port_type: SataPortType,
 
-    pub fn init(port: *volatile Port) !PortState {
-        var result = PortState{};
+    pub fn init(port: *volatile Port) !*PortState {
+        const result = try root.allocator.create(PortState);
 
-        result.mmio = port;
-        result.port_type = switch (result.mmio.signature) {
-            0x00000101 => .Ata,
-            // 0xEB140101 => .Atapi, // Drop atapi for now
-            else => return error.UnknownSignature,
+        errdefer root.allocator.destroy(result);
+
+        result.* = .{
+            .mmio = port,
+            .sector_size = 0,
+            .sector_count = 0,
+            .port_type = switch (result.mmio.signature) {
+                0x00000101 => .Ata,
+                // 0xEB140101 => .Atapi, // Drop atapi for now
+                else => return error.UnknownSignature,
+            },
         };
 
         result.mmio.stopCommandEngine();
@@ -344,6 +351,43 @@ const PortState = struct {
         try result.identify();
 
         return result;
+    }
+
+    pub fn getSectorSize(self: *const PortState) usize {
+        return self.sector_size;
+    }
+
+    pub fn getSectorCount(self: *const PortState) usize {
+        return self.sector_count;
+    }
+
+    pub fn readBlock(self: *PortState, block: usize, buffer: []u8) !void {
+        std.debug.assert(buffer.len % self.sector_size == 0);
+
+        var blocks_to_read: usize = buffer.len / self.sector_size;
+        var offset: usize = 0;
+
+        while (blocks_to_read > 0) {
+            const sector_count = std.math.min(blocks_to_read, std.mem.page_size / self.sector_size);
+            const mmio_buffer = self.mmio.getBuffer(0, 0);
+
+            self.finalizeIo(0, @intCast(u48, block + offset), @intCast(u16, sector_count), .Read);
+            std.mem.copy(
+                u8,
+                buffer[offset * self.sector_size ..],
+                mmio_buffer[offset * self.sector_size .. offset * self.sector_size + self.sector_size],
+            );
+
+            blocks_to_read -= sector_count;
+            offset += sector_count;
+        }
+    }
+
+    pub fn writeBlock(self: *PortState, block: usize, buffer: []const u8) !void {
+        _ = self;
+        _ = block;
+        _ = buffer;
+        return error.InputOutput;
     }
 
     fn setupCommandHeaders(self: *PortState) !void {
@@ -400,19 +444,21 @@ const PortState = struct {
 
         if (read_sector_size) {
             self.sector_size = std.mem.readIntLittle(u32, buffer[234..][0..4]);
+        } else {
+            self.sector_size = 512;
         }
 
-        self.num_sectors = std.mem.readIntLittle(u64, buffer[200..][0..8]);
+        self.sector_count = std.mem.readIntLittle(u64, buffer[200..][0..8]);
 
-        if (self.num_sectors == 0) {
-            self.num_sectors = std.mem.readIntLittle(u32, buffer[120..][0..4]);
+        if (self.sector_count == 0) {
+            self.sector_count = std.mem.readIntLittle(u32, buffer[120..][0..4]);
         }
 
-        if (self.num_sectors == 0) {
+        if (self.sector_count == 0) {
             return error.NoSectors;
         }
 
-        const disk_size = self.num_sectors * self.sector_size;
+        const disk_size = self.sector_count * self.sector_size;
 
         for (std.mem.bytesAsSlice(u16, buffer[20..40])) |*value| {
             value.* = @byteSwap(u16, value.*);
@@ -428,10 +474,10 @@ const PortState = struct {
         logger.info("0x{X}: Identified as {s} with serial {s}", .{ @ptrToInt(self.mmio), model_str, serial_str });
         logger.info(
             "0x{X}: Disk has 0x{X} sectors of size {d} ({} in total)",
-            .{ @ptrToInt(self.mmio), self.num_sectors, self.sector_size, utils.BinarySize.init(disk_size) },
+            .{ @ptrToInt(self.mmio), self.sector_count, self.sector_size, utils.BinarySize.init(disk_size) },
         );
 
-        try dev_fs.wrapBlockDevice("sata", self);
+        try dev_fs.addDiskBlockDevice("sata", self);
     }
 
     fn finalizeIo(self: *PortState, command_slot: u5, lba: u48, sector_count: u16, mode: ReadOrWrite) void {
@@ -518,9 +564,7 @@ fn takeOverController(abar: *volatile Abar) void {
 }
 
 fn initializePort(port: *volatile Port) !void {
-    var state = try PortState.init(port);
-
-    _ = state;
+    _ = try PortState.init(port);
 }
 
 fn controllerThread(abar: *volatile Abar) !void {

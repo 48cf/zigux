@@ -17,32 +17,95 @@ const tty_vtable: vfs.VNodeVTable = .{
 
 var disk_number: usize = 1;
 
+const BlockDeviceError = error{
+    InputOutput,
+};
+
+const BlockDeviceVTable = struct {
+    read_block: fn (self: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void,
+    write_block: fn (self: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void,
+};
+
+const BlockDevice = struct {
+    vnode: vfs.VNode,
+    vtable: *const BlockDeviceVTable,
+    sector_size: usize,
+    sector_count: usize,
+    name: [24]u8 = undefined,
+
+    const vtable: vfs.VNodeVTable = .{
+        .open = null,
+        .read = BlockDevice.read,
+        .write = BlockDevice.write,
+        .insert = null,
+    };
+
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
+        const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+        const block = offset / self.sector_size;
+
+        try self.vtable.read_block(self, block, buffer);
+
+        return buffer.len;
+    }
+
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
+        _ = vnode;
+        _ = buffer;
+        _ = offset;
+        return error.InputOutput;
+    }
+};
+
 fn BlockDeviceWrapper(comptime T: type) type {
     return struct {
-        vnode: vfs.VNode,
+        block: BlockDevice,
         device: T,
-        name: [20]u8 = undefined,
+        partition_number: usize = 1,
 
-        const vtable: vfs.VNodeVTable = .{
-            .open = null,
-            .read = @This().read,
-            .write = @This().write,
-            .insert = null,
+        const vtable: BlockDeviceVTable = .{
+            .read_block = @This().readBlock,
+            .write_block = @This().writeBlock,
         };
 
-        fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
-            _ = vnode;
-            _ = buffer;
-            _ = offset;
+        fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
+            const self = @fieldParentPtr(@This(), "block", block_dev);
 
+            try self.device.readBlock(block, buffer);
+        }
+
+        fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
+            _ = block_dev;
+            _ = block;
+            logger.debug("{s}: Attempt to write {} bytes at block offset {}", .{ @typeName(T), buffer.len, block });
+            return error.InputOutput;
+        }
+    };
+}
+
+fn PartitionBlockDeviceWrapper(comptime T: type) type {
+    return struct {
+        block: BlockDevice,
+        device: T,
+        start_block: usize,
+        end_block: usize,
+
+        const vtable: BlockDeviceVTable = .{
+            .read_block = @This().read_block,
+            .write_block = @This().write_block,
+        };
+
+        fn read_block(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
+            _ = block_dev;
+            _ = block;
+            _ = buffer;
             return error.InputOutput;
         }
 
-        fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
-            _ = vnode;
+        fn write_block(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
+            _ = block_dev;
+            _ = block;
             _ = buffer;
-            _ = offset;
-
             return error.InputOutput;
         }
     };
@@ -155,7 +218,7 @@ pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
     return ramfs;
 }
 
-pub fn wrapBlockDevice(name: []const u8, device: anytype) !void {
+pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
     const WrappedDevice = BlockDeviceWrapper(@TypeOf(device));
 
     const dev = try vfs.resolve(null, "/dev", 0);
@@ -163,17 +226,26 @@ pub fn wrapBlockDevice(name: []const u8, device: anytype) !void {
     const disk_id = @atomicRmw(usize, &disk_number, .Add, 1, .AcqRel);
 
     node.* = .{
-        .vnode = undefined,
+        .block = .{
+            .vnode = undefined,
+            .vtable = &WrappedDevice.vtable,
+            .sector_size = device.getSectorSize(),
+            .sector_count = device.getSectorCount(),
+        },
         .device = device,
     };
 
-    node.vnode = .{
-        .vtable = &WrappedDevice.vtable,
+    node.block.vnode = .{
+        .vtable = &BlockDevice.vtable,
         .filesystem = dev.filesystem,
-        .name = try std.fmt.bufPrint(&node.name, "{s}{d}", .{ name, disk_id }),
+        .name = try std.fmt.bufPrint(&node.block.name, "{s}{d}", .{ name, disk_id }),
     };
 
-    try dev.insert(&node.vnode);
+    try dev.insert(&node.block.vnode);
 
-    logger.debug("{}", .{node.vnode.getFullPath()});
+    var block_buffer = try root.allocator.alloc(u8, node.block.sector_size);
+
+    _ = try node.block.vnode.read(block_buffer, 0);
+
+    logger.debug("{}: \"{s}\"", .{ node.block.vnode.getFullPath(), std.fmt.fmtSliceEscapeUpper(block_buffer[0..16]) });
 }
