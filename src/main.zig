@@ -169,7 +169,6 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
 
     logger.err("Kernel panic: {s}", .{message});
 
-    debug.init() catch {};
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
 
     while (true) {

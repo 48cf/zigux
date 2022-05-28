@@ -10,6 +10,10 @@ var debug_info: ?std.dwarf.DwarfInfo = null;
 pub fn printStackIterator(stack_iter: std.debug.StackIterator) void {
     var iter = stack_iter;
 
+    init() catch |nested_err| {
+        logger.err("Failed to initialize debug info: {e}", .{nested_err});
+    };
+
     logger.err("Stack backtrace:", .{});
 
     while (iter.next()) |addr| {
@@ -18,6 +22,10 @@ pub fn printStackIterator(stack_iter: std.debug.StackIterator) void {
 }
 
 pub fn printStackTrace(stack_trace: *std.builtin.StackTrace) void {
+    init() catch |nested_err| {
+        logger.err("Failed to initialize debug info: {e}", .{nested_err});
+    };
+
     logger.err("Stack backtrace:", .{});
 
     var frame_index: usize = 0;
@@ -33,7 +41,7 @@ pub fn printStackTrace(stack_trace: *std.builtin.StackTrace) void {
     }
 }
 
-pub fn init() !void {
+fn init() !void {
     if (debug_info != null) {
         return;
     }
