@@ -503,7 +503,7 @@ pub fn init(kernel_addr_res: *limine.KernelAddress.Response) !void {
 
     // TODO: Map all of the memory map entries too
     try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(16) - std.mem.page_size, Flags.Present | Flags.Writable);
-    try page_table.map(hhdm, 0, utils.gib(16), Flags.Present | Flags.Writable);
+    try page_table.map(hhdm, 0, utils.gib(16), Flags.Present | Flags.Writable | Flags.NoExecute);
 
     try map_section("text", page_table, kernel_addr_res, Flags.Present);
     try map_section("rodata", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
@@ -536,7 +536,7 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
         try kernel_address_space.?.page_table.mapPage(
             page,
             page - hhdm_uc,
-            Flags.Present | Flags.Writable | Flags.NoCache,
+            Flags.Present | Flags.Writable | Flags.NoCache | Flags.NoExecute,
         );
 
         return true;
@@ -555,7 +555,7 @@ pub fn asHigherHalf(comptime T: type, addr: u64) T {
     if (@typeInfo(T) == .Pointer) {
         return @intToPtr(T, result);
     } else {
-        return result;
+        return @as(T, result);
     }
 }
 
@@ -565,6 +565,6 @@ pub fn asHigherHalfUncached(comptime T: type, addr: u64) T {
     if (@typeInfo(T) == .Pointer) {
         return @intToPtr(T, result);
     } else {
-        return result;
+        return @as(T, result);
     }
 }

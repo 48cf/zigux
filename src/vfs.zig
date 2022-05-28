@@ -34,6 +34,7 @@ pub const VNode = struct {
     kind: VNodeKind = undefined,
     parent: ?*VNode = null,
     name: ?[]const u8 = null,
+    lock: std.Thread.Mutex.AtomicMutex = .{},
 
     fn getEffectiveVNode(self: *VNode) *VNode {
         return self.mounted_vnode orelse self;
@@ -90,6 +91,10 @@ pub const VNode = struct {
     }
 
     pub fn insert(self: *VNode, child: *VNode) !void {
+        self.lock.lock();
+
+        defer self.lock.unlock();
+
         std.debug.assert(child.name != null);
         std.debug.assert(child.kind == .File or child.kind == .Directory);
 
@@ -109,6 +114,10 @@ pub const VNode = struct {
     }
 
     pub fn mount(self: *VNode, other: *VNode) void {
+        self.lock.lock();
+
+        defer self.lock.unlock();
+
         std.debug.assert(self.mounted_vnode == null);
         std.debug.assert(other.parent == null);
 
