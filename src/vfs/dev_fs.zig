@@ -243,9 +243,53 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
 
     try dev.insert(&node.block.vnode);
 
-    var block_buffer = try root.allocator.alloc(u8, node.block.sector_size);
+    var buffer = try root.allocator.alloc(u8, node.block.sector_size * 2);
 
-    _ = try node.block.vnode.read(block_buffer, 0);
+    _ = try node.block.vnode.read(buffer, 0);
 
-    logger.debug("{}: \"{s}\"", .{ node.block.vnode.getFullPath(), std.fmt.fmtSliceEscapeUpper(block_buffer[0..16]) });
+    try probePartitions(&node.block.vnode, buffer);
+}
+
+const MbrHeader = extern struct {
+    reserved0: [510]u8,
+    magic: u16,
+};
+
+const GptHeader = extern struct {
+    signature: [8]u8,
+    revision: u32,
+    header_size: u32,
+    header_crc32: u32,
+    reserved14: [4]u8,
+    current_lba: u64,
+    backup_lba: u64,
+    first_usable_lba: u64,
+    last_usable_lba: u64,
+    disk_guid: std.os.uefi.Guid,
+    partition_entry_lba: u64,
+    num_partition_entries: u32,
+    size_of_partition_entry: u32,
+    partition_entry_array_crc32: u32,
+};
+
+const GptPartitionEntry = extern struct {
+    partition_type_guid: std.os.uefi.Guid,
+    unique_partition_guid: std.os.uefi.Guid,
+    starting_lba: u64,
+    ending_lba: u64,
+    attributes: u64,
+    name: [36]u16,
+};
+
+fn probePartitions(node: *vfs.VNode, buffer: []const u8) !void {
+    const mbr_header = @ptrCast(*align(1) const MbrHeader, buffer);
+    const gpt_header = @ptrCast(*align(1) const GptHeader, buffer[512..]);
+
+    if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
+        logger.debug("{}: {}", .{ node.getFullPath(), gpt_header });
+    } else if (mbr_header.magic == 0xaa55) {
+        logger.debug("{}: MBR partition table detected", .{node.getFullPath()});
+    } else {
+        logger.debug("{}: No partition table detected", .{node.getFullPath()});
+    }
 }
