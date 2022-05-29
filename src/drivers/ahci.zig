@@ -375,7 +375,7 @@ const PortState = struct {
             std.mem.copy(
                 u8,
                 buffer[offset * self.sector_size ..],
-                mmio_buffer[offset * self.sector_size .. offset * self.sector_size + self.sector_size],
+                mmio_buffer[offset * self.sector_size .. offset * self.sector_size + sector_count * self.sector_size],
             );
 
             blocks_to_read -= sector_count;
