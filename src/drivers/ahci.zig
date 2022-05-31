@@ -365,8 +365,6 @@ const PortState = struct {
         var block = block_in;
         var buffer = buffer_in;
 
-        logger.debug("Reading {} byte(s) starting at block {}", .{ buffer.len, block });
-
         while (buffer.len > 0) {
             const blocks = utils.alignUp(usize, buffer.len, self.sector_size) / self.sector_size;
             const sector_count = std.math.min(blocks, std.mem.page_size / self.sector_size);
@@ -382,11 +380,23 @@ const PortState = struct {
         }
     }
 
-    pub fn writeBlock(self: *PortState, block: usize, buffer: []const u8) !void {
-        _ = self;
-        _ = block;
-        _ = buffer;
-        return error.InputOutput;
+    pub fn writeBlock(self: *PortState, block_in: usize, buffer_in: []const u8) !void {
+        var block = block_in;
+        var buffer = buffer_in;
+
+        while (buffer.len > 0) {
+            const blocks = utils.alignUp(usize, buffer.len, self.sector_size) / self.sector_size;
+            const sector_count = std.math.min(blocks, std.mem.page_size / self.sector_size);
+            const copy_length = std.math.min(sector_count * self.sector_size, buffer.len);
+            const mmio_buffer = self.mmio.getBuffer(0, 0);
+
+            std.mem.copy(u8, mmio_buffer[0..copy_length], buffer);
+
+            self.finalizeIo(0, @intCast(u48, block), @intCast(u16, sector_count), .Write);
+
+            block += sector_count;
+            buffer = buffer[copy_length..];
+        }
     }
 
     fn setupCommandHeaders(self: *PortState) !void {
