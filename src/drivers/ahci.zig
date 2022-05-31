@@ -361,25 +361,24 @@ const PortState = struct {
         return self.sector_count;
     }
 
-    pub fn readBlock(self: *PortState, block: usize, buffer: []u8) !void {
-        std.debug.assert(buffer.len % self.sector_size == 0);
+    pub fn readBlock(self: *PortState, block_in: usize, buffer_in: []u8) !void {
+        var block = block_in;
+        var buffer = buffer_in;
 
-        var blocks_to_read: usize = buffer.len / self.sector_size;
-        var offset: usize = 0;
+        logger.debug("Reading {} byte(s) starting at block {}", .{ buffer.len, block });
 
-        while (blocks_to_read > 0) {
-            const sector_count = std.math.min(blocks_to_read, std.mem.page_size / self.sector_size);
+        while (buffer.len > 0) {
+            const blocks = utils.alignUp(usize, buffer.len, self.sector_size) / self.sector_size;
+            const sector_count = std.math.min(blocks, std.mem.page_size / self.sector_size);
+            const copy_length = std.math.min(sector_count * self.sector_size, buffer.len);
             const mmio_buffer = self.mmio.getBuffer(0, 0);
 
-            self.finalizeIo(0, @intCast(u48, block + offset), @intCast(u16, sector_count), .Read);
-            std.mem.copy(
-                u8,
-                buffer[offset * self.sector_size ..],
-                mmio_buffer[offset * self.sector_size .. offset * self.sector_size + sector_count * self.sector_size],
-            );
+            self.finalizeIo(0, @intCast(u48, block), @intCast(u16, sector_count), .Read);
 
-            blocks_to_read -= sector_count;
-            offset += sector_count;
+            std.mem.copy(u8, buffer, mmio_buffer[0..copy_length]);
+
+            block += sector_count;
+            buffer = buffer[copy_length..];
         }
     }
 

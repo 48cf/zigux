@@ -5,6 +5,7 @@ const std = @import("std");
 
 const arch = @import("../arch.zig");
 const vfs = @import("../vfs.zig");
+const utils = @import("../utils.zig");
 const ps2 = @import("../drivers/ps2.zig");
 const ram_fs = @import("ram_fs.zig");
 
@@ -33,27 +34,99 @@ const BlockDevice = struct {
     sector_count: usize,
     name: [24]u8 = undefined,
 
-    const vtable: vfs.VNodeVTable = .{
+    const vnode_vtable: vfs.VNodeVTable = .{
         .open = null,
         .read = BlockDevice.read,
         .write = BlockDevice.write,
         .insert = null,
     };
 
+    fn iterateSectors(
+        self: *@This(),
+        buffer_in: anytype,
+        disk_offset_in: usize,
+        small_callback: anytype,
+        large_callback: anytype,
+    ) !void {
+        if (buffer_in.len == 0) {
+            return;
+        }
+
+        var first_sector = utils.alignDown(usize, disk_offset_in, self.sector_size) / self.sector_size;
+        var last_sector = utils.alignDown(usize, disk_offset_in + buffer_in.len - 1, self.sector_size) / self.sector_size;
+
+        if (first_sector == last_sector) {
+            return small_callback(self, buffer_in, first_sector, disk_offset_in % self.sector_size);
+        }
+
+        var disk_offset = disk_offset_in;
+        var buffer = buffer_in;
+
+        if (!utils.isAligned(usize, disk_offset, self.sector_size)) {
+            const step = utils.alignUp(usize, disk_offset, self.sector_size) - disk_offset;
+
+            try small_callback(self, buffer[0..step], first_sector, self.sector_size - step);
+
+            buffer = buffer[step..];
+            disk_offset += step;
+            first_sector += 1;
+        }
+
+        while (buffer.len >= self.sector_size) {
+            try large_callback(self, buffer[0..self.sector_size], first_sector);
+
+            buffer = buffer[self.sector_size..];
+            disk_offset += self.sector_size;
+            first_sector += 1;
+        }
+
+        if (buffer.len == 0) {
+            return;
+        }
+
+        try small_callback(self, buffer, first_sector, 0);
+    }
+
+    fn doLargeRead(self: *BlockDevice, buffer: []u8, sector: usize) !void {
+        return self.vtable.read_block(self, sector, buffer);
+    }
+
+    fn doLargeWrite(self: *BlockDevice, buffer: []const u8, sector: usize) !void {
+        return self.vtable.write_block(self, sector, buffer);
+    }
+
+    fn doSmallRead(self: *BlockDevice, buffer: []u8, sector: usize, offset: usize) !void {
+        var temp_buffer: [512]u8 = undefined;
+
+        try self.vtable.read_block(self, sector, &temp_buffer);
+
+        std.mem.copy(u8, buffer, temp_buffer[offset..][0..buffer.len]);
+    }
+
+    fn doSmallWrite(self: *BlockDevice, buffer: []const u8, sector: usize, offset: usize) !void {
+        var temp_buffer: [512]u8 = undefined;
+
+        try self.vtable.read_block(self, sector, &temp_buffer);
+
+        std.mem.copy(u8, temp_buffer[offset..][0..buffer.len], buffer);
+
+        try self.vtable.write_block(self, sector, &temp_buffer);
+    }
+
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
-        const block = offset / self.sector_size;
 
-        try self.vtable.read_block(self, block, buffer);
+        try self.iterateSectors(buffer, offset, doSmallRead, doLargeRead);
 
         return buffer.len;
     }
 
     fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
-        _ = vnode;
-        _ = buffer;
-        _ = offset;
-        return error.InputOutput;
+        const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+
+        try self.iterateSectors(buffer, offset, doSmallWrite, doLargeWrite);
+
+        return buffer.len;
     }
 };
 
@@ -61,9 +134,8 @@ fn BlockDeviceWrapper(comptime T: type) type {
     return struct {
         block: BlockDevice,
         device: T,
-        partition_number: usize = 1,
 
-        const vtable: BlockDeviceVTable = .{
+        const block_vtable: BlockDeviceVTable = .{
             .read_block = @This().readBlock,
             .write_block = @This().writeBlock,
         };
@@ -77,7 +149,7 @@ fn BlockDeviceWrapper(comptime T: type) type {
         fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
             _ = block_dev;
             _ = block;
-            logger.debug("{s}: Attempt to write {} bytes at block offset {}", .{ @typeName(T), buffer.len, block });
+            _ = buffer;
             return error.InputOutput;
         }
     };
@@ -90,19 +162,19 @@ fn PartitionBlockDeviceWrapper(comptime T: type) type {
         start_block: usize,
         end_block: usize,
 
-        const vtable: BlockDeviceVTable = .{
-            .read_block = @This().read_block,
-            .write_block = @This().write_block,
+        const block_vtable: BlockDeviceVTable = .{
+            .read_block = @This().readBlock,
+            .write_block = @This().writeBlock,
         };
 
-        fn read_block(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
+        fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
             _ = block_dev;
             _ = block;
             _ = buffer;
             return error.InputOutput;
         }
 
-        fn write_block(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
+        fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
             _ = block_dev;
             _ = block;
             _ = buffer;
@@ -228,7 +300,7 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
     node.* = .{
         .block = .{
             .vnode = undefined,
-            .vtable = &WrappedDevice.vtable,
+            .vtable = &WrappedDevice.block_vtable,
             .sector_size = device.getSectorSize(),
             .sector_count = device.getSectorCount(),
         },
@@ -236,18 +308,13 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
     };
 
     node.block.vnode = .{
-        .vtable = &BlockDevice.vtable,
+        .vtable = &BlockDevice.vnode_vtable,
         .filesystem = dev.filesystem,
         .name = try std.fmt.bufPrint(&node.block.name, "{s}{d}", .{ name, disk_id }),
     };
 
     try dev.insert(&node.block.vnode);
-
-    var buffer = try root.allocator.alloc(u8, node.block.sector_size * 2);
-
-    _ = try node.block.vnode.read(buffer, 0);
-
-    try probePartitions(&node.block.vnode, buffer);
+    try probePartitions(&node.block.vnode, node.block.sector_size);
 }
 
 const MbrHeader = extern struct {
@@ -281,12 +348,32 @@ const GptPartitionEntry = extern struct {
     name: [36]u16,
 };
 
-fn probePartitions(node: *vfs.VNode, buffer: []const u8) !void {
+fn probePartitions(node: *vfs.VNode, sector_size: usize) !void {
+    var buffer = try root.allocator.alloc(u8, sector_size * 2);
+
+    _ = try node.read(buffer, 0);
+
     const mbr_header = @ptrCast(*align(1) const MbrHeader, buffer);
     const gpt_header = @ptrCast(*align(1) const GptHeader, buffer[512..]);
 
     if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
-        logger.debug("{}: {}", .{ node.getFullPath(), gpt_header });
+        var entry: GptPartitionEntry = undefined;
+        var count: usize = 0;
+
+        for (utils.range(10)) |_, i| {
+            _ = try node.read(
+                std.mem.asBytes(&entry),
+                gpt_header.partition_entry_lba * sector_size + i * gpt_header.size_of_partition_entry,
+            );
+
+            if (entry.starting_lba == 0) {
+                break;
+            }
+
+            count += 1;
+        }
+
+        logger.debug("{}: Found {} partitions", .{ node.getFullPath(), count });
     } else if (mbr_header.magic == 0xaa55) {
         logger.debug("{}: MBR partition table detected", .{node.getFullPath()});
     } else {
