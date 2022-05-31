@@ -6,6 +6,7 @@ const std = @import("std");
 const abi = @import("abi.zig");
 const tar = @import("tar.zig");
 const limine = @import("limine.zig");
+const mutex = @import("mutex.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
 
@@ -34,7 +35,7 @@ pub const VNode = struct {
     kind: VNodeKind = undefined,
     parent: ?*VNode = null,
     name: ?[]const u8 = null,
-    lock: std.Thread.Mutex.AtomicMutex = .{},
+    lock: mutex.AtomicMutex = .{},
 
     fn getEffectiveVNode(self: *VNode) *VNode {
         return self.mounted_vnode orelse self;

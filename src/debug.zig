@@ -57,6 +57,7 @@ fn init() !void {
         .debug_str = try getSectionSlice(kernel_file.address, ".debug_str"),
         .debug_line = try getSectionSlice(kernel_file.address, ".debug_line"),
         .debug_ranges = try getSectionSlice(kernel_file.address, ".debug_ranges"),
+        .debug_line_str = null,
     };
 
     try std.dwarf.openDwarfDebugInfo(&debug_info.?, debug_allocator.allocator());
@@ -75,7 +76,7 @@ fn printSymbol(address: u64) void {
         }
 
         const compile_unit = info.findCompileUnit(address) catch break :brk;
-        const line_info = info.getLineNumberInfo(compile_unit.*, address) catch break :brk;
+        const line_info = info.getLineNumberInfo(debug_allocator.allocator(), compile_unit.*, address) catch break :brk;
 
         return printInfo(address, symbol_name, line_info.file_name, line_info.line);
     }

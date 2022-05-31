@@ -136,6 +136,7 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
             error.DiskQuota => abi.EDQUOT,
             error.NotOpenForWriting => abi.EROFS,
             error.InvalidArgument => abi.EINVAL,
+            error.InvalidHandle => abi.EINVAL,
         };
 
         break :blk @bitCast(u64, @as(i64, -@bitCast(i16, errno)));

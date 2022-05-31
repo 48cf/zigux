@@ -8,6 +8,7 @@ const arch = @import("arch.zig");
 const interrupts = @import("interrupts.zig");
 const debug = @import("debug.zig");
 const limine = @import("limine.zig");
+const mutex = @import("mutex.zig");
 const per_cpu = @import("per_cpu.zig");
 const pci = @import("pci.zig");
 const phys = @import("phys.zig");
@@ -91,7 +92,7 @@ pub const os = .{
     },
 };
 
-pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = std.Thread.Mutex.AtomicMutex }){};
+pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = mutex.AtomicMutex }){};
 pub var allocator = gp_allocator.allocator();
 
 pub export var boot_info_req: limine.BootloaderInfo.Request = .{ .revision = 0 };

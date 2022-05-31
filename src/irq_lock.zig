@@ -2,9 +2,10 @@ const std = @import("std");
 
 const arch = @import("arch.zig");
 const debug = @import("debug.zig");
+const mutex = @import("mutex.zig");
 
 pub const IrqSpinlock = struct {
-    inner: std.Thread.Mutex.AtomicMutex = .{},
+    inner: mutex.AtomicMutex = .{},
     re_enable: bool = undefined,
 
     pub fn lock(self: *IrqSpinlock) bool {
