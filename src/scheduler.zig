@@ -309,8 +309,6 @@ pub fn init() !void {
     idle_thread.regs.ss = 0x30;
     idle_thread.regs.ds = 0x30;
     idle_thread.regs.es = 0x30;
-
-    _ = try startKernelThread(root.mainThread, 0);
 }
 
 pub fn spawnThread(parent: *process.Process) !*Thread {

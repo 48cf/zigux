@@ -120,6 +120,7 @@ export fn platformMain() noreturn {
 
 fn main() !void {
     asm volatile ("cli");
+    defer asm volatile ("sti");
 
     const boot_info_res = boot_info_req.response.?;
     const hhdm_res = hhdm_req.response.?;
@@ -129,7 +130,6 @@ fn main() !void {
     const rsdp_res = rsdp_req.response.?;
 
     std.debug.assert(hhdm_res.offset == virt.asHigherHalf(u64, 0));
-
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
     try phys.init(memory_map_res);
@@ -144,23 +144,6 @@ fn main() !void {
     apic.initTimer();
 
     ps2.init();
-
-    asm volatile ("sti");
-}
-
-pub fn mainThread(arg: usize) void {
-    _ = arg;
-
-    // const process = utils.vital(scheduler.spawnProcess(null), "Failed to spawn the process");
-    // const thread = utils.vital(scheduler.spawnThread(process), "Failed to spawn the thread");
-    // const hello = utils.vital(vfs.resolve(null, "/usr/bin/init", 0), "Failed to find the executable");
-
-    // utils.vital(
-    //     thread.exec(hello, &.{"/usr/bin/init"}, &.{ "TERM=linux", "HOME=/root" }),
-    //     "Failed to execute the executable",
-    // );
-
-    // scheduler.enqueue(thread);
 }
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
