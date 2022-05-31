@@ -391,7 +391,10 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
 
             try dev.insert(&part_node.block.vnode);
 
-            logger.debug("New partition: {}", .{part_node.block.vnode.getFullPath()});
+            logger.debug(
+                "{}: Added partition with start LBA of {} and end LBA of {}",
+                .{ part_node.block.vnode.getFullPath(), entry.starting_lba, entry.ending_lba },
+            );
         }
     } else if (mbr_header.magic == 0xaa55) {
         logger.debug("{}: MBR partition table detected", .{device.vnode.getFullPath()});
