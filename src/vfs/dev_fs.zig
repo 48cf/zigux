@@ -147,41 +147,40 @@ fn BlockDeviceWrapper(comptime T: type) type {
         }
 
         fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
-            _ = block_dev;
-            _ = block;
-            _ = buffer;
-            return error.InputOutput;
+            const self = @fieldParentPtr(@This(), "block", block_dev);
+
+            try self.device.writeBlock(block, buffer);
         }
     };
 }
 
-fn PartitionBlockDeviceWrapper(comptime T: type) type {
-    return struct {
-        block: BlockDevice,
-        device: T,
-        start_block: usize,
-        end_block: usize,
+const PartitionBlockDeviceWrapper = struct {
+    block: BlockDevice,
+    parent: *BlockDevice,
+    start_block: usize,
+    end_block: usize,
 
-        const block_vtable: BlockDeviceVTable = .{
-            .read_block = @This().readBlock,
-            .write_block = @This().writeBlock,
-        };
-
-        fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
-            _ = block_dev;
-            _ = block;
-            _ = buffer;
-            return error.InputOutput;
-        }
-
-        fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
-            _ = block_dev;
-            _ = block;
-            _ = buffer;
-            return error.InputOutput;
-        }
+    const block_vtable: BlockDeviceVTable = .{
+        .read_block = @This().readBlock,
+        .write_block = @This().writeBlock,
     };
-}
+
+    fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
+        const self = @fieldParentPtr(@This(), "block", block_dev);
+
+        std.debug.assert(self.start_block + block < self.end_block);
+
+        return self.parent.vtable.read_block(self.parent, self.start_block + block, buffer);
+    }
+
+    fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
+        const self = @fieldParentPtr(@This(), "block", block_dev);
+
+        std.debug.assert(self.start_block + block < self.end_block);
+
+        return self.parent.vtable.write_block(self.parent, self.start_block + block, buffer);
+    }
+};
 
 const TtyVNode = struct {
     vnode: vfs.VNode,
@@ -314,7 +313,7 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
     };
 
     try dev.insert(&node.block.vnode);
-    try probePartitions(&node.block.vnode, node.block.sector_size);
+    try probePartitions(&node.block, node.block.sector_size);
 }
 
 const MbrHeader = extern struct {
@@ -348,20 +347,20 @@ const GptPartitionEntry = extern struct {
     name: [36]u16,
 };
 
-fn probePartitions(node: *vfs.VNode, sector_size: usize) !void {
+fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
     var buffer = try root.allocator.alloc(u8, sector_size * 2);
 
-    _ = try node.read(buffer, 0);
+    _ = try device.vnode.read(buffer, 0);
 
+    const dev = try vfs.resolve(null, "/dev", 0);
     const mbr_header = @ptrCast(*align(1) const MbrHeader, buffer);
     const gpt_header = @ptrCast(*align(1) const GptHeader, buffer[512..]);
 
     if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
         var entry: GptPartitionEntry = undefined;
-        var count: usize = 0;
 
         for (utils.range(10)) |_, i| {
-            _ = try node.read(
+            _ = try device.vnode.read(
                 std.mem.asBytes(&entry),
                 gpt_header.partition_entry_lba * sector_size + i * gpt_header.size_of_partition_entry,
             );
@@ -370,13 +369,33 @@ fn probePartitions(node: *vfs.VNode, sector_size: usize) !void {
                 break;
             }
 
-            count += 1;
-        }
+            const part_node = try root.allocator.create(PartitionBlockDeviceWrapper);
 
-        logger.debug("{}: Found {} partitions", .{ node.getFullPath(), count });
+            part_node.* = .{
+                .block = .{
+                    .vnode = undefined,
+                    .vtable = &PartitionBlockDeviceWrapper.block_vtable,
+                    .sector_size = device.sector_size,
+                    .sector_count = entry.ending_lba - entry.starting_lba + 1,
+                },
+                .parent = device,
+                .start_block = entry.starting_lba,
+                .end_block = entry.ending_lba + 1,
+            };
+
+            part_node.block.vnode = .{
+                .vtable = &BlockDevice.vnode_vtable,
+                .filesystem = dev.filesystem,
+                .name = try std.fmt.bufPrint(&part_node.block.name, "{s}p{d}", .{ device.vnode.name, i + 1 }),
+            };
+
+            try dev.insert(&part_node.block.vnode);
+
+            logger.debug("New partition: {}", .{part_node.block.vnode.getFullPath()});
+        }
     } else if (mbr_header.magic == 0xaa55) {
-        logger.debug("{}: MBR partition table detected", .{node.getFullPath()});
+        logger.debug("{}: MBR partition table detected", .{device.vnode.getFullPath()});
     } else {
-        logger.debug("{}: No partition table detected", .{node.getFullPath()});
+        logger.debug("{}: No partition table detected", .{device.vnode.getFullPath()});
     }
 }
