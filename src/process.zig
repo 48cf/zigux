@@ -28,6 +28,7 @@ pub const SyscallNumber = enum(u64) {
     FileSeek = 0x104,
     FileGetCwd = 0x105,
     FileStat = 0x106,
+    FileIoControl = 0x107,
 
     MemMap = 0x200,
     MemUnmap = 0x201,
@@ -90,58 +91,85 @@ pub const Process = struct {
     address_space: virt.AddressSpace,
     exit_code: ?u8,
 
-    fn validateString(self: *Process, comptime T: type, ptr: u64) !T {
+    pub fn validateString(self: *Process, comptime T: type, ptr: u64) !T {
         _ = self;
 
         return std.mem.span(@intToPtr(sliceToMany(T), ptr));
     }
 
-    fn validateBuffer(self: *Process, comptime T: type, ptr: u64, len: u64) !T {
+    pub fn validateBuffer(self: *Process, comptime T: type, ptr: u64, len: u64) !T {
         _ = self;
 
         return @intToPtr(sliceToMany(T), ptr)[0..len];
     }
+
+    pub fn validatePointer(self: *Process, comptime T: type, ptr: u64) !*T {
+        _ = self;
+
+        return @intToPtr(*T, ptr);
+    }
 };
+
+const errorTypeMap = .{
+    .{ error.AccessDenied, abi.EACCES },
+    .{ error.SymLinkLoop, abi.ELOOP },
+    .{ error.ProcessFdQuotaExceeded, abi.EDQUOT },
+    .{ error.SystemFdQuotaExceeded, abi.EDQUOT },
+    .{ error.NoDevice, abi.ENXIO },
+    .{ error.FileNotFound, abi.ENOENT },
+    .{ error.NameTooLong, abi.ENAMETOOLONG },
+    .{ error.SystemResources, abi.ENOMEM },
+    .{ error.FileTooBig, abi.EFBIG },
+    .{ error.IsDir, abi.EISDIR },
+    .{ error.NoSpaceLeft, abi.ENOSPC },
+    .{ error.NotDir, abi.ENOTDIR },
+    .{ error.PathAlreadyExists, abi.EEXIST },
+    .{ error.DeviceBusy, abi.EBUSY },
+    .{ error.FileLocksNotSupported, abi.ENOLCK },
+    .{ error.BadPathName, abi.EFAULT },
+    .{ error.InvalidUtf8, abi.EINVAL },
+    .{ error.FileBusy, abi.EBUSY },
+    .{ error.WouldBlock, abi.EAGAIN },
+    .{ error.OutOfMemory, abi.ENOMEM },
+    .{ error.NotImplemented, abi.ENOSYS },
+    .{ error.NotFound, abi.ENOENT },
+    .{ error.BadFileDescriptor, abi.EBADFD },
+    .{ error.InputOutput, abi.EIO },
+    .{ error.OperationAborted, abi.ECANCELED },
+    .{ error.BrokenPipe, abi.EPIPE },
+    .{ error.ConnectionResetByPeer, abi.ECONNRESET },
+    .{ error.ConnectionTimedOut, abi.ETIMEDOUT },
+    .{ error.NotOpenForReading, abi.EBADF },
+    .{ error.Unseekable, abi.ESPIPE },
+    .{ error.DiskQuota, abi.EDQUOT },
+    .{ error.NotOpenForWriting, abi.EROFS },
+    .{ error.InvalidArgument, abi.EINVAL },
+    .{ error.InvalidHandle, abi.EINVAL },
+};
+
+fn errnoToError(errno: u16) anyerror {
+    inline for (errorTypeMap) |pair| {
+        if (pair[1] == errno) {
+            return pair[0];
+        }
+    }
+
+    return error.Unexpected;
+}
+
+fn errorToErrno(err: anyerror) u16 {
+    inline for (errorTypeMap) |pair| {
+        if (pair[0] == err) {
+            return pair[1];
+        }
+    }
+
+    unreachable;
+}
 
 pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
     frame.rax = syscallHandlerImpl(frame) catch |err| blk: {
-        const errno = switch (err) {
-            error.AccessDenied => abi.EACCES,
-            error.SymLinkLoop => abi.ELOOP,
-            error.ProcessFdQuotaExceeded => abi.EDQUOT,
-            error.SystemFdQuotaExceeded => abi.EDQUOT,
-            error.NoDevice => abi.ENXIO,
-            error.FileNotFound => abi.ENOENT,
-            error.NameTooLong => abi.ENAMETOOLONG,
-            error.SystemResources => abi.ENOMEM,
-            error.FileTooBig => abi.EFBIG,
-            error.IsDir => abi.EISDIR,
-            error.NoSpaceLeft => abi.ENOSPC,
-            error.NotDir => abi.ENOTDIR,
-            error.PathAlreadyExists => abi.EEXIST,
-            error.DeviceBusy => abi.EBUSY,
-            error.FileLocksNotSupported => abi.ENOLCK,
-            error.BadPathName => abi.EFAULT,
-            error.InvalidUtf8 => abi.EINVAL,
-            error.FileBusy => abi.EBUSY,
-            error.WouldBlock => abi.EAGAIN,
-            error.Unexpected => unreachable,
-            error.OutOfMemory => abi.ENOMEM,
-            error.NotImplemented => abi.ENOSYS,
-            error.NotFound => abi.ENOENT,
-            error.BadFileDescriptor => abi.EBADFD,
-            error.InputOutput => abi.EIO,
-            error.OperationAborted => abi.ECANCELED,
-            error.BrokenPipe => abi.EPIPE,
-            error.ConnectionResetByPeer => abi.ECONNRESET,
-            error.ConnectionTimedOut => abi.ETIMEDOUT,
-            error.NotOpenForReading => abi.EBADF,
-            error.Unseekable => abi.ESPIPE,
-            error.DiskQuota => abi.EDQUOT,
-            error.NotOpenForWriting => abi.EROFS,
-            error.InvalidArgument => abi.EINVAL,
-            error.InvalidHandle => abi.EINVAL,
-        };
+        const errno = errorToErrno(err);
 
         break :blk @bitCast(u64, @as(i64, -@bitCast(i16, errno)));
     } orelse return;
@@ -239,6 +267,15 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             try writer.writeByte(0);
 
             return std.mem.len(@ptrCast([*:0]const u8, string_buf));
+        },
+        .FileIoControl => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const result = file.vnode.ioctl(frame.rsi, frame.rdx);
+
+            return switch (result) {
+                .ok => |value| value,
+                .err => |err| errnoToError(@truncate(u16, err)),
+            };
         },
         .MemMap => {
             // All stuff that we don't support (currently) :/

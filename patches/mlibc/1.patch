@@ -16,10 +16,10 @@ index 0000000..3003eae
 +
 +#endif
 diff --git a/meson.build b/meson.build
-index 2f9a4f3..af74dc4 100644
+index 6c1103d..4eeba4d 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -131,6 +131,11 @@ elif host_machine.system() == 'dripos'
+@@ -136,6 +136,11 @@ elif host_machine.system() == 'dripos'
  	rtdl_include_dirs += include_directories('sysdeps/dripos/include')
  	libc_include_dirs += include_directories('sysdeps/dripos/include')
  	subdir('sysdeps/dripos')
@@ -241,17 +241,33 @@ index 0000000..6d911c7
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/zigux/syscall.h b/sysdeps/zigux/include/zigux/syscall.h
 new file mode 100644
-index 0000000..d9f17d3
+index 0000000..6512c96
 --- /dev/null
 +++ b/sysdeps/zigux/include/zigux/syscall.h
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,161 @@
 +#ifndef _SYSCALL_H
 +#define _SYSCALL_H
 +
 +#include <stdint.h>
 +
-+#define SYS_EXIT 60
-+#define SYS_LOG 1024
++#define SYS_PROC_EXIT 0x0
++#define SYS_PROC_LOG 0x1
++#define SYS_PROC_ARCH_CTL 0x2
++#define SYS_PROC_GET_PID 0x3
++#define SYS_PROC_GET_PPID 0x4
++
++#define SYS_FILE_OPEN 0x100
++#define SYS_FILE_CLOSE 0x101
++#define SYS_FILE_READ 0x102
++#define SYS_FILE_WRITE 0x103
++#define SYS_FILE_SEEK 0x104
++#define SYS_FILE_GET_CWD 0x105
++#define SYS_FILE_STAT 0x106
++#define SYS_FILE_IO_CONTROL 0x107
++
++#define SYS_MEM_MAP 0x200
++#define SYS_MEM_UNMAP 0x201
++#define SYS_MEM_PROTECT 0x202
 +
 +#ifdef __cplusplus
 +extern "C" {
@@ -376,14 +392,26 @@ index 0000000..d9f17d3
 +    return do_syscall(n, (uint64_t)(a)...);
 +}
 +
++inline int syscall_error(uint64_t ret) {
++    if((uint64_t)ret > -4096UL)
++        return -(int64_t)ret;
++
++    return 0;
++}
++
++template <typename T>
++inline T syscall_result(uint64_t res) {
++    return (int64_t)res;
++}
++
 +#endif // __cplusplus
 +#endif // _SYSCALL_H
 diff --git a/sysdeps/zigux/meson.build b/sysdeps/zigux/meson.build
 new file mode 100644
-index 0000000..a299eb3
+index 0000000..0c265e5
 --- /dev/null
 +++ b/sysdeps/zigux/meson.build
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,55 @@
 +rtdl_sources += files(
 +	'src/sysdeps.cpp',
 +)
@@ -439,91 +467,309 @@ index 0000000..a299eb3
 +		build_by_default: true,
 +	)
 +endif
-+
 diff --git a/sysdeps/zigux/src/crt0-x86_64.S b/sysdeps/zigux/src/crt0-x86_64.S
 new file mode 100644
-index 0000000..3e47559
+index 0000000..93d47f1
 --- /dev/null
 +++ b/sysdeps/zigux/src/crt0-x86_64.S
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,7 @@
 +.section .text
 +
 +.global _start
 +
 +_start:
-+    mov $main, %rdi
++    lea main(%rip), %rdi
 +    call mlibc_entry
-+
-+.size _start, . - _start
 diff --git a/sysdeps/zigux/src/entry.cpp b/sysdeps/zigux/src/entry.cpp
 new file mode 100644
-index 0000000..b88b11d
+index 0000000..23d499c
 --- /dev/null
 +++ b/sysdeps/zigux/src/entry.cpp
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,24 @@
++#include <stdint.h>
 +#include <stdlib.h>
++#include <mlibc/elf/startup.h>
++
++extern char **environ;
++
++extern "C" uintptr_t *__dlapi_entrystack();
++
++void __mlibc_initLocale();
++
++static mlibc::exec_stack_data stack_data;
++
++__attribute__((constructor)) static void mlibc_init() {
++  __mlibc_initLocale();
++
++  mlibc::parse_exec_stack(__dlapi_entrystack(), &stack_data);
++  mlibc::set_startup_data(stack_data.argc, stack_data.argv, stack_data.envp);
++}
 +
 +extern "C" void mlibc_entry(int (*main_fn)(int, char **, char **)) {
-+  auto result = main_fn(0, nullptr, nullptr);
++  int result = main_fn(stack_data.argc, stack_data.argv, environ);
 +
 +  exit(result);
 +}
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 0000000..b44fa24
+index 0000000..1ea8403
 --- /dev/null
 +++ b/sysdeps/zigux/src/sysdeps.cpp
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,257 @@
++#include <errno.h>
++#include <fcntl.h>
 +#include <stddef.h>
 +#include <abi-bits/seek-whence.h>
 +#include <abi-bits/stat.h>
 +#include <abi-bits/vm-flags.h>
 +#include <bits/off_t.h>
 +#include <bits/ssize_t.h>
++#include <mlibc/debug.hpp>
 +#include <mlibc/fsfd_target.hpp>
++#include <mlibc/posix-sysdeps.hpp>
++#include <sys/ioctl.h>
++#include <sys/stat.h>
 +#include <zigux/syscall.h>
 +
-+#define STUB_IMPL { sys_libc_log("stub function was called"); sys_libc_panic(); }
++const auto ARCH_SET_GS = 0x1001;
++const auto ARCH_SET_FS = 0x1002;
++const auto ARCH_GET_FS = 0x1003;
++const auto ARCH_GET_GS = 0x1004;
++
++#define STUB_IMPL(name) { sys_libc_log("Stub function " #name " was called"); sys_libc_panic(); }
 +
 +namespace mlibc {
 +
 +[[noreturn]] void sys_exit(int code) {
-+    do_syscall(SYS_EXIT, code);
++    do_syscall(SYS_PROC_EXIT, code);
 +}
 +
 +void sys_libc_log(const char *message) {
-+    do_syscall(SYS_LOG, message);
++    do_syscall(SYS_PROC_LOG, message);
 +}
 +
 +[[noreturn]] void sys_libc_panic() {
-+    sys_libc_log("mlibc panic :(");
++    sys_libc_log("mlibc panic!");
 +    sys_exit(1);
 +}
 +
-+int sys_tcb_set(void *pointer) STUB_IMPL
++int sys_tcb_set(void *pointer) {
++    auto res = do_syscall(SYS_PROC_ARCH_CTL, ARCH_SET_FS, pointer);
 +
-+int sys_futex_wait(int *pointer, int expected, const struct timespec *time) STUB_IMPL
++    if (auto err = syscall_error(res))
++        return err;
 +
-+int sys_futex_wake(int *pointer) STUB_IMPL
++    return 0;
++}
 +
-+int sys_anon_allocate(size_t size, void **pointer) STUB_IMPL
++int sys_futex_wait(int *pointer, int expected, const struct timespec *time) STUB_IMPL(sys_futex_wait)
++int sys_futex_wake(int *pointer) STUB_IMPL(sys_futex_wake)
 +
-+int sys_anon_free(void *pointer, size_t size) STUB_IMPL
++int sys_anon_allocate(size_t size, void **pointer) {
++    return sys_vm_map(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, pointer);
++}
 +
-+int sys_open(const char *pathname, int flags, int *fd) STUB_IMPL
++int sys_anon_free(void *pointer, size_t size) {
++    return sys_vm_unmap(pointer, size);
++}
 +
-+int sys_read(int fd, void *buf, size_t count, ssize_t *bytes_read) STUB_IMPL
++int sys_open(const char *pathname, int flags, int *fd) {
++    auto res = do_syscall(SYS_FILE_OPEN, pathname, flags);
 +
-+int sys_write(int fd, const void *buf, size_t count, ssize_t *bytes_written) STUB_IMPL
++    if (auto err = syscall_error(res))
++        return err;
 +
-+int sys_seek(int fd, off_t offset, int whence, off_t *new_offset) STUB_IMPL
++    *fd = syscall_result<int>(res);
 +
-+int sys_close(int fd) STUB_IMPL
++    return 0;
++}
 +
-+int sys_vm_map(void *hint, size_t size, int prot, int flags, int fd, off_t offset, void **window) STUB_IMPL
++int sys_read(int fd, void *buf, size_t count, ssize_t *bytes_read) {
++    auto res = do_syscall(SYS_FILE_READ, fd, buf, count);
 +
-+int sys_vm_unmap(void *pointer, size_t size) STUB_IMPL
++    if (auto err = syscall_error(res))
++        return err;
 +
-+int sys_clock_get(int clock, time_t *secs, long *nanos) STUB_IMPL
++    *bytes_read = syscall_result<uint64_t>(res);
++
++    return 0;
++}
++
++int sys_write(int fd, const void *buf, size_t count, ssize_t *bytes_written) {
++    auto res = do_syscall(SYS_FILE_WRITE, fd, buf, count);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    *bytes_written = syscall_result<uint64_t>(res);
++
++    return 0;
++}
++
++int sys_seek(int fd, off_t offset, int whence, off_t *new_offset) {
++    auto res = do_syscall(SYS_FILE_SEEK, fd, offset, whence);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    *new_offset = syscall_result<uint64_t>(res);
++
++    return 0;
++}
++
++int sys_close(int fd) {
++    auto res = do_syscall(SYS_FILE_CLOSE, fd);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    return 0;
++}
++
++int sys_vm_map(void *hint, size_t size, int prot, int flags, int fd, off_t offset, void **window) {
++    auto res = do_syscall(SYS_MEM_MAP, hint, size, prot, flags, fd, offset);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    *window = (void*)syscall_result<uint64_t>(res);
++
++    return 0;
++}
++
++int sys_vm_unmap(void *pointer, size_t size) {
++    auto res = do_syscall(SYS_MEM_UNMAP, pointer, size);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    return 0;
++}
++
++int sys_clock_get(int clock, time_t *secs, long *nanos) {
++    *secs = 0;
++    *nanos = 0;
++
++    return 0;
++}
++
++gid_t sys_getgid() {
++    mlibc::infoLogger() << "sys_getgid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++gid_t sys_getegid() {
++    mlibc::infoLogger() << "sys_getegid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++uid_t sys_getuid() {
++    mlibc::infoLogger() << "sys_getuid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++uid_t sys_geteuid() {
++    mlibc::infoLogger() << "sys_geteuid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++pid_t sys_getpid() {
++    return syscall_result<pid_t>(do_syscall(SYS_PROC_GET_PID));
++}
++
++pid_t sys_getppid() {
++    return syscall_result<pid_t>(do_syscall(SYS_PROC_GET_PPID));
++}
++
++pid_t sys_getpgid(pid_t pid, pid_t *pgid) {
++    mlibc::infoLogger() << "sys_getpgid() is not implemented" << frg::endlog;
++    *pgid = 0;
++    return 0;
++}
++
++int sys_setgid(gid_t gid) {
++    mlibc::infoLogger() << "sys_setgid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++int sys_setegid(gid_t egid) {
++    mlibc::infoLogger() << "sys_setegid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++int sys_setuid(uid_t uid) {
++    mlibc::infoLogger() << "sys_setuid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++int sys_seteuid(uid_t euid) {
++    mlibc::infoLogger() << "sys_seteuid() is not implemented" << frg::endlog;
++    return 0;
++}
++
++int sys_getcwd(char *buffer, size_t size) {
++    auto result = do_syscall(SYS_FILE_GET_CWD, buffer, size);
++
++    if (auto err = syscall_error(result))
++        return err;
++
++    return 0;
++}
++
++int sys_stat(fsfd_target fsfdt, int fd, const char *path, int flags, struct stat *statbuf) {
++    mlibc::infoLogger() << "sys_stat() is not implemented" << frg::endlog;
++    memset(statbuf, 0, sizeof(*statbuf));
++    return 0;
++}
++
++int sys_pselect(int num_fds, fd_set *read_set, fd_set *write_set, fd_set *except_set, const struct timespec *timeout, const sigset_t *sigmask, int *num_events) {
++    mlibc::infoLogger() << "sys_pselect() is not implemented" << frg::endlog;
++    *num_events = 0;
++    return 0;
++}
++
++int sys_ioctl(int fd, unsigned long request, void *arg, int *result) {
++    auto res = do_syscall(SYS_FILE_IO_CONTROL, fd, request, arg);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    if (result)
++        *result = syscall_result<int>(res);
++
++    return 0;
++}
++
++int sys_isatty(int fd) {
++    struct winsize ws;
++          
++    if (!sys_ioctl(fd, TIOCGWINSZ, &ws, nullptr))
++        return 0;
++
++    return ENOTTY;
++}
++
++int sys_tcgetattr(int fd, struct termios *attr) {  
++    if (auto err = sys_ioctl(fd, TCGETS, attr, nullptr))
++        return err;
++
++    return 0;
++}
++
++int sys_tcsetattr(int fd, int optional_action, const struct termios *attr) {
++	int request;
++
++	switch (optional_action) {
++		case TCSANOW: request = TCSETS; break;
++		case TCSADRAIN: request = TCSETSW; break;
++		case TCSAFLUSH: request = TCSETSF; break;
++		default: return EINVAL;
++	}
++
++    if (auto err = sys_ioctl(fd, request, (void*) attr, nullptr))
++        return err;
++
++    return 0;
++}
 +
 +}

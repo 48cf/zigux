@@ -18,13 +18,14 @@ pub const OpenError = std.os.OpenError || OomError;
 pub const ReadError = std.os.PReadError || OomError;
 pub const WriteError = std.os.PWriteError || OomError;
 pub const SymlinkError = std.os.SymLinkError || OomError;
+pub const IoctlResult = union(enum) { ok: usize, err: usize };
 
 pub const VNodeVTable = struct {
     open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
     read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize = null,
     write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize = null,
     insert: ?fn (self: *VNode, child: *VNode) OomError!void = null,
-    // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) !usize = null,
+    ioctl: ?fn (self: *VNode, request: u64, arg: u64) IoctlResult = null,
 };
 
 pub const VNodeKind = enum {
@@ -126,6 +127,16 @@ pub const VNode = struct {
             return fun(vnode, child);
         } else {
             @panic("An insert operation is required");
+        }
+    }
+
+    pub fn ioctl(self: *VNode, request: u64, arg: u64) IoctlResult {
+        const vnode = self.getEffectiveVNode();
+
+        if (vnode.vtable.ioctl) |fun| {
+            return fun(vnode, request, arg);
+        } else {
+            return .{ .err = abi.ENOSYS };
         }
     }
 

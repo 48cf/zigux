@@ -3,15 +3,18 @@ const logger = std.log.scoped(.devfs);
 const root = @import("root");
 const std = @import("std");
 
+const abi = @import("../abi.zig");
 const debug = @import("../debug.zig");
 const vfs = @import("../vfs.zig");
 const utils = @import("../utils.zig");
+const per_cpu = @import("../per_cpu.zig");
 const ps2 = @import("../drivers/ps2.zig");
 const ram_fs = @import("ram_fs.zig");
 
 const tty_vtable: vfs.VNodeVTable = .{
     .read = TtyVNode.read,
     .write = TtyVNode.write,
+    .ioctl = TtyVNode.ioctl,
 };
 
 var disk_number: usize = 1;
@@ -178,12 +181,19 @@ const PartitionBlockDeviceWrapper = struct {
     }
 };
 
+var tty_buffer: @import("../containers/ring_buffer.zig").RingBuffer(u8, 16) = .{};
+
 const TtyVNode = struct {
     vnode: vfs.VNode,
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
         _ = vnode;
         _ = offset;
+
+        if (tty_buffer.pop()) |byte| {
+            buffer[0] = byte;
+            return 1;
+        }
 
         while (true) {
             const event = ps2.getKeyboardEvent();
@@ -193,62 +203,78 @@ const TtyVNode = struct {
             }
 
             const shift = ps2.keyboard_state.isShiftPressed();
-            const ascii: u8 = switch (event.location) {
-                .Number1 => if (shift) @as(u8, '!') else '1',
-                .Number2 => if (shift) @as(u8, '@') else '2',
-                .Number3 => if (shift) @as(u8, '#') else '3',
-                .Number4 => if (shift) @as(u8, '$') else '4',
-                .Number5 => if (shift) @as(u8, '%') else '5',
-                .Number6 => if (shift) @as(u8, '^') else '6',
-                .Number7 => if (shift) @as(u8, '&') else '7',
-                .Number8 => if (shift) @as(u8, '*') else '8',
-                .Number9 => if (shift) @as(u8, '(') else '9',
-                .Number0 => if (shift) @as(u8, ')') else '0',
-                .RightOf0 => if (shift) @as(u8, '_') else '-',
-                .LeftOfBackspace => if (shift) @as(u8, '+') else '=',
-                .Line1n1 => if (shift) @as(u8, 'Q') else 'q',
-                .Line1n2 => if (shift) @as(u8, 'W') else 'w',
-                .Line1n3 => if (shift) @as(u8, 'E') else 'e',
-                .Line1n4 => if (shift) @as(u8, 'R') else 'r',
-                .Line1n5 => if (shift) @as(u8, 'T') else 't',
-                .Line1n6 => if (shift) @as(u8, 'Y') else 'y',
-                .Line1n7 => if (shift) @as(u8, 'U') else 'u',
-                .Line1n8 => if (shift) @as(u8, 'I') else 'i',
-                .Line1n9 => if (shift) @as(u8, 'O') else 'o',
-                .Line1n10 => if (shift) @as(u8, 'P') else 'p',
-                .Line1n11 => if (shift) @as(u8, '{') else '[',
-                .Line1n12 => if (shift) @as(u8, '}') else ']',
-                .Line1n13 => if (shift) @as(u8, '|') else '\\',
-                .Line2n1 => if (shift) @as(u8, 'A') else 'a',
-                .Line2n2 => if (shift) @as(u8, 'S') else 's',
-                .Line2n3 => if (shift) @as(u8, 'D') else 'd',
-                .Line2n4 => if (shift) @as(u8, 'F') else 'f',
-                .Line2n5 => if (shift) @as(u8, 'G') else 'g',
-                .Line2n6 => if (shift) @as(u8, 'H') else 'h',
-                .Line2n7 => if (shift) @as(u8, 'J') else 'j',
-                .Line2n8 => if (shift) @as(u8, 'K') else 'k',
-                .Line2n9 => if (shift) @as(u8, 'L') else 'l',
-                .Line2n10 => if (shift) @as(u8, ':') else ';',
-                .Line2n11 => if (shift) @as(u8, '"') else '\'',
-                .Enter => return 0,
-                .Line3n1 => if (shift) @as(u8, 'Z') else 'z',
-                .Line3n2 => if (shift) @as(u8, 'X') else 'x',
-                .Line3n3 => if (shift) @as(u8, 'C') else 'c',
-                .Line3n4 => if (shift) @as(u8, 'V') else 'v',
-                .Line3n5 => if (shift) @as(u8, 'B') else 'b',
-                .Line3n6 => if (shift) @as(u8, 'N') else 'n',
-                .Line3n7 => if (shift) @as(u8, 'M') else 'm',
-                .Line3n8 => if (shift) @as(u8, '<') else ',',
-                .Line3n9 => if (shift) @as(u8, '>') else '.',
-                .Line3n10 => if (shift) @as(u8, '?') else '/',
-                .Spacebar => @as(u8, ' '),
+            const result = switch (event.location) {
+                .Number1 => if (shift) "!" else "1",
+                .Number2 => if (shift) "@" else "2",
+                .Number3 => if (shift) "#" else "3",
+                .Number4 => if (shift) "$" else "4",
+                .Number5 => if (shift) "%" else "5",
+                .Number6 => if (shift) "^" else "6",
+                .Number7 => if (shift) "&" else "7",
+                .Number8 => if (shift) "*" else "8",
+                .Number9 => if (shift) "(" else "9",
+                .Number0 => if (shift) ")" else "0",
+                .RightOf0 => if (shift) "_" else "-",
+                .LeftOfBackspace => if (shift) "+" else "=",
+                .Backspace => "\x08", // \b
+                .Line1n1 => if (shift) "Q" else "q",
+                .Line1n2 => if (shift) "W" else "w",
+                .Line1n3 => if (shift) "E" else "e",
+                .Line1n4 => if (shift) "R" else "r",
+                .Line1n5 => if (shift) "T" else "t",
+                .Line1n6 => if (shift) "Y" else "y",
+                .Line1n7 => if (shift) "U" else "u",
+                .Line1n8 => if (shift) "I" else "i",
+                .Line1n9 => if (shift) "O" else "o",
+                .Line1n10 => if (shift) "P" else "p",
+                .Line1n11 => if (shift) "{" else "[",
+                .Line1n12 => if (shift) "}" else "]",
+                .Line2n1 => if (shift) "A" else "a",
+                .Line2n2 => if (shift) "S" else "s",
+                .Line2n3 => if (shift) "D" else "d",
+                .Line2n4 => if (shift) "F" else "f",
+                .Line2n5 => if (shift) "G" else "g",
+                .Line2n6 => if (shift) "H" else "h",
+                .Line2n7 => if (shift) "J" else "j",
+                .Line2n8 => if (shift) "K" else "k",
+                .Line2n9 => if (shift) "L" else "l",
+                .Line2n10 => if (shift) ":" else ";",
+                .Line2n11 => if (shift) "\"" else "'",
+                .Line2n12 => if (shift) "|" else "\\",
+                .Enter => "\n",
+                .Line3n1 => if (shift) "Z" else "z",
+                .Line3n2 => if (shift) "X" else "x",
+                .Line3n3 => if (shift) "C" else "c",
+                .Line3n4 => if (shift) "V" else "v",
+                .Line3n5 => if (shift) "B" else "b",
+                .Line3n6 => if (shift) "N" else "n",
+                .Line3n7 => if (shift) "M" else "m",
+                .Line3n8 => if (shift) "<" else ",",
+                .Line3n9 => if (shift) ">" else ".",
+                .Line3n10 => if (shift) "?" else "/",
+                .Spacebar => " ",
+                .ArrowLeft => "\x1b[D",
+                .ArrowRight => "\x1b[C",
+                .ArrowUp => "\x1b[A",
+                .ArrowDown => "\x1b[B",
+                .Home => "\x1b[1~",
+                .End => "\x1b[4~",
+                .PageUp => "\x1b[5~",
+                .PageDown => "\x1b[6~",
+                .Insert => "\x1b[2~",
+                .Delete => "\x1b[3~",
                 else => continue,
             };
 
-            logger.debug("{} => {c}", .{ event, ascii });
+            const max_read = std.math.min(buffer.len, result.len);
 
-            buffer[0] = ascii;
-            return 1;
+            std.mem.copy(u8, buffer, result[0..max_read]);
+
+            for (result[max_read..]) |byte| {
+                _ = tty_buffer.push(byte);
+            }
+
+            return max_read;
         }
     }
 
@@ -263,6 +289,40 @@ const TtyVNode = struct {
         debug.print(km_buffer);
 
         return buffer.len;
+    }
+
+    fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlResult {
+        const self = @fieldParentPtr(TtyVNode, "vnode", vnode);
+        const process = per_cpu.get().currentProcess().?;
+
+        _ = self;
+
+        switch (request) {
+            abi.TIOCGWINSZ => {
+                const term_res = root.term_req.response.?;
+                const terminal = term_res.terminals[0];
+                const result = process.validatePointer(abi.winsize, arg) catch return .{ .err = abi.EINVAL };
+
+                result.* = .{
+                    .ws_row = @intCast(c_ushort, terminal.rows),
+                    .ws_col = @intCast(c_ushort, terminal.columns),
+                    .ws_xpixel = 0,
+                    .ws_ypixel = 0,
+                };
+
+                if (terminal.framebuffer) |framebuffer| {
+                    result.ws_xpixel = @intCast(c_ushort, framebuffer.width);
+                    result.ws_ypixel = @intCast(c_ushort, framebuffer.height);
+                }
+
+                return .{ .ok = 0 };
+            },
+            else => {
+                logger.warn("Unhandled IO control request 0x{X}", .{request});
+
+                return .{ .err = abi.EINVAL };
+            },
+        }
     }
 };
 

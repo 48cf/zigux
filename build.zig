@@ -66,6 +66,8 @@ fn buildKernel(b: *std.build.Builder) !*std.build.LibExeObjStep {
     kernel.code_model = .kernel;
     kernel.setBuildMode(kernel_build_mode);
     kernel.setLinkerScriptPath(.{ .path = "misc/linker.ld" });
+    kernel.addIncludeDir("sources/mlibc");
+    kernel.addIncludeDir("sources/mlibc/sysdeps/zigux/include");
     kernel.install();
     kernel.setTarget(target);
 
