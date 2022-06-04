@@ -11,19 +11,16 @@ const virt = @import("../virt.zig");
 const ram_fs_vtable: vfs.FileSystemVTable = .{
     .create_file = RamFS.createFile,
     .create_dir = RamFS.createDir,
+    .create_symlink = RamFS.createSymlink,
 };
 
 const ram_fs_file_vtable: vfs.VNodeVTable = .{
-    .open = null,
     .read = RamFSFile.read,
     .write = RamFSFile.write,
-    .insert = null,
 };
 
 const ram_fs_directory_vtable: vfs.VNodeVTable = .{
     .open = RamFSDirectory.open,
-    .read = null,
-    .write = null,
     .insert = RamFSDirectory.insert,
 };
 
@@ -82,7 +79,7 @@ const RamFSDirectory = struct {
         return error.FileNotFound;
     }
 
-    fn insert(vnode: *vfs.VNode, child: *vfs.VNode) !void {
+    fn insert(vnode: *vfs.VNode, child: *vfs.VNode) vfs.OomError!void {
         const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
 
         try self.children.append(root.allocator, child);
@@ -93,7 +90,7 @@ const RamFS = struct {
     filesystem: vfs.FileSystem,
     root: RamFSDirectory,
 
-    fn createFile(fs: *vfs.FileSystem) error{OutOfMemory}!*vfs.VNode {
+    fn createFile(fs: *vfs.FileSystem) vfs.OomError!*vfs.VNode {
         const node = try root.allocator.create(RamFSFile);
 
         node.* = .{
@@ -106,7 +103,7 @@ const RamFS = struct {
         return &node.vnode;
     }
 
-    fn createDir(fs: *vfs.FileSystem) error{OutOfMemory}!*vfs.VNode {
+    fn createDir(fs: *vfs.FileSystem) vfs.OomError!*vfs.VNode {
         const node = try root.allocator.create(RamFSDirectory);
 
         node.* = .{
@@ -117,6 +114,18 @@ const RamFS = struct {
         };
 
         return &node.vnode;
+    }
+
+    fn createSymlink(fs: *vfs.FileSystem, target: []const u8) vfs.OomError!*vfs.VNode {
+        const node = try root.allocator.create(vfs.VNode);
+
+        node.* = .{
+            .vtable = &.{},
+            .filesystem = fs,
+            .symlink_target = try root.allocator.dupe(u8, target),
+        };
+
+        return node;
     }
 };
 

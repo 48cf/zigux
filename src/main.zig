@@ -144,6 +144,14 @@ fn main() !void {
     apic.initTimer();
 
     ps2.init();
+
+    const process = try scheduler.spawnProcess(null);
+    const thread = try scheduler.spawnThread(process);
+    const bash = try vfs.resolve(null, "/bin/sh", 0);
+
+    try thread.exec(bash, &.{"/bin/sh"}, &.{ "TERM=linux", "HOME=/root" });
+
+    scheduler.enqueue(thread);
 }
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {

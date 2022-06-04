@@ -10,10 +10,8 @@ const ps2 = @import("../drivers/ps2.zig");
 const ram_fs = @import("ram_fs.zig");
 
 const tty_vtable: vfs.VNodeVTable = .{
-    .open = null,
     .read = TtyVNode.read,
     .write = TtyVNode.write,
-    .insert = null,
 };
 
 var disk_number: usize = 1;
@@ -35,10 +33,8 @@ const BlockDevice = struct {
     name: [24]u8 = undefined,
 
     const vnode_vtable: vfs.VNodeVTable = .{
-        .open = null,
         .read = BlockDevice.read,
         .write = BlockDevice.write,
-        .insert = null,
     };
 
     fn iterateSectors(

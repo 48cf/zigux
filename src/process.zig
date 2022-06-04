@@ -18,12 +18,16 @@ pub const SyscallNumber = enum(u64) {
     ProcExit = 0x0,
     ProcLog = 0x1,
     ProcArchCtl = 0x2,
+    ProcGetPid = 0x3,
+    ProcGetPPid = 0x4,
 
     FileOpen = 0x100,
     FileClose = 0x101,
     FileRead = 0x102,
     FileWrite = 0x103,
     FileSeek = 0x104,
+    FileGetCwd = 0x105,
+    FileStat = 0x106,
 
     MemMap = 0x200,
     MemUnmap = 0x201,
@@ -178,6 +182,8 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 else => return error.InvalidArgument,
             }
         },
+        .ProcGetPid => return process.pid,
+        .ProcGetPPid => return process.parent,
         .FileOpen => {
             const path = try process.validateString([:0]const u8, frame.rdi);
             const vnode = if (std.fs.path.isAbsolute(path))
@@ -223,6 +229,16 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             }
 
             return file.offset;
+        },
+        .FileGetCwd => {
+            var string_buf = try process.validateBuffer([]u8, frame.rdi, frame.rsi);
+            var buffer = std.io.fixedBufferStream(string_buf);
+            var writer = buffer.writer();
+
+            try writer.print("{}", .{process.cwd.getFullPath()});
+            try writer.writeByte(0);
+
+            return std.mem.len(@ptrCast([*:0]const u8, string_buf));
         },
         .MemMap => {
             // All stuff that we don't support (currently) :/

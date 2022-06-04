@@ -2,134 +2,122 @@
 
 const std = @import("std");
 
-const FileIterator = struct {
-    has_file: bool,
-    file_contents: []const u8,
-    file_name: []const u8,
-    remaining_blob: []const u8,
+pub const FileType = enum(u8) {
+    Normal = '0',
+    HardLink = '1',
+    SymbolicLink = '2',
+    CharacterDevice = '3',
+    BlockDevice = '4',
+    Directory = '5',
+    Fifo = '6',
+    ContiguousFile = '7',
+};
 
-    pub fn next(self: *@This()) void {
-        self.* = makeNext(self.remaining_blob);
+pub const File = struct {
+    name: []const u8,
+    kind: FileType,
+    data: []const u8,
+    link: []const u8,
+};
+
+const TarHeader = extern struct {
+    file_name: [100]u8,
+    file_mode: [8]u8,
+    uid: [8]u8,
+    gid: [8]u8,
+    file_size: [12]u8,
+    last_modified: [12]u8,
+    header_checksum: [8]u8,
+    link_indicator: u8,
+    linked_name: [100]u8,
+    padding: [255]u8,
+
+    fn validate(self: *const TarHeader) bool {
+        for (self.file_size[0..11]) |ch| {
+            if (ch < '0' or ch > '9') {
+                return false;
+            }
+        }
+
+        if (self.file_size[11] != 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    fn fileName(self: *const TarHeader) []const u8 {
+        for (self.file_name) |ch, i| {
+            if (ch == 0) {
+                return self.file_name[0..i];
+            }
+        }
+
+        return self.file_name[0..self.file_name.len];
+    }
+
+    fn linkedName(self: *const TarHeader) []const u8 {
+        for (self.linked_name) |ch, i| {
+            if (ch == 0) {
+                return self.linked_name[0..i];
+            }
+        }
+
+        return self.linked_name[0..self.linked_name.len];
+    }
+
+    fn fileSize(self: *const TarHeader) !usize {
+        return std.fmt.parseUnsigned(usize, self.file_size[0..11], 8);
     }
 };
 
-fn getFileName(blob: []const u8) []const u8 {
-    // Filename is at offset 0, up to 100 in length
-    var len: usize = 0;
-    while (blob[len] != 0)
-        len += 1;
+const TarIterator = struct {
+    buffer: []const u8,
+    offset: usize,
 
-    return blob[0..len];
-}
+    pub fn next(self: *TarIterator) !?File {
+        const header_buf = self.buffer[self.offset..];
 
-fn getFileSize(blob: []const u8) usize {
-    // File size is at [124..135], octal encoded
-    return std.fmt.parseUnsigned(usize, blob[124..135], 8) catch unreachable;
-}
+        if (header_buf.len < @sizeOf(TarHeader)) {
+            return error.UnexpectedEof;
+        }
 
-fn fileDataSpace(file_size: usize) usize {
-    return ((file_size + 0x1FF) / 0x200) * 0x200;
-}
+        // We expect at least two null entries at the end of the file
+        if (std.mem.allEqual(u8, header_buf[0..@sizeOf(TarHeader)], 0)) {
+            const next_header_buf = self.buffer[self.offset + @sizeOf(TarHeader) ..];
 
-fn makeNext(blob: []const u8) FileIterator {
-    if (blob.len < 0x400 or !std.mem.eql(u8, blob[0x101..0x106], "ustar")) {
-        const empty_arr = [_]u8{};
-        return .{
-            .has_file = false,
-            .file_contents = empty_arr[0..],
-            .file_name = empty_arr[0..],
-            .remaining_blob = empty_arr[0..],
+            if (next_header_buf.len < @sizeOf(TarHeader)) {
+                return error.UnexpectedEof;
+            }
+
+            if (!std.mem.allEqual(u8, next_header_buf[0..@sizeOf(TarHeader)], 0)) {
+                return error.FormatError;
+            }
+
+            return null;
+        }
+
+        const header = @ptrCast(*const TarHeader, header_buf);
+
+        if (!header.validate()) {
+            return error.InvalidHeader;
+        }
+
+        const file_size = try header.fileSize();
+        const block_leftover = file_size % 512;
+        const file_block_size = if (block_leftover == 0) file_size else file_size + 512 - block_leftover;
+
+        self.offset += @sizeOf(TarHeader) + file_block_size;
+
+        return File{
+            .name = header.fileName(),
+            .kind = @intToEnum(FileType, header.link_indicator),
+            .data = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size],
+            .link = header.linkedName(),
         };
     }
-
-    const size = getFileSize(blob);
-
-    return .{
-        .has_file = true,
-        .file_contents = blob[0x200 .. 0x200 + size],
-        .file_name = getFileName(blob),
-        .remaining_blob = blob[0x200 + fileDataSpace(size) ..],
-    };
-}
-
-pub fn iterate(tar_blob: []const u8) !FileIterator {
-    return makeNext(tar_blob);
-}
-
-fn addFile(
-    parent_dir: std.fs.Dir,
-    file_name: []const u8,
-    path_buf: *std.BoundedArray(u8, 99),
-    out_file: std.fs.File,
-) !void {
-    const f = try parent_dir.openFile(file_name, .{});
-    defer f.close();
-
-    var header = std.mem.zeroes([0x200]u8);
-    std.mem.copy(u8, header[0..100], path_buf.slice());
-    std.mem.copy(u8, header[path_buf.slice().len..100], file_name);
-    std.mem.copy(u8, header[0x101..], "ustar  \x00");
-
-    const file_size = try f.getEndPos();
-
-    _ = std.fmt.formatIntBuf(header[124..135], file_size, 8, .lower, .{
-        .fill = '0',
-        .width = 135 - 124,
-    });
-
-    try out_file.writeAll(&header);
-    try out_file.writeFileAllUnseekable(f, .{});
-    try out_file.writer().writeByteNTimes(0, fileDataSpace(file_size) - file_size);
-}
-
-fn addDirChildren(
-    parent_dir: std.fs.Dir,
-    dir_name: []const u8,
-    path_buf: *std.BoundedArray(u8, 99),
-    out_file: std.fs.File,
-    filter: Filter,
-) anyerror!void {
-    const path_buf_old_len = path_buf.slice().len;
-    try path_buf.appendSlice(dir_name);
-    try path_buf.append('/');
-    defer path_buf.resize(path_buf_old_len) catch unreachable;
-
-    const dir = try parent_dir.openDir(dir_name, .{
-        .access_sub_paths = true,
-        .iterate = true,
-    });
-
-    // For now we don't add directories to the tar archive,
-    // because we never read them anyways
-
-    var it = dir.iterate();
-    while (try it.next()) |dent| {
-        if (filter(dent.name, path_buf.slice(), dent.kind) == .Skip) continue;
-
-        switch (dent.kind) {
-            .File => try addFile(dir, dent.name, path_buf, out_file),
-            .Directory => try addDirChildren(dir, dent.name, path_buf, out_file, filter),
-            else => {},
-        }
-    }
-}
-
-pub const FilterResult = enum {
-    Include,
-    Skip,
 };
 
-pub const Kind = std.fs.Dir.Entry.Kind;
-
-pub const Filter = fn (name: []const u8, parent_path: []const u8, kind: Kind) FilterResult;
-
-pub fn create(path: []const u8, output_path: []const u8, filter: Filter) !void {
-    var path_buf = try std.BoundedArray(u8, 99).init(0);
-    _ = path_buf;
-    _ = path;
-
-    const out_file = try std.fs.createFileAbsolute(output_path, .{});
-    defer out_file.close();
-
-    try addDirChildren(std.fs.cwd(), path, &path_buf, out_file, filter);
+pub fn iterate(bytes: []const u8) TarIterator {
+    return TarIterator{ .buffer = bytes, .offset = 0 };
 }

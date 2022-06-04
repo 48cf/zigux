@@ -10,22 +10,29 @@ const mutex = @import("mutex.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
 
-pub const OomError = error{OutOfMemory};
+pub const OomError = error{
+    OutOfMemory,
+};
+
 pub const OpenError = std.os.OpenError || OomError;
 pub const ReadError = std.os.PReadError || OomError;
 pub const WriteError = std.os.PWriteError || OomError;
+pub const SymlinkError = std.os.SymLinkError || OomError;
 
 pub const VNodeVTable = struct {
-    open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode,
-    read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize,
-    write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize,
-    insert: ?fn (self: *VNode, child: *VNode) OomError!void,
-    // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) !usize,
+    open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
+    read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize = null,
+    write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize = null,
+    insert: ?fn (self: *VNode, child: *VNode) OomError!void = null,
+    // ioctl: ?fn (self: *Vnode, request: u64, arg: u64) !usize = null,
 };
 
 pub const VNodeKind = enum {
     File,
     Directory,
+    Symlink,
+    CharaterDevice,
+    BlockDevice,
 };
 
 pub const VNode = struct {
@@ -35,6 +42,7 @@ pub const VNode = struct {
     kind: VNodeKind = undefined,
     parent: ?*VNode = null,
     name: ?[]const u8 = null,
+    symlink_target: ?[]const u8 = null,
     lock: mutex.AtomicMutex = .{},
 
     fn getEffectiveVNode(self: *VNode) *VNode {
@@ -60,6 +68,12 @@ pub const VNode = struct {
 
         if (vnode.vtable.read) |fun| {
             return fun(vnode, buffer, offset);
+        } else if (vnode.kind == .Symlink) {
+            const read_length = std.math.min(buffer.len, vnode.symlink_target.?.len);
+
+            std.mem.copy(u8, buffer[0..read_length], vnode.symlink_target.?);
+
+            return read_length;
         } else {
             return error.NotImplemented;
         }
@@ -70,6 +84,8 @@ pub const VNode = struct {
 
         if (vnode.vtable.write) |fun| {
             return fun(vnode, buffer, offset);
+        } else if (vnode.kind == .Symlink) {
+            return error.NotOpenForWriting;
         } else {
             return error.NotImplemented;
         }
@@ -97,7 +113,6 @@ pub const VNode = struct {
         defer self.lock.unlock();
 
         std.debug.assert(child.name != null);
-        std.debug.assert(child.kind == .File or child.kind == .Directory);
 
         const vnode = self.getEffectiveVNode();
 
@@ -215,8 +230,9 @@ pub const VNodeStream = struct {
 };
 
 pub const FileSystemVTable = struct {
-    create_file: ?fn (self: *FileSystem) error{OutOfMemory}!*VNode,
-    create_dir: ?fn (self: *FileSystem) error{OutOfMemory}!*VNode,
+    create_file: ?fn (self: *FileSystem) OomError!*VNode,
+    create_dir: ?fn (self: *FileSystem) OomError!*VNode,
+    create_symlink: ?fn (self: *FileSystem, target: []const u8) OomError!*VNode,
 };
 
 pub const FileSystem = struct {
@@ -242,6 +258,19 @@ pub const FileSystem = struct {
             const node = try fun(self);
 
             node.kind = .Directory;
+            node.name = name;
+
+            return node;
+        } else {
+            return error.NotImplemented;
+        }
+    }
+
+    pub fn createSymlink(self: *FileSystem, name: []const u8, target: []const u8) !*VNode {
+        if (self.vtable.create_symlink) |fun| {
+            const node = try fun(self, target);
+
+            node.kind = .Symlink;
             node.name = name;
 
             return node;
@@ -300,24 +329,40 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
         try modules_dir.insert(module_file);
 
         if (std.mem.endsWith(u8, name, ".tar")) {
-            var iterator = try tar.iterate(data_blob);
             var files: usize = 0;
             var total_size: usize = 0;
+            var iterator = tar.iterate(data_blob);
 
-            while (iterator.has_file) : (iterator.next()) {
-                const file_name = iterator.file_name[2..];
+            while (try iterator.next()) |file| {
+                files += 1;
 
-                if (file_name.len == 0) {
-                    continue;
+                switch (file.kind) {
+                    .Normal => {
+                        const file_node = try resolve(root_node, file.name, abi.O_CREAT);
+                        try file_node.writeAll(file.data, 0);
+
+                        total_size += file.data.len;
+                    },
+                    .SymbolicLink => continue, // We do one more loop later to fix those :)
+                    .Directory => _ = try resolve(root_node, file.name, abi.O_CREAT),
+                    else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
                 }
+            }
 
-                const file_node = try resolve(root_node, file_name, abi.O_CREAT);
+            iterator = tar.iterate(data_blob);
 
-                if (file_name[file_name.len - 1] != '/') {
-                    try file_node.writeAll(iterator.file_contents, 0);
+            while (try iterator.next()) |file| {
+                files += 1;
 
-                    files += 1;
-                    total_size += iterator.file_contents.len;
+                switch (file.kind) {
+                    .SymbolicLink => {
+                        const parent_path = std.fs.path.dirname(file.name) orelse unreachable;
+                        const parent_node = try resolve(root_node, parent_path, abi.O_CREAT);
+                        const link_node = try parent_node.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
+
+                        try parent_node.insert(link_node);
+                    },
+                    else => continue,
                 }
             }
 
@@ -326,7 +371,7 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
     }
 }
 
-pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
+pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || error{ NotImplemented, NotFound })!*VNode {
     if (cwd == null) {
         std.debug.assert(std.fs.path.isAbsolute(path));
 
@@ -340,12 +385,14 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
 
     if (path.len > 0) {
         while (iter.next()) |component| {
+            var next_node: ?*VNode = null;
+
             if (component.len == 0 or std.mem.eql(u8, component, ".")) {
                 continue;
             } else if (std.mem.eql(u8, component, "..")) {
-                next = next.parent orelse next;
+                next_node = next.parent orelse next_node;
             } else {
-                next = next.open(component, 0) catch |err| blk: {
+                next_node = next.open(component, 0) catch |err| blk: {
                     switch (err) {
                         error.FileNotFound => {
                             const fs = next.getEffectiveFs();
@@ -371,6 +418,27 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) !*VNode {
                         else => return err,
                     }
                 };
+            }
+
+            if (flags & abi.O_NOFOLLOW == 0 and next_node.?.kind == .Symlink) {
+                const new_node = next_node.?;
+                const target = new_node.symlink_target.?;
+
+                if (std.fs.path.isAbsolute(target)) {
+                    next_node = try resolve(null, target, 0);
+                } else {
+                    next_node = try resolve(new_node.parent, target, 0);
+                }
+
+                if (next_node.? == new_node) {
+                    return error.SymLinkLoop;
+                }
+            }
+
+            if (next_node) |new_node| {
+                next = new_node;
+            } else {
+                return error.NotFound;
             }
         }
     }
