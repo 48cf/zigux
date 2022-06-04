@@ -3,7 +3,7 @@ const logger = std.log.scoped(.devfs);
 const root = @import("root");
 const std = @import("std");
 
-const arch = @import("../arch.zig");
+const debug = @import("../debug.zig");
 const vfs = @import("../vfs.zig");
 const utils = @import("../utils.zig");
 const ps2 = @import("../drivers/ps2.zig");
@@ -242,9 +242,9 @@ const TtyVNode = struct {
                 .Line3n5 => if (shift) @as(u8, 'B') else 'b',
                 .Line3n6 => if (shift) @as(u8, 'N') else 'n',
                 .Line3n7 => if (shift) @as(u8, 'M') else 'm',
-                .Line3n8 => if (shift) @as(u8, ',') else '<',
-                .Line3n9 => if (shift) @as(u8, '.') else '>',
-                .Line3n10 => if (shift) @as(u8, '/') else '?',
+                .Line3n8 => if (shift) @as(u8, '<') else ',',
+                .Line3n9 => if (shift) @as(u8, '>') else '.',
+                .Line3n10 => if (shift) @as(u8, '?') else '/',
                 .Spacebar => @as(u8, ' '),
                 else => continue,
             };
@@ -264,7 +264,7 @@ const TtyVNode = struct {
 
         defer root.allocator.free(km_buffer);
 
-        arch.debugPrint(km_buffer);
+        debug.print(km_buffer);
 
         return buffer.len;
     }

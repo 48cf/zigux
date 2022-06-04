@@ -179,5 +179,5 @@ pub fn log(
     writer.print(fmt ++ "\n", args) catch unreachable;
     writer.writeByte(0) catch unreachable;
 
-    arch.debugPrint(std.mem.span(@ptrCast([*:0]const u8, &bytes)));
+    debug.print(std.mem.span(@ptrCast([*:0]const u8, &bytes)));
 }

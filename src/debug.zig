@@ -3,6 +3,9 @@ const logger = std.log.scoped(.debug);
 const root = @import("root");
 const std = @import("std");
 
+const arch = @import("arch.zig");
+const virt = @import("virt.zig");
+
 var debug_allocator_bytes: [16 * 1024 * 1024]u8 = undefined;
 var debug_allocator = std.heap.FixedBufferAllocator.init(debug_allocator_bytes[0..]);
 var debug_info: ?std.dwarf.DwarfInfo = null;
@@ -41,6 +44,22 @@ pub fn printStackTrace(stack_trace: *std.builtin.StackTrace) void {
     }
 }
 
+pub fn print(string: []const u8) void {
+    const previous_vm = if (virt.kernel_address_space) |*vm| vm.switchTo() else null;
+
+    if (root.term_req.response) |term_res| {
+        term_res.write_fn(term_res.terminals[0], @ptrCast([*:0]const u8, string), string.len);
+    }
+
+    if (previous_vm) |vm| {
+        _ = vm.switchTo();
+    }
+
+    for (string) |byte| {
+        arch.out(u8, 0xE9, byte);
+    }
+}
+
 fn init() !void {
     if (debug_info != null) {
         return;
@@ -48,19 +67,23 @@ fn init() !void {
 
     errdefer debug_info = null;
 
-    const kernel_file = root.kernel_file_req.response.?.kernel_file;
+    if (root.kernel_file_req.response) |kernel_file_res| {
+        const kernel_file = kernel_file_res.kernel_file;
 
-    debug_info = .{
-        .endian = .Little,
-        .debug_info = try getSectionSlice(kernel_file.address, ".debug_info"),
-        .debug_abbrev = try getSectionSlice(kernel_file.address, ".debug_abbrev"),
-        .debug_str = try getSectionSlice(kernel_file.address, ".debug_str"),
-        .debug_line = try getSectionSlice(kernel_file.address, ".debug_line"),
-        .debug_ranges = try getSectionSlice(kernel_file.address, ".debug_ranges"),
-        .debug_line_str = null,
-    };
+        debug_info = .{
+            .endian = .Little,
+            .debug_info = try getSectionSlice(kernel_file.address, ".debug_info"),
+            .debug_abbrev = try getSectionSlice(kernel_file.address, ".debug_abbrev"),
+            .debug_str = try getSectionSlice(kernel_file.address, ".debug_str"),
+            .debug_line = try getSectionSlice(kernel_file.address, ".debug_line"),
+            .debug_ranges = try getSectionSlice(kernel_file.address, ".debug_ranges"),
+            .debug_line_str = null,
+        };
 
-    try std.dwarf.openDwarfDebugInfo(&debug_info.?, debug_allocator.allocator());
+        try std.dwarf.openDwarfDebugInfo(&debug_info.?, debug_allocator.allocator());
+    } else {
+        return error.NoKernelFile;
+    }
 }
 
 fn printInfo(address: u64, symbol_name: []const u8, file_name: []const u8, line: usize) void {

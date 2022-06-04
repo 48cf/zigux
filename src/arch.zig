@@ -1,26 +1,6 @@
-const logger = std.log.scoped(.arch);
-
-const root = @import("root");
 const std = @import("std");
 
 const interrupts = @import("interrupts.zig");
-const virt = @import("virt.zig");
-
-pub fn debugPrint(string: []const u8) void {
-    const previous_vm = if (virt.kernel_address_space) |*vm| vm.switchTo() else null;
-
-    if (root.term_req.response) |term_res| {
-        term_res.write_fn(term_res.terminals[0], @ptrCast([*:0]const u8, string), string.len);
-    }
-
-    if (previous_vm) |vm| {
-        _ = vm.switchTo();
-    }
-
-    for (string) |byte| {
-        out(u8, 0xE9, byte);
-    }
-}
 
 pub inline fn readEflags() u64 {
     return asm volatile (
