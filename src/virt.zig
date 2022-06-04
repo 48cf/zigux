@@ -15,7 +15,7 @@ const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const two_mib = utils.mib(2);
 const user_alloc_base: u64 = 0x7000_0000_0000;
-const user_alloc_max: u64 = 0x7FFF_FFFF_0000;
+const user_alloc_max: u64 = 0x7FFF_FFFF_8000;
 const flags_mask: u64 = 0xFFF0_0000_0000_0FFF;
 const hhdm: u64 = 0xFFFF_8000_0000_0000;
 const hhdm_uc: u64 = 0xFFFF_9000_0000_0000;
@@ -293,7 +293,7 @@ pub const AddressSpace = struct {
     page_table: *PageTable,
     lock: IrqSpinlock = .{},
     mappings: std.TailQueue(void) = .{},
-    alloc_base: u64 = user_alloc_base,
+    alloc_base: u64 = user_alloc_max,
 
     pub fn init(cr3: u64) AddressSpace {
         return .{
@@ -354,19 +354,31 @@ pub const AddressSpace = struct {
                     const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
                     const page_hh = asHigherHalf([*]u8, page_phys + misalign);
 
-                    var flags: u64 = Flags.Present | Flags.User;
+                    var prot: u64 = 0;
+
+                    if (ph.p_flags & std.elf.PF_R != 0)
+                        prot |= abi.PROT_READ;
 
                     if (ph.p_flags & std.elf.PF_W != 0)
-                        flags |= Flags.Writable;
+                        prot |= abi.PROT_WRITE;
 
-                    if (ph.p_flags & std.elf.PF_X == 0)
-                        flags |= Flags.NoExecute;
+                    if (ph.p_flags & std.elf.PF_X != 0)
+                        prot |= abi.PROT_EXEC;
 
                     const virt_addr = utils.alignDown(u64, ph.p_vaddr, std.mem.page_size) + base;
+                    const mapping = try root.allocator.create(Mapping);
 
-                    try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, flags);
-
+                    try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, protToFlags(prot, true));
                     _ = try file.read(page_hh[0..ph.p_filesz], ph.p_offset);
+
+                    mapping.* = .{
+                        .base = virt_addr,
+                        .length = page_count * std.mem.page_size,
+                        .prot = prot,
+                        .flags = abi.MAP_ANONYMOUS | abi.MAP_PRIVATE | abi.MAP_FIXED,
+                    };
+
+                    self.insertMapping(mapping);
                 },
                 else => continue,
             }
@@ -420,20 +432,21 @@ pub const AddressSpace = struct {
         flags: u64,
         file: ?*vfs.VNode,
         offset: usize,
-    ) !?u64 {
+    ) !u64 {
         std.debug.assert(file == null);
         std.debug.assert(offset == 0);
 
         if (hint != 0 and hint >= user_alloc_base) {
-            return null;
+            return error.InvalidArgument;
         }
 
         var address = utils.alignDown(u64, hint, std.mem.page_size);
         var size = utils.alignUp(u64, length, std.mem.page_size);
 
         if (address == 0) {
+            self.alloc_base -= size;
+
             address = self.alloc_base;
-            self.alloc_base += size;
         }
 
         const mapping = try root.allocator.create(Mapping);
@@ -448,6 +461,50 @@ pub const AddressSpace = struct {
         self.insertMapping(mapping);
 
         return address;
+    }
+
+    pub fn fork(self: *AddressSpace) !AddressSpace {
+        _ = self.lock.lock();
+
+        defer self.lock.unlock();
+
+        var new_as = try createAddressSpace();
+
+        _ = new_as.lock.lock();
+
+        defer new_as.lock.unlock();
+
+        new_as.alloc_base = self.alloc_base;
+
+        var iter = self.mappings.first;
+
+        while (iter) |node| : (iter = node.next) {
+            const mapping = @fieldParentPtr(Mapping, "node", node);
+            const new_mapping = try root.allocator.create(Mapping);
+
+            new_mapping.* = mapping.*;
+            new_as.insertMapping(new_mapping);
+
+            // TODO: Please someone implement CoW for me :sadge:
+            for (utils.range(utils.alignUp(usize, mapping.length, std.mem.page_size) / std.mem.page_size)) |_, page_index| {
+                const original_page = self.page_table.translate(mapping.base + page_index * std.mem.page_size) orelse continue;
+                const new_page = phys.allocate(1, true) orelse return error.OutOfMemory;
+
+                std.mem.copy(
+                    u8,
+                    asHigherHalf([*]u8, new_page)[0..std.mem.page_size],
+                    asHigherHalf([*]u8, original_page)[0..std.mem.page_size],
+                );
+
+                try new_as.page_table.mapPage(
+                    mapping.base + page_index * std.mem.page_size,
+                    new_page,
+                    protToFlags(mapping.prot, true),
+                );
+            }
+        }
+
+        return new_as;
     }
 
     fn insertMapping(self: *AddressSpace, new_mapping: *Mapping) void {
@@ -542,8 +599,10 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
         return true;
     }
 
-    if (per_cpu.get().currentProcess()) |process| {
-        return process.address_space.handlePageFault(address, reason);
+    if (address < 0x8000_0000_0000_0000) {
+        if (current_address_space) |address_space| {
+            return address_space.handlePageFault(address, reason);
+        }
     }
 
     return false;

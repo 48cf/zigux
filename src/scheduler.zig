@@ -3,6 +3,7 @@ const logger = std.log.scoped(.scheduler);
 const root = @import("root");
 const std = @import("std");
 
+const abi = @import("abi.zig");
 const arch = @import("arch.zig");
 const interrupts = @import("interrupts.zig");
 const process = @import("process.zig");
@@ -13,6 +14,9 @@ const utils = @import("utils.zig");
 const vfs = @import("vfs.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
+
+pub const syscall_stack_pages = 4;
+pub const thread_stack_pages = 8;
 
 const StackHelper = struct {
     rsp: u64,
@@ -89,6 +93,7 @@ pub const Thread = struct {
     parent: *process.Process,
     regs: interrupts.InterruptFrame = std.mem.zeroes(interrupts.InterruptFrame),
     node: std.TailQueue(void).Node = undefined,
+    syscall_stack: u64 = 0,
 
     pub fn exec(
         self: *Thread,
@@ -119,6 +124,7 @@ pub const Thread = struct {
             final_argv = argv_list.items;
         }
 
+        var old_vm = self.parent.address_space.switchTo();
         var executable = try self.parent.address_space.loadExecutable(file_to_load, 0);
         var entry = executable.entry;
 
@@ -134,7 +140,6 @@ pub const Thread = struct {
         }
 
         var stack = StackHelper.init(self.regs.rsp);
-        var old_vm = self.parent.address_space.switchTo();
         var argv_pointers = std.ArrayList(u64).init(root.allocator);
         var envp_pointers = std.ArrayList(u64).init(root.allocator);
 
@@ -196,6 +201,10 @@ pub const Thread = struct {
     }
 
     pub fn switchTo(self: *Thread, frame: *interrupts.InterruptFrame) void {
+        const cpu_info = per_cpu.get();
+
+        cpu_info.tss.rsp[0] = self.syscall_stack + syscall_stack_pages * std.mem.page_size;
+
         frame.* = self.regs;
 
         _ = self.parent.address_space.switchTo();
@@ -204,20 +213,20 @@ pub const Thread = struct {
 
 pub const Semaphore = struct {
     const Waiter = struct {
-        count: usize = undefined,
+        count: isize = undefined,
         thread: *Thread = undefined,
         node: std.TailQueue(void).Node = undefined,
     };
 
     queue: std.TailQueue(void) = .{},
     lock: IrqSpinlock = .{},
-    available: usize,
+    available: isize,
 
-    pub fn init(count: usize) Semaphore {
+    pub fn init(count: isize) Semaphore {
         return .{ .available = count };
     }
 
-    pub fn acquire(self: *Semaphore, count: usize) void {
+    pub fn acquire(self: *Semaphore, count: isize) void {
         const ints_enabled = self.lock.lock();
         const thread = per_cpu.get().thread.?;
 
@@ -244,7 +253,7 @@ pub const Semaphore = struct {
         }
     }
 
-    pub fn release(self: *Semaphore, count: usize) void {
+    pub fn release(self: *Semaphore, count: isize) void {
         _ = self.lock.lock();
 
         self.available += count;
@@ -265,6 +274,7 @@ pub const Semaphore = struct {
     }
 };
 
+var processes: std.TailQueue(void) = .{};
 var scheduler_queue: std.TailQueue(void) = .{};
 var scheduler_lock: IrqSpinlock = .{};
 
@@ -312,6 +322,25 @@ pub fn init() !void {
 }
 
 pub fn spawnThread(parent: *process.Process) !*Thread {
+    const thread = try spawnThreadWithoutStack(parent);
+
+    errdefer root.allocator.destroy(thread);
+
+    const stack_base = try parent.address_space.mmap(
+        0,
+        thread_stack_pages * std.mem.page_size,
+        abi.PROT_READ | abi.PROT_WRITE,
+        abi.MAP_PRIVATE | abi.MAP_FIXED,
+        null,
+        0,
+    );
+
+    thread.regs.rsp = stack_base + thread_stack_pages * std.mem.page_size;
+
+    return thread;
+}
+
+pub fn spawnThreadWithoutStack(parent: *process.Process) !*Thread {
     var thread = try root.allocator.create(Thread);
 
     errdefer root.allocator.destroy(thread);
@@ -321,18 +350,9 @@ pub fn spawnThread(parent: *process.Process) !*Thread {
         .parent = parent,
     };
 
-    const stack_pages = 4;
-    const stack_base = 0x7FFFFFFF0000;
-    const stack_page = phys.allocate(stack_pages, true) orelse return error.OutOfMemory;
+    const syscall_stack = phys.allocate(syscall_stack_pages, false) orelse return error.OutOfMemory;
 
-    try parent.address_space.page_table.map(
-        stack_base,
-        stack_page,
-        stack_pages * std.mem.page_size,
-        virt.Flags.Present | virt.Flags.Writable | virt.Flags.User | virt.Flags.NoExecute,
-    );
-
-    thread.regs.rsp = stack_base + stack_pages * std.mem.page_size;
+    thread.syscall_stack = virt.asHigherHalf(u64, syscall_stack);
     thread.regs.rflags = 0x202;
     thread.regs.cs = 0x38 | 3;
     thread.regs.ss = 0x40 | 3;
@@ -367,7 +387,23 @@ pub fn spawnProcess(parent: ?*process.Process) !*process.Process {
     try new_process.files.insertAt(1, tty);
     try new_process.files.insertAt(2, tty);
 
+    processes.append(&new_process.scheduler_node);
+
     return new_process;
+}
+
+pub fn getProcessByPid(pid: u64) ?*process.Process {
+    var iter = processes.first;
+
+    while (iter) |node| : (iter = node.next) {
+        const proc = @fieldParentPtr(process.Process, "scheduler_node", node);
+
+        if (proc.pid == pid) {
+            return proc;
+        }
+    }
+
+    return null;
 }
 
 pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
@@ -415,6 +451,37 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     enqueue(thread);
 
     return thread;
+}
+
+pub fn forkProcess(parent: *process.Process) !*process.Process {
+    const new_process = try root.allocator.create(process.Process);
+
+    errdefer root.allocator.destroy(new_process);
+
+    new_process.* = .{
+        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel),
+        .parent = parent.pid,
+        .address_space = try parent.address_space.fork(),
+        .files = try parent.files.fork(),
+        .exit_code = null,
+    };
+
+    processes.append(&new_process.scheduler_node);
+
+    return new_process;
+}
+
+pub fn exitProcess(proc: *process.Process, exit_code: u8) void {
+    proc.exit_code = exit_code;
+    proc.waitpid_semaphore.release(1);
+
+    if (getProcessByPid(proc.parent)) |parent| {
+        processes.remove(&proc.scheduler_node);
+        parent.zombie_children.append(&proc.scheduler_node);
+        parent.waitpid_child_semaphore.release(1);
+    }
+
+    logger.debug("Exiting process {} with code {}", .{ proc.pid, proc.exit_code });
 }
 
 pub fn exitThread() noreturn {

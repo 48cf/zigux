@@ -20,6 +20,9 @@ pub const SyscallNumber = enum(u64) {
     ProcArchCtl = 0x2,
     ProcGetPid = 0x3,
     ProcGetPPid = 0x4,
+    ProcFork = 0x5,
+    ProcExec = 0x6,
+    ProcWait = 0x7,
 
     FileOpen = 0x100,
     FileClose = 0x101,
@@ -45,6 +48,18 @@ const FileDescriptor = struct {
 const FileTable = struct {
     files: std.AutoArrayHashMapUnmanaged(u64, FileDescriptor) = .{},
     fd_counter: u64 = 0,
+
+    pub fn fork(self: *FileTable) !FileTable {
+        var new_table = FileTable{ .fd_counter = self.fd_counter };
+
+        var iterator = self.files.iterator();
+
+        while (iterator.next()) |entry| {
+            try new_table.files.put(root.allocator, entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        return new_table;
+    }
 
     pub fn insertAt(self: *FileTable, fd: u64, vnode: *vfs.VNode) !void {
         self.fd_counter = std.math.max(fd + 1, self.fd_counter);
@@ -87,14 +102,18 @@ pub const Process = struct {
     executable: *vfs.VNode = undefined,
     children: std.ArrayListUnmanaged(*Process) = .{},
     threads: std.ArrayListUnmanaged(*scheduler.Thread) = .{},
+    scheduler_node: std.TailQueue(void).Node = undefined,
+    waitpid_semaphore: scheduler.Semaphore = .{ .available = -1 },
+    waitpid_child_semaphore: scheduler.Semaphore = .{ .available = 0 },
+    zombie_children: std.TailQueue(void) = .{},
     files: FileTable = .{},
     address_space: virt.AddressSpace,
     exit_code: ?u8,
 
-    pub fn validateString(self: *Process, comptime T: type, ptr: u64) !T {
+    pub fn validateSentinel(self: *Process, comptime T: type, comptime sentinel: T, ptr: u64) ![:sentinel]const T {
         _ = self;
 
-        return std.mem.span(@intToPtr(sliceToMany(T), ptr));
+        return std.mem.span(@intToPtr([*:sentinel]const T, ptr));
     }
 
     pub fn validateBuffer(self: *Process, comptime T: type, ptr: u64, len: u64) !T {
@@ -184,10 +203,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         .ProcExit => {
             cpu_info.thread = null;
 
-            process.exit_code = @truncate(u8, frame.rdi);
-
-            logger.debug("Exiting process {} with code {}", .{ process.pid, process.exit_code });
-
+            scheduler.exitProcess(process, @truncate(u8, frame.rdi));
             scheduler.reschedule(frame);
 
             return null;
@@ -212,12 +228,92 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         },
         .ProcGetPid => return process.pid,
         .ProcGetPPid => return process.parent,
+        .ProcFork => {
+            const forked_process = try scheduler.forkProcess(process);
+            const new_thread = try scheduler.spawnThreadWithoutStack(forked_process);
+
+            new_thread.regs = frame.*;
+            new_thread.regs.rax = 0;
+
+            scheduler.enqueue(new_thread);
+
+            return forked_process.pid;
+        },
+        .ProcExec => {
+            const thread = cpu_info.thread.?;
+            const path = try process.validateSentinel(u8, 0, frame.rdi);
+            const file = try vfs.resolve(process.cwd, path, 0);
+
+            const argv = try process.validateSentinel(?[*:0]const u8, null, frame.rsi);
+            const envp = try process.validateSentinel(?[*:0]const u8, null, frame.rdx);
+
+            var argv_copy = std.ArrayList([]u8).init(root.allocator);
+            var envp_copy = std.ArrayList([]u8).init(root.allocator);
+
+            for (argv) |arg_opt| {
+                const arg = try process.validateSentinel(u8, 0, @ptrToInt(arg_opt.?));
+                try argv_copy.append(try root.allocator.dupe(u8, arg));
+            }
+
+            for (envp) |env_opt| {
+                const env = try process.validateSentinel(u8, 0, @ptrToInt(env_opt.?));
+                try envp_copy.append(try root.allocator.dupe(u8, env));
+            }
+
+            process.address_space = try virt.createAddressSpace();
+
+            const stack_base = try process.address_space.mmap(
+                0,
+                scheduler.thread_stack_pages * std.mem.page_size,
+                abi.PROT_READ | abi.PROT_WRITE,
+                abi.MAP_PRIVATE | abi.MAP_FIXED,
+                null,
+                0,
+            );
+
+            thread.regs = std.mem.zeroes(interrupts.InterruptFrame);
+            thread.regs.rsp = stack_base + scheduler.thread_stack_pages * std.mem.page_size;
+            thread.regs.rflags = 0x202;
+            thread.regs.cs = 0x38 | 3;
+            thread.regs.ss = 0x40 | 3;
+            thread.regs.ds = 0x40 | 3;
+            thread.regs.es = 0x40 | 3;
+
+            try thread.exec(file, argv_copy.items, envp_copy.items);
+
+            frame.* = thread.regs;
+
+            return null;
+        },
+        .ProcWait => {
+            const status = try process.validatePointer(c_int, frame.rsi);
+            const pid = @truncate(c_int, @bitCast(i64, frame.rdi));
+
+            if (pid > 0) {
+                const target_proc = scheduler.getProcessByPid(@intCast(u64, pid)) orelse return error.InvalidArgument;
+
+                target_proc.waitpid_semaphore.acquire(0);
+                status.* = target_proc.exit_code.?;
+
+                return target_proc.pid;
+            } else if (pid == -1) {
+                process.waitpid_child_semaphore.acquire(1);
+
+                const node = process.zombie_children.pop().?;
+                const child = @fieldParentPtr(Process, "scheduler_node", node);
+
+                status.* = child.exit_code.?;
+
+                return child.pid;
+            } else {
+                logger.warn("Unknown wait target {}", .{pid});
+
+                return error.InvalidArgument;
+            }
+        },
         .FileOpen => {
-            const path = try process.validateString([:0]const u8, frame.rdi);
-            const vnode = if (std.fs.path.isAbsolute(path))
-                try vfs.resolve(null, path, frame.rsi)
-            else
-                try vfs.resolve(process.cwd, path, frame.rsi);
+            const path = try process.validateSentinel(u8, 0, frame.rdi);
+            const vnode = try vfs.resolve(process.cwd, path, frame.rsi);
 
             return try process.files.insert(vnode);
         },
@@ -297,7 +393,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             // const vnode = if (frame.r8 != -1) process.files.get(frame.r8) orelse return error.BadFileDescriptor else null;
             const address = try process.address_space.mmap(frame.rdi, frame.rsi, frame.rdx, frame.r10, null, frame.r9);
 
-            return address orelse error.OutOfMemory;
+            return address;
         },
         else => {
             logger.warn(

@@ -389,9 +389,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || error{ 
         return resolve(root_vnode.?, path[1..], flags);
     }
 
-    std.debug.assert(!std.fs.path.isAbsolute(path));
-
-    var next = cwd.?;
+    var next = if (std.fs.path.isAbsolute(path)) root_vnode.? else cwd.?;
     var iter = std.mem.split(u8, path, std.fs.path.sep_str);
 
     if (path.len > 0) {
