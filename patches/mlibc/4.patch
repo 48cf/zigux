@@ -1,13 +1,3 @@
-From d8f07821f4d5c528290798044a9bcc49933ec1d1 Mon Sep 17 00:00:00 2001
-From: czapek1337 <czapek1337@gmail.com>
-Date: Mon, 23 May 2022 05:42:08 +0200
-Subject: [PATCH] Implement the sys_tcb_set sysdep
-
----
- sysdeps/zigux/include/zigux/syscall.h |  1 +
- sysdeps/zigux/src/sysdeps.cpp         | 16 +++++++++++++++-
- 2 files changed, 16 insertions(+), 1 deletion(-)
-
 diff --git a/sysdeps/zigux/include/zigux/syscall.h b/sysdeps/zigux/include/zigux/syscall.h
 index 08e1b65..48d3914 100644
 --- a/sysdeps/zigux/include/zigux/syscall.h
@@ -56,7 +46,3 @@ index 45e4ea4..f02b591 100644
 +
  int sys_futex_wait(int *pointer, int expected, const struct timespec *time) STUB_IMPL(sys_futex_wait)
  int sys_futex_wake(int *pointer) STUB_IMPL(sys_futex_wake)
- 
--- 
-2.36.1
-

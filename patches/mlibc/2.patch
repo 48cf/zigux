@@ -1,12 +1,3 @@
-From c026652a55b0c3f934a7b496c7d7892bf6e1063e Mon Sep 17 00:00:00 2001
-From: czapek1337 <czapek1337@gmail.com>
-Date: Sun, 22 May 2022 01:43:18 +0200
-Subject: [PATCH] Print names of stubbed out functions
-
----
- sysdeps/zigux/src/sysdeps.cpp | 40 ++++++++++++-----------------------
- 1 file changed, 14 insertions(+), 26 deletions(-)
-
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 index b44fa24..f296181 100644
 --- a/sysdeps/zigux/src/sysdeps.cpp
@@ -64,6 +55,3 @@ index b44fa24..f296181 100644
 +int sys_clock_get(int clock, time_t *secs, long *nanos) STUB_IMPL(sys_clock_get)
  
  }
--- 
-2.36.1
-

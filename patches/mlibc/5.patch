@@ -1,14 +1,3 @@
-From 69eee33b3da2b310c332641b35f574db5acf8d37 Mon Sep 17 00:00:00 2001
-From: czapek1337 <czapek1337@gmail.com>
-Date: Mon, 23 May 2022 21:00:46 +0200
-Subject: [PATCH] Initialize the startup data
-
----
- sysdeps/zigux/meson.build       |  1 -
- sysdeps/zigux/src/crt0-x86_64.S |  4 +---
- sysdeps/zigux/src/entry.cpp     | 19 ++++++++++++++++++-
- 3 files changed, 19 insertions(+), 5 deletions(-)
-
 diff --git a/sysdeps/zigux/meson.build b/sysdeps/zigux/meson.build
 index a299eb3..0c265e5 100644
 --- a/sysdeps/zigux/meson.build
@@ -61,6 +50,3 @@ index b88b11d..23d499c 100644
  
    exit(result);
  }
--- 
-2.36.1
-

@@ -1,0 +1,28 @@
+name=bash
+from_source=bash
+revision=1
+imagedeps="gcc"
+hostdeps="gcc autoconf automake"
+deps="mlibc ncurses libiconv readline"
+
+configure() {
+  export ac_cv_func_wcswidth=no
+
+  ${source_dir}/configure \
+    --host=${common_triple} \
+    --prefix=${prefix} \
+    --without-bash-malloc \
+    --disable-nls \
+    --with-installed-readline=$SYSROOT_DIR$/usr
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make install-strip DESTDIR="${dest_dir}"
+  mkdir -p "${dest_dir}"/bin
+  ln -s /usr/bin/bash "${dest_dir}"/bin/bash
+  ln -s /usr/bin/bash "${dest_dir}"/bin/sh
+}

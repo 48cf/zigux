@@ -44,7 +44,7 @@ pub fn build(b: *std.build.Builder) !void {
         "misc/create-image.sh",
         image_dir,
         image_path,
-        "sysroot/system-root",
+        "sysroot",
         sysroot_path,
         kernel_path,
     });

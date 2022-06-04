@@ -1,33 +1,17 @@
-From f200f6db57b8f51903fabb93ff8ab3e1cbcfdba1 Mon Sep 17 00:00:00 2001
-From: czapek1337 <czapek1337@gmail.com>
-Date: Sun, 22 May 2022 00:29:18 +0200
-Subject: [PATCH] Add zigux as a target
-
----
- fixincludes/mkfixinc.sh     |  1 +
- gcc/config.gcc              | 12 +++++++++++
- gcc/config/zigux.h          | 41 +++++++++++++++++++++++++++++++++++++
- libgcc/config.host          |  8 ++++++++
- libgcc/libgcov.h            |  2 ++
- libstdc++-v3/crossconfig.m4 | 12 +++++++++++
- libtool.m4                  | 14 +++++++++++++
- 7 files changed, 90 insertions(+)
- create mode 100644 gcc/config/zigux.h
-
 diff --git a/fixincludes/mkfixinc.sh b/fixincludes/mkfixinc.sh
-index df90720b7..b76d265b3 100755
+index df90720b7..da6408af2 100755
 --- a/fixincludes/mkfixinc.sh
 +++ b/fixincludes/mkfixinc.sh
-@@ -13,6 +13,7 @@ target=fixinc.sh
+@@ -12,6 +12,7 @@ target=fixinc.sh
+ # Check for special fix rules for particular targets
  case $machine in
      i?86-*-cygwin* | \
-     i?86-*-mingw32* | \
 +    x86_64-*-zigux* | \
+     i?86-*-mingw32* | \
      x86_64-*-mingw32* | \
      powerpc-*-eabisim* | \
-     powerpc-*-eabi*    | \
 diff --git a/gcc/config.gcc b/gcc/config.gcc
-index c5064dd37..31fa0f48a 100644
+index c5064dd37..e42f7956b 100644
 --- a/gcc/config.gcc
 +++ b/gcc/config.gcc
 @@ -824,6 +824,15 @@ case ${target} in
@@ -51,40 +35,27 @@ index c5064dd37..31fa0f48a 100644
  	esac
  	;;
 +x86_64-*-zigux*)
-+    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h gnu-user.h glibc-stdint.h i386/x86-64.h i386/gnu-user-common.h i386/gnu-user64.h zigux.h"
-+    ;;
++	tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h gnu-user.h glibc-stdint.h i386/x86-64.h i386/gnu-user-common.h i386/gnu-user64.h zigux.h"
++	;;
  x86_64-*-fuchsia*)
  	tmake_file="${tmake_file} i386/t-x86_64-elf"
  	tm_file="${tm_file} i386/unix.h i386/att.h elfos.h newlib-stdint.h i386/i386elf.h i386/x86-64.h fuchsia.h"
 diff --git a/gcc/config/zigux.h b/gcc/config/zigux.h
 new file mode 100644
-index 000000000..0fc45e3b3
+index 000000000..be79aae12
 --- /dev/null
 +++ b/gcc/config/zigux.h
-@@ -0,0 +1,41 @@
-+#ifdef TARGET_ZIGUX
-+#  undef TARGET_ZIGUX
-+#endif // TARGET_ZIGUX
-+
-+#ifdef LIB_SPEC
-+#  undef LIB_SPEC
-+#endif // LIB_SPEC
-+
-+#ifdef STARTFILE_SPEC
-+#  undef STARTFILE_SPEC
-+#endif // STARTFILE_SPEC
-+
-+#ifdef ENDFILE_SPEC
-+#  undef ENDFILE_SPEC
-+#endif // ENDFILE_SPEC
-+
-+#ifdef TARGET_OS_CPP_BUILTINS
-+#  undef TARGET_OS_CPP_BUILTINS
-+#endif // TARGET_OS_CPP_BUILTINS
-+
+@@ -0,0 +1,29 @@
++#undef TARGET_ZIGUX
 +#define TARGET_ZIGUX 1
-+#define LIB_SPEC "-lc -lm"
++
++#undef LIB_SPEC
++#define LIB_SPEC "-lc"
++
++#undef STARTFILE_SPEC
 +#define STARTFILE_SPEC "%{!shared:crt0.o%s} crti.o%s %{shared:crtbeginS.o%s;:crtbegin.o%s}"
++
++#undef ENDFILE_SPEC
 +#define ENDFILE_SPEC "%{shared:crtendS.o%s;:crtend.o%s} crtn.o%s"
 +
 +#define GNU_USER_LINK_EMULATION32 "elf_i386"
@@ -95,55 +66,57 @@ index 000000000..0fc45e3b3
 +#define GNU_USER_DYNAMIC_LINKER64 "/usr/lib/ld.so"
 +#define GNU_USER_DYNAMIC_LINKERX32 "/usr/lib/ld32.so"
 +
-+#define TARGET_OS_CPP_BUILTINS()        \
-+    do {                                \
-+        builtin_define("__zigux__");    \
-+        builtin_define("__unix__");     \
-+        builtin_assert("system=zigux"); \
-+        builtin_assert("system=unix");  \
-+        builtin_assert("system=posix"); \
-+    } while (0);
++#undef TARGET_OS_CPP_BUILTINS
++#define TARGET_OS_CPP_BUILTINS()         \
++  do {                                   \
++    builtin_define ("__zigux__");    \
++    builtin_define ("__unix__");         \
++    builtin_assert ("system=zigux"); \
++    builtin_assert ("system=unix");      \
++    builtin_assert ("system=posix");     \
++  } while (0);
 diff --git a/libgcc/config.host b/libgcc/config.host
-index 8c56fcae5..912bb4d83 100644
+index 8c56fcae5..f4fcf8bfc 100644
 --- a/libgcc/config.host
 +++ b/libgcc/config.host
-@@ -267,6 +267,11 @@ case ${host} in
-       ;;
-   esac
+@@ -271,6 +271,11 @@ case ${host} in
+   tmake_file="$tmake_file t-crtstuff-pic t-libgcc-pic t-eh-dw2-dip t-slibgcc t-slibgcc-fuchsia"
+   extra_parts="crtbegin.o crtend.o"
    ;;
 +*-*-zigux*)
 +  extra_parts="$extra_parts crti.o crtbegin.o crtbeginS.o crtend.o crtendS.o crtn.o"
 +  tmake_file="$tmake_file t-crtstuff-pic"
 +  tmake_file="$tmake_file t-slibgcc t-slibgcc-gld t-slibgcc-elf-ver t-libgcc-pic"
 +  ;;
- *-*-fuchsia*)
-   tmake_file="$tmake_file t-crtstuff-pic t-libgcc-pic t-eh-dw2-dip t-slibgcc t-slibgcc-fuchsia"
-   extra_parts="crtbegin.o crtend.o"
-@@ -722,6 +727,9 @@ x86_64-*-elf* | x86_64-*-rtems*)
- 	    ;;
- 	esac
- 	;;
-+x86_64-*-zigux*)
-+    tmake_file="$tmake_file i386/t-crtstuff"
-+    ;;
+ *-*-linux* | frv-*-*linux* | *-*-kfreebsd*-gnu | *-*-gnu* | *-*-kopensolaris*-gnu | *-*-uclinuxfdpiceabi)
+   tmake_file="$tmake_file t-crtstuff-pic t-libgcc-pic t-eh-dw2-dip t-slibgcc t-slibgcc-gld t-slibgcc-elf-ver t-linux"
+   extra_parts="crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o"
+@@ -725,6 +730,10 @@ x86_64-*-elf* | x86_64-*-rtems*)
  x86_64-*-fuchsia*)
  	tmake_file="$tmake_file t-libgcc-pic"
  	;;
++x86_64-*-zigux*)
++	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
++	tmake_file="$tmake_file i386/t-crtpc t-crtfm i386/t-crtstuff t-dfprules"
++	;;
+ i[34567]86-*-dragonfly*)
+ 	tmake_file="${tmake_file} i386/t-dragonfly i386/t-crtstuff"
+ 	md_unwind_header=i386/dragonfly-unwind.h
 diff --git a/libgcc/libgcov.h b/libgcc/libgcov.h
-index 40e845ce3..ed4d66d32 100644
+index 40e845ce3..cd4802bff 100644
 --- a/libgcc/libgcov.h
 +++ b/libgcc/libgcov.h
-@@ -45,6 +45,8 @@
- #include "libgcc_tm.h"
- #include "gcov.h"
+@@ -37,6 +37,8 @@
+ /* About the target.  */
+ /* This path will be used by libgcov runtime.  */
  
 +#include <stdint.h>
 +
- #if HAVE_SYS_MMAN_H
- #include <sys/mman.h>
- #endif
+ #include "tconfig.h"
+ #include "auto-target.h"
+ #include "tsystem.h"
 diff --git a/libstdc++-v3/crossconfig.m4 b/libstdc++-v3/crossconfig.m4
-index ae5283b7a..ef40d21b7 100644
+index ae5283b7a..4245f14d3 100644
 --- a/libstdc++-v3/crossconfig.m4
 +++ b/libstdc++-v3/crossconfig.m4
 @@ -136,6 +136,18 @@ case "${host}" in
@@ -166,7 +139,7 @@ index ae5283b7a..ef40d21b7 100644
      SECTION_FLAGS='-ffunction-sections -fdata-sections'
      AC_SUBST(SECTION_FLAGS)
 diff --git a/libtool.m4 b/libtool.m4
-index 17f8e5f30..2e3d059f5 100644
+index 17f8e5f30..f6daabc68 100644
 --- a/libtool.m4
 +++ b/libtool.m4
 @@ -2491,6 +2491,16 @@ linux* | k*bsd*-gnu | kopensolaris*-gnu | gnu* | uclinuxfdpiceabi)
@@ -197,6 +170,3 @@ index 17f8e5f30..2e3d059f5 100644
  netbsd*)
    if echo __ELF__ | $CC -E - | $GREP __ELF__ > /dev/null; then
      lt_cv_deplibs_check_method='match_pattern /lib[[^/]]+(\.so\.[[0-9]]+\.[[0-9]]+|_pic\.a)$'
--- 
-2.36.1
-

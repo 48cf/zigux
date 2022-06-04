@@ -1,0 +1,2 @@
+common_triple="x86_64-zigux"
+common_cflags="-O2 -pipe"
