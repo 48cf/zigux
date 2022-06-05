@@ -241,10 +241,10 @@ index 0000000..6d911c7
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/zigux/syscall.h b/sysdeps/zigux/include/zigux/syscall.h
 new file mode 100644
-index 0000000..6512c96
+index 0000000..5ca2685
 --- /dev/null
 +++ b/sysdeps/zigux/include/zigux/syscall.h
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,164 @@
 +#ifndef _SYSCALL_H
 +#define _SYSCALL_H
 +
@@ -255,6 +255,9 @@ index 0000000..6512c96
 +#define SYS_PROC_ARCH_CTL 0x2
 +#define SYS_PROC_GET_PID 0x3
 +#define SYS_PROC_GET_PPID 0x4
++#define SYS_PROC_FORK 0x5
++#define SYS_PROC_EXEC 0x6
++#define SYS_PROC_WAIT 0x7
 +
 +#define SYS_FILE_OPEN 0x100
 +#define SYS_FILE_CLOSE 0x101
@@ -512,10 +515,10 @@ index 0000000..23d499c
 +}
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 0000000..1ea8403
+index 0000000..09a396a
 --- /dev/null
 +++ b/sysdeps/zigux/src/sysdeps.cpp
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,303 @@
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stddef.h>
@@ -769,6 +772,52 @@ index 0000000..1ea8403
 +    if (auto err = sys_ioctl(fd, request, (void*) attr, nullptr))
 +        return err;
 +
++    return 0;
++}
++
++int sys_fork(pid_t *child) {
++    auto res = do_syscall(SYS_PROC_FORK);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    *child = syscall_result<pid_t>(res);
++
++    return 0;
++}
++
++int sys_execve(const char *path, char *const *argv, char *const *envp) {
++    auto res = do_syscall(SYS_PROC_EXEC, path, argv, envp);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    sys_libc_log("execve() returned");
++    sys_libc_panic();
++}
++
++int sys_sigaction(int, const struct sigaction *__restrict, struct sigaction *__restrict) {
++    return ENOSYS;
++}
++
++int sys_sigprocmask(int how, const sigset_t *__restrict set, sigset_t *__restrict retrieve) {
++    return ENOSYS;
++}
++
++int sys_waitpid(pid_t pid, int *status, int flags, pid_t *ret_pid) {
++    auto res = do_syscall(SYS_PROC_WAIT, pid, status, flags);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    if (ret_pid)
++        *ret_pid = syscall_result<pid_t>(res);
++
++    return 0;
++}
++
++int sys_gethostname(char *buffer, size_t bufsize) {
++    memcpy(buffer, "zigux", 5);
 +    return 0;
 +}
 +
