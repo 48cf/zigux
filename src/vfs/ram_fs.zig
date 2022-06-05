@@ -3,6 +3,7 @@ const logger = std.log.scoped(.ramfs);
 const root = @import("root");
 const std = @import("std");
 
+const abi = @import("../abi.zig");
 const phys = @import("../phys.zig");
 const utils = @import("../utils.zig");
 const vfs = @import("../vfs.zig");
@@ -17,11 +18,14 @@ const ram_fs_vtable: vfs.FileSystemVTable = .{
 const ram_fs_file_vtable: vfs.VNodeVTable = .{
     .read = RamFSFile.read,
     .write = RamFSFile.write,
+    .stat = RamFSFile.stat,
 };
 
 const ram_fs_directory_vtable: vfs.VNodeVTable = .{
     .open = RamFSDirectory.open,
+    .read_dir = RamFSDirectory.readDir,
     .insert = RamFSDirectory.insert,
+    .stat = RamFSDirectory.stat,
 };
 
 const RamFSFile = struct {
@@ -59,6 +63,16 @@ const RamFSFile = struct {
 
         return buffer.len;
     }
+
+    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+        const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
+
+        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_mode = 0o777 | abi.S_IFREG;
+        buffer.st_size = @intCast(c_long, self.data.items.len);
+        buffer.st_blksize = std.mem.page_size;
+        buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, self.data.items.len, std.mem.page_size));
+    }
 };
 
 const RamFSDirectory = struct {
@@ -79,10 +93,54 @@ const RamFSDirectory = struct {
         return error.FileNotFound;
     }
 
+    fn readDir(vnode: *vfs.VNode, buffer: []u8, offset: *usize) vfs.ReadDirError!usize {
+        const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
+        const aligned_buffer = @alignCast(8, buffer);
+
+        var dir_ent = @ptrCast(*abi.dirent, aligned_buffer);
+        var buffer_offset: usize = 0;
+
+        while (offset.* < self.children.items.len) : (offset.* += 1) {
+            const child = self.children.items[offset.*];
+            const name = child.name.?;
+            const real_size = @sizeOf(abi.dirent) - 1024 + name.len + 1;
+
+            if (buffer_offset + real_size > buffer.len) {
+                break;
+            }
+
+            dir_ent.d_ino = 0;
+            dir_ent.d_off = 0;
+            dir_ent.d_reclen = @truncate(c_ushort, real_size);
+            dir_ent.d_type = switch (child.kind) {
+                .File => abi.DT_REG,
+                .Directory => abi.DT_DIR,
+                .Symlink => abi.DT_LNK,
+                .CharaterDevice => abi.DT_CHR,
+                .BlockDevice => abi.DT_BLK,
+            };
+
+            std.mem.copy(u8, dir_ent.d_name[0..name.len], name);
+
+            dir_ent.d_name[name.len] = 0;
+            buffer_offset += real_size;
+            dir_ent = @ptrCast(*abi.dirent, aligned_buffer[buffer_offset..]);
+        }
+
+        return buffer_offset;
+    }
+
     fn insert(vnode: *vfs.VNode, child: *vfs.VNode) vfs.OomError!void {
         const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
 
         try self.children.append(root.allocator, child);
+    }
+
+    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+        _ = vnode;
+
+        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_mode = 0o777 | abi.S_IFDIR;
     }
 };
 

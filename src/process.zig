@@ -30,8 +30,11 @@ pub const SyscallNumber = enum(u64) {
     FileWrite = 0x103,
     FileSeek = 0x104,
     FileGetCwd = 0x105,
-    FileStat = 0x106,
-    FileIoControl = 0x107,
+    FileStatFd = 0x106,
+    FileStatPath = 0x107,
+    FileIoControl = 0x108,
+    FileReadDir = 0x109,
+    FileChdir = 0x10A,
 
     MemMap = 0x200,
     MemUnmap = 0x201,
@@ -209,7 +212,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             return null;
         },
         .ProcLog => {
-            const buffer = try process.validateString([:0]const u8, frame.rdi);
+            const buffer = try process.validateSentinel(u8, 0, frame.rdi);
             const length = std.mem.len(buffer);
 
             logger.info("{s}", .{buffer[0..length]});
@@ -261,6 +264,8 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             }
 
             process.address_space = try virt.createAddressSpace();
+
+            _ = process.address_space.switchTo();
 
             const stack_base = try process.address_space.mmap(
                 0,
@@ -364,6 +369,22 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return std.mem.len(@ptrCast([*:0]const u8, string_buf));
         },
+        .FileStatFd, .FileStatPath => {
+            const buffer = try process.validatePointer(abi.stat, frame.rsi);
+            const file = if (syscall_num == .FileStatFd) blk: {
+                const fd = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+                break :blk fd.vnode;
+            } else if (syscall_num == .FileStatPath) blk: {
+                const path = try process.validateSentinel(u8, 0, frame.rdi);
+                break :blk try vfs.resolve(process.cwd, path, 0);
+            } else {
+                unreachable;
+            };
+
+            try file.stat(buffer);
+
+            return 0;
+        },
         .FileIoControl => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const result = file.vnode.ioctl(frame.rsi, frame.rdx);
@@ -372,6 +393,24 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 .ok => |value| value,
                 .err => |err| errnoToError(@truncate(u16, err)),
             };
+        },
+        .FileReadDir => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
+            const bytes_read = try file.vnode.readDir(buffer, &file.offset);
+
+            return bytes_read;
+        },
+        .FileChdir => {
+            const path = try process.validateSentinel(u8, 0, frame.rdi);
+            const vnode = try vfs.resolve(process.cwd, path, 0);
+
+            if (vnode.kind != .Directory) {
+                return error.NotDir;
+            }
+
+            process.cwd = vnode;
+            return 0;
         },
         .MemMap => {
             // All stuff that we don't support (currently) :/
@@ -394,6 +433,11 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             const address = try process.address_space.mmap(frame.rdi, frame.rsi, frame.rdx, frame.r10, null, frame.r9);
 
             return address;
+        },
+        .MemUnmap => {
+            logger.debug("Attempt to unmap {} byte(s) at 0x{X}", .{ frame.rdi, frame.rsi });
+
+            return 0;
         },
         else => {
             logger.warn(

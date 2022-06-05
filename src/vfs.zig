@@ -14,18 +14,26 @@ pub const OomError = error{
     OutOfMemory,
 };
 
+pub const NotDirError = error{
+    NotDir,
+};
+
 pub const OpenError = std.os.OpenError || OomError;
 pub const ReadError = std.os.PReadError || OomError;
+pub const ReadDirError = ReadError || NotDirError;
 pub const WriteError = std.os.PWriteError || OomError;
 pub const SymlinkError = std.os.SymLinkError || OomError;
 pub const IoctlResult = union(enum) { ok: usize, err: usize };
+pub const StatError = std.os.FStatAtError || OomError;
 
 pub const VNodeVTable = struct {
     open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
     read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize = null,
+    read_dir: ?fn (self: *VNode, buffer: []u8, offset: *usize) ReadDirError!usize = null,
     write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize = null,
     insert: ?fn (self: *VNode, child: *VNode) OomError!void = null,
     ioctl: ?fn (self: *VNode, request: u64, arg: u64) IoctlResult = null,
+    stat: ?fn (self: *VNode, buffer: *abi.stat) StatError!void = null,
 };
 
 pub const VNodeKind = enum {
@@ -75,6 +83,16 @@ pub const VNode = struct {
             std.mem.copy(u8, buffer[0..read_length], vnode.symlink_target.?);
 
             return read_length;
+        } else {
+            return error.NotImplemented;
+        }
+    }
+
+    pub fn readDir(self: *VNode, buffer: []u8, offset: *usize) !usize {
+        const vnode = self.getEffectiveVNode();
+
+        if (vnode.vtable.read_dir) |fun| {
+            return fun(vnode, buffer, offset);
         } else {
             return error.NotImplemented;
         }
@@ -137,6 +155,16 @@ pub const VNode = struct {
             return fun(vnode, request, arg);
         } else {
             return .{ .err = abi.ENOSYS };
+        }
+    }
+
+    pub fn stat(self: *VNode, buffer: *abi.stat) !void {
+        const vnode = self.getEffectiveVNode();
+
+        if (vnode.vtable.stat) |fun| {
+            return fun(vnode, buffer);
+        } else {
+            return error.NotImplemented;
         }
     }
 
