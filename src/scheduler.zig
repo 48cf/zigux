@@ -302,7 +302,7 @@ pub fn init() !void {
     try kernel_process.files.insertAt(1, tty);
     try kernel_process.files.insertAt(2, tty);
 
-    kernel_process.address_space = virt.kernel_address_space.?;
+    kernel_process.address_space = virt.kernel_address_space;
     kernel_process.cwd = root_dir;
 
     const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
@@ -458,13 +458,12 @@ pub fn forkProcess(parent: *process.Process) !*process.Process {
 
     errdefer root.allocator.destroy(new_process);
 
-    new_process.* = .{
-        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel),
-        .parent = parent.pid,
-        .address_space = try parent.address_space.fork(),
-        .files = try parent.files.fork(),
-        .exit_code = null,
-    };
+    new_process.* = parent.*;
+    new_process.pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel);
+    new_process.parent = parent.pid;
+    new_process.address_space = try parent.address_space.fork();
+    new_process.files = try parent.files.fork();
+    new_process.exit_code = null;
 
     processes.append(&new_process.scheduler_node);
 

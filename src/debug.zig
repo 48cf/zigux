@@ -45,16 +45,18 @@ pub fn printStackTrace(stack_trace: *std.builtin.StackTrace) void {
 }
 
 pub fn print(string: []const u8) void {
-    const previous_vm = if (virt.kernel_address_space) |*vm| vm.switchTo() else null;
+    const previous_vm = virt.kernel_address_space.switchTo();
 
     if (root.term_req.response) |term_res| {
         term_res.write_fn(term_res.terminals[0], @ptrCast([*:0]const u8, string), string.len);
     }
 
-    if (previous_vm) |vm| {
-        _ = vm.switchTo();
-    }
+    _ = previous_vm.switchTo();
 
+    debugPrint(string);
+}
+
+pub fn debugPrint(string: []const u8) void {
     for (string) |byte| {
         arch.out(u8, 0xE9, byte);
     }

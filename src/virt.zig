@@ -307,23 +307,16 @@ pub const AddressSpace = struct {
 
         defer paging_lock.unlock();
 
-        if (current_address_space) |previous| {
-            if (self == previous) {
-                return self;
-            }
+        const previous = current_address_space;
 
-            current_address_space = self;
-
+        if (current_cr3 != self.cr3) {
             switchPageTable(self.cr3);
 
-            return previous;
-        } else {
             current_address_space = self;
-
-            switchPageTable(self.cr3);
-
-            return self;
+            current_cr3 = self.cr3;
         }
+
+        return previous;
     }
 
     pub fn loadExecutable(self: *AddressSpace, file: *vfs.VNode, base: u64) !LoadedExecutable {
@@ -401,6 +394,10 @@ pub const AddressSpace = struct {
     }
 
     pub fn handlePageFault(self: *AddressSpace, address: u64, reason: u64) !bool {
+        _ = self.lock.lock();
+
+        defer self.lock.unlock();
+
         if (reason & FaultReason.Present != 0) {
             return false;
         }
@@ -410,7 +407,7 @@ pub const AddressSpace = struct {
         while (iter) |node| : (iter = node.next) {
             const mapping = @fieldParentPtr(Mapping, "node", node);
 
-            if (address >= mapping.base and address <= mapping.base + mapping.length) {
+            if (address >= mapping.base and address < mapping.base + mapping.length) {
                 const base = utils.alignDown(u64, address, std.mem.page_size);
                 const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
                 const flags = protToFlags(mapping.prot, true);
@@ -526,10 +523,11 @@ pub const AddressSpace = struct {
     }
 };
 
-pub var kernel_address_space: ?AddressSpace = null;
+pub var kernel_address_space: AddressSpace = undefined;
 
 var paging_lock: IrqSpinlock = .{};
-var current_address_space: ?*AddressSpace = null;
+var current_address_space: *AddressSpace = undefined;
+var current_cr3: u64 = undefined;
 
 fn map_section(
     comptime section_name: []const u8,
@@ -569,7 +567,10 @@ pub fn init(kernel_addr_res: *limine.KernelAddress.Response) !void {
     // Prepare for the address space switch
     kernel_address_space = AddressSpace.init(page_table_phys);
 
-    _ = kernel_address_space.?.switchTo();
+    current_address_space = &kernel_address_space;
+    current_cr3 = page_table_phys;
+
+    switchPageTable(current_cr3);
 }
 
 pub fn createAddressSpace() !AddressSpace {
@@ -579,7 +580,7 @@ pub fn createAddressSpace() !AddressSpace {
     var i: usize = 256;
 
     while (i < 512) : (i += 1) {
-        address_space.page_table.entries[i] = kernel_address_space.?.page_table.entries[i];
+        address_space.page_table.entries[i] = kernel_address_space.page_table.entries[i];
     }
 
     return address_space;
@@ -590,7 +591,7 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
     if (address >= hhdm_uc and address <= hhdm_uc + utils.gib(16)) {
         const page = utils.alignDown(u64, address, std.mem.page_size);
 
-        try kernel_address_space.?.page_table.mapPage(
+        try kernel_address_space.page_table.mapPage(
             page,
             page - hhdm_uc,
             Flags.Present | Flags.Writable | Flags.NoCache | Flags.NoExecute,
@@ -600,9 +601,7 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
     }
 
     if (address < 0x8000_0000_0000_0000) {
-        if (current_address_space) |address_space| {
-            return address_space.handlePageFault(address, reason);
-        }
+        return current_address_space.handlePageFault(address, reason);
     }
 
     return false;

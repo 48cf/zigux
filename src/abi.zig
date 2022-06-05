@@ -1,5 +1,7 @@
 usingnamespace @cImport({
     @cInclude("abis/mlibc/errno.h");
+    @cInclude("abis/mlibc/stat.h");
+    @cInclude("options/posix/include/dirent.h");
     @cInclude("options/posix/include/termios.h");
 });
 

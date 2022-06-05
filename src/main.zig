@@ -44,7 +44,7 @@ const PageAllocator = struct {
         while (i < pages) : (i += 1) {
             const page = phys.allocate(1, true) orelse return error.OutOfMemory;
 
-            virt.kernel_address_space.?.page_table.mapPage(
+            virt.kernel_address_space.page_table.mapPage(
                 base + i * std.mem.page_size,
                 page,
                 virt.Flags.Present | virt.Flags.Writable,
@@ -187,5 +187,5 @@ pub fn log(
     writer.print(fmt ++ "\n", args) catch unreachable;
     writer.writeByte(0) catch unreachable;
 
-    debug.print(std.mem.span(@ptrCast([*:0]const u8, &bytes)));
+    debug.debugPrint(std.mem.span(@ptrCast([*:0]const u8, &bytes)));
 }
