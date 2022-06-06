@@ -284,7 +284,7 @@ pub const FileSystem = struct {
             const node = try fun(self);
 
             node.kind = .File;
-            node.name = name;
+            node.name = try root.allocator.dupe(u8, name);
 
             return node;
         } else {
@@ -297,7 +297,7 @@ pub const FileSystem = struct {
             const node = try fun(self);
 
             node.kind = .Directory;
-            node.name = name;
+            node.name = try root.allocator.dupe(u8, name);
 
             return node;
         } else {
@@ -310,7 +310,7 @@ pub const FileSystem = struct {
             const node = try fun(self, target);
 
             node.kind = .Symlink;
-            node.name = name;
+            node.name = try root.allocator.dupe(u8, name);
 
             return node;
         } else {
@@ -370,7 +370,7 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
                         total_size += file.data.len;
                     },
                     .SymbolicLink => continue, // We do one more loop later to fix those :)
-                    .Directory => _ = try resolve(root_node, file.name, abi.O_CREAT),
+                    .Directory => _ = try resolve(root_node, file.name, abi.O_CREAT | abi.O_DIRECTORY),
                     else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
                 }
             }
@@ -422,7 +422,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || error{ 
                             const fs = next.getEffectiveFs();
 
                             if (flags & abi.O_CREAT != 0) {
-                                if (path[path.len - 1] == '/') {
+                                if (flags & abi.O_DIRECTORY != 0 or iter.rest().len > 0) {
                                     const node = try fs.createDir(component);
 
                                     try next.insert(node);

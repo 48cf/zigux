@@ -3,5 +3,5 @@ version=0.0.1
 source_dir="user/init"
 
 regenerate() {
-    true
+  true
 }

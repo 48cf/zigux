@@ -14,47 +14,28 @@ const virt = @import("virt.zig");
 const all_prot: u64 = abi.PROT_READ | abi.PROT_WRITE | abi.PROT_EXEC;
 const all_flags: u64 = abi.MAP_SHARED | abi.MAP_PRIVATE | abi.MAP_FIXED | abi.MAP_ANON;
 
-pub const SyscallNumber = enum(u64) {
-    ProcExit = 0x0,
-    ProcLog = 0x1,
-    ProcArchCtl = 0x2,
-    ProcGetPid = 0x3,
-    ProcGetPPid = 0x4,
-    ProcFork = 0x5,
-    ProcExec = 0x6,
-    ProcWait = 0x7,
-
-    FileOpen = 0x100,
-    FileClose = 0x101,
-    FileRead = 0x102,
-    FileWrite = 0x103,
-    FileSeek = 0x104,
-    FileGetCwd = 0x105,
-    FileStatFd = 0x106,
-    FileStatPath = 0x107,
-    FileIoControl = 0x108,
-    FileReadDir = 0x109,
-    FileChdir = 0x10A,
-
-    MemMap = 0x200,
-    MemUnmap = 0x201,
-    MemProtect = 0x202,
-
-    _,
-};
-
 const FileDescriptor = struct {
     vnode: *vfs.VNode,
     offset: usize,
 };
 
 const FileTable = struct {
-    files: std.AutoArrayHashMapUnmanaged(u64, FileDescriptor) = .{},
+    files: std.AutoArrayHashMapUnmanaged(u64, *FileDescriptor) = .{},
     fd_counter: u64 = 0,
+
+    fn findFreeFd(self: *FileTable) u64 {
+        var i = self.fd_counter;
+
+        while (true) : (i += 1) {
+            if (!self.files.contains(i)) {
+                self.fd_counter = i + 1;
+                return i;
+            }
+        }
+    }
 
     pub fn fork(self: *FileTable) !FileTable {
         var new_table = FileTable{ .fd_counter = self.fd_counter };
-
         var iterator = self.files.iterator();
 
         while (iterator.next()) |entry| {
@@ -64,17 +45,31 @@ const FileTable = struct {
         return new_table;
     }
 
-    pub fn insertAt(self: *FileTable, fd: u64, vnode: *vfs.VNode) !void {
-        self.fd_counter = std.math.max(fd + 1, self.fd_counter);
+    pub fn duplicate(self: *FileTable, desc: *FileDescriptor, new_fd_opt: ?u64) !u64 {
+        const fd = new_fd_opt orelse self.findFreeFd();
 
-        try self.files.put(root.allocator, fd, .{
+        try self.files.put(root.allocator, fd, desc);
+
+        return fd;
+    }
+
+    pub fn insertAt(self: *FileTable, fd: u64, vnode: *vfs.VNode) !void {
+        const desc = try root.allocator.create(FileDescriptor);
+
+        errdefer root.allocator.destroy(desc);
+
+        desc.* = .{
             .vnode = vnode,
             .offset = 0,
-        });
+        };
+
+        self.fd_counter = std.math.max(fd + 1, self.fd_counter);
+
+        try self.files.put(root.allocator, fd, desc);
     }
 
     pub fn insert(self: *FileTable, vnode: *vfs.VNode) !u64 {
-        const fd = self.fd_counter;
+        const fd = self.findFreeFd();
 
         try self.insertAt(fd, vnode);
 
@@ -82,10 +77,18 @@ const FileTable = struct {
     }
 
     pub fn get(self: *FileTable, fd: u64) ?*FileDescriptor {
-        return self.files.getPtr(fd);
+        if (self.files.getPtr(fd)) |result| {
+            return result.*;
+        } else {
+            return null;
+        }
     }
 
     pub fn remove(self: *FileTable, fd: u64) bool {
+        if (fd <= self.fd_counter) {
+            self.fd_counter = fd;
+        }
+
         return self.files.swapRemove(fd);
     }
 };
@@ -199,11 +202,10 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
 
 fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     const cpu_info = per_cpu.get();
-    const syscall_num = @intToEnum(SyscallNumber, frame.rax);
     const process = cpu_info.currentProcess().?;
 
-    return switch (syscall_num) {
-        .ProcExit => {
+    return switch (frame.rax) {
+        abi.SYS_PROC_EXIT => {
             cpu_info.thread = null;
 
             scheduler.exitProcess(process, @truncate(u8, frame.rdi));
@@ -211,7 +213,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return null;
         },
-        .ProcLog => {
+        abi.SYS_PROC_LOG => {
             const buffer = try process.validateSentinel(u8, 0, frame.rdi);
             const length = std.mem.len(buffer);
 
@@ -219,7 +221,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return 0;
         },
-        .ProcArchCtl => {
+        abi.SYS_PROC_ARCH_CTL => {
             switch (frame.rdi) {
                 abi.ARCH_SET_FS => {
                     arch.Msr.fs_base.write(frame.rsi);
@@ -229,9 +231,9 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 else => return error.InvalidArgument,
             }
         },
-        .ProcGetPid => return process.pid,
-        .ProcGetPPid => return process.parent,
-        .ProcFork => {
+        abi.SYS_PROC_GET_PID => return process.pid,
+        abi.SYS_PROC_GET_PPID => return process.parent,
+        abi.SYS_PROC_FORK => {
             const forked_process = try scheduler.forkProcess(process);
             const new_thread = try scheduler.spawnThreadWithoutStack(forked_process);
 
@@ -242,7 +244,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return forked_process.pid;
         },
-        .ProcExec => {
+        abi.SYS_PROC_EXEC => {
             const thread = cpu_info.thread.?;
             const path = try process.validateSentinel(u8, 0, frame.rdi);
             const file = try vfs.resolve(process.cwd, path, 0);
@@ -290,7 +292,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return null;
         },
-        .ProcWait => {
+        abi.SYS_PROC_WAIT => {
             const status = try process.validatePointer(c_int, frame.rsi);
             const pid = @truncate(c_int, @bitCast(i64, frame.rdi));
 
@@ -316,20 +318,20 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 return error.InvalidArgument;
             }
         },
-        .FileOpen => {
+        abi.SYS_FILE_OPEN => {
             const path = try process.validateSentinel(u8, 0, frame.rdi);
             const vnode = try vfs.resolve(process.cwd, path, frame.rsi);
 
             return try process.files.insert(vnode);
         },
-        .FileClose => {
+        abi.SYS_FILE_CLOSE => {
             if (process.files.remove(frame.rdi)) {
                 return 0;
             } else {
                 return error.BadFileDescriptor;
             }
         },
-        .FileRead => {
+        abi.SYS_FILE_READ => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
             const bytes_read = try file.vnode.read(buffer, file.offset);
@@ -338,7 +340,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return bytes_read;
         },
-        .FileWrite => {
+        abi.SYS_FILE_WRITE => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
             const bytes_written = try file.vnode.write(buffer, file.offset);
@@ -347,7 +349,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return bytes_written;
         },
-        .FileSeek => {
+        abi.SYS_FILE_SEEK => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
             switch (frame.rdx) {
@@ -359,7 +361,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return file.offset;
         },
-        .FileGetCwd => {
+        abi.SYS_FILE_GET_CWD => {
             var string_buf = try process.validateBuffer([]u8, frame.rdi, frame.rsi);
             var buffer = std.io.fixedBufferStream(string_buf);
             var writer = buffer.writer();
@@ -369,12 +371,12 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return std.mem.len(@ptrCast([*:0]const u8, string_buf));
         },
-        .FileStatFd, .FileStatPath => {
+        abi.SYS_FILE_STAT_FD, abi.SYS_FILE_STAT_PATH => {
             const buffer = try process.validatePointer(abi.stat, frame.rsi);
-            const file = if (syscall_num == .FileStatFd) blk: {
+            const file = if (frame.rax == abi.SYS_FILE_STAT_FD) blk: {
                 const fd = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
                 break :blk fd.vnode;
-            } else if (syscall_num == .FileStatPath) blk: {
+            } else if (frame.rax == abi.SYS_FILE_STAT_PATH) blk: {
                 const path = try process.validateSentinel(u8, 0, frame.rdi);
                 break :blk try vfs.resolve(process.cwd, path, 0);
             } else {
@@ -385,7 +387,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return 0;
         },
-        .FileIoControl => {
+        abi.SYS_FILE_IO_CONTROL => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const result = file.vnode.ioctl(frame.rsi, frame.rdx);
 
@@ -394,14 +396,14 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 .err => |err| errnoToError(@truncate(u16, err)),
             };
         },
-        .FileReadDir => {
+        abi.SYS_FILE_READ_DIR => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
             const bytes_read = try file.vnode.readDir(buffer, &file.offset);
 
             return bytes_read;
         },
-        .FileChdir => {
+        abi.SYS_FILE_CHDIR => {
             const path = try process.validateSentinel(u8, 0, frame.rdi);
             const vnode = try vfs.resolve(process.cwd, path, 0);
 
@@ -412,7 +414,32 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             process.cwd = vnode;
             return 0;
         },
-        .MemMap => {
+        abi.SYS_FILE_DUP => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+            const new_fd = try process.files.duplicate(file, null);
+
+            return new_fd;
+        },
+        abi.SYS_FILE_DUP2 => {
+            const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+
+            if (frame.rdi != frame.rdx) {
+                _ = try process.files.duplicate(file, frame.rdx);
+            }
+
+            return frame.rdx;
+        },
+        abi.SYS_FILE_FCNTL => {
+            _ = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
+
+            logger.debug(
+                "Attempt to call fcntl on fd {} with request: 0x{X} and argument: 0x{X}",
+                .{ frame.rdi, frame.rsi, frame.rdx },
+            );
+
+            return error.NotImplemented;
+        },
+        abi.SYS_MEM_MAP => {
             // All stuff that we don't support (currently) :/
             // I'm not sure whether PROT_NONE is used anywhere..?
             if (frame.rdx == 0 or frame.rdx & ~all_prot != 0 or frame.r10 & ~all_flags != 0) {
@@ -434,15 +461,15 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
             return address;
         },
-        .MemUnmap => {
+        abi.SYS_MEM_UNMAP => {
             logger.debug("Attempt to unmap {} byte(s) at 0x{X}", .{ frame.rdi, frame.rsi });
 
             return 0;
         },
         else => {
             logger.warn(
-                "Unimplemented syscall {}: {{ 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X} }}",
-                .{ syscall_num, frame.rdi, frame.rsi, frame.rdx, frame.r10, frame.r8, frame.r9 },
+                "Unimplemented syscall 0x{X}: {{ 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X} }}",
+                .{ frame.rax, frame.rdi, frame.rsi, frame.rdx, frame.r10, frame.r8, frame.r9 },
             );
 
             return error.NotImplemented;
