@@ -321,9 +321,6 @@ pub const FileSystem = struct {
 
 var root_vnode: ?*VNode = null;
 
-const assembler_elf = @embedFile("../misc/s3").*;
-const assembler_source = @embedFile("../misc/shr.shr").*;
-
 pub fn init(modules_res: *limine.Modules.Response) !void {
     const root_node = try ram_fs.init("", null);
 
@@ -340,16 +337,6 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
     try root_node.insert(lib_dir);
     try root_node.insert(root_dir);
     try root_node.insert(sys_dir);
-
-    // Initialize /bin and /root
-    const s3_file = try root_node.filesystem.createFile("s3");
-    const shr_file = try root_node.filesystem.createFile("shr.shr");
-
-    try s3_file.writeAll(&assembler_elf, 0);
-    try shr_file.writeAll(&assembler_source, 0);
-
-    try bin_dir.insert(s3_file);
-    try root_dir.insert(shr_file);
 
     // Initalize /dev
     dev_dir.mount(try dev_fs.init("dev", null));
