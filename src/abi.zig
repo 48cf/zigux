@@ -1,8 +1,9 @@
 usingnamespace @cImport({
     @cInclude("abis/mlibc/errno.h");
     @cInclude("abis/mlibc/stat.h");
-    @cInclude("options/posix/include/dirent.h");
-    @cInclude("options/posix/include/termios.h");
+    @cInclude("asm/ioctls.h");
+    @cInclude("dirent.h");
+    @cInclude("termios.h");
 });
 
 pub const O_ACCMODE = 0x0007;

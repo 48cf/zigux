@@ -185,6 +185,9 @@ var tty_buffer: @import("../containers/ring_buffer.zig").RingBuffer(u8, 16) = .{
 
 const TtyVNode = struct {
     vnode: vfs.VNode,
+    state: abi.termios = std.mem.zeroInit(abi.termios, .{
+        .c_lflag = abi.ECHO | abi.ICANON,
+    }),
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
         _ = vnode;
@@ -217,6 +220,7 @@ const TtyVNode = struct {
                 .RightOf0 => if (shift) "_" else "-",
                 .LeftOfBackspace => if (shift) "+" else "=",
                 .Backspace => "\x08", // \b
+                .Tab => "\t",
                 .Line1n1 => if (shift) "Q" else "q",
                 .Line1n2 => if (shift) "W" else "w",
                 .Line1n3 => if (shift) "E" else "e",
@@ -298,6 +302,20 @@ const TtyVNode = struct {
         _ = self;
 
         switch (request) {
+            abi.TCGETS => {
+                const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
+
+                result.* = self.state;
+
+                return .{ .ok = 0 };
+            },
+            abi.TCSETS => {
+                const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
+
+                self.state = result.*;
+
+                return .{ .ok = 0 };
+            },
             abi.TIOCGWINSZ => {
                 const term_res = root.term_req.response.?;
                 const terminal = term_res.terminals[0];
@@ -317,6 +335,10 @@ const TtyVNode = struct {
 
                 return .{ .ok = 0 };
             },
+            // TODO: Implement this properly - this is here only because
+            // ncurses (which is used by nano) seems to use this, and if
+            // this fails it calls into a stubbed mlibc function.
+            abi.TCSETSW => return .{ .ok = 0 },
             else => {
                 logger.warn("Unhandled IO control request 0x{X}", .{request});
 

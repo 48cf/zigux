@@ -69,6 +69,8 @@ fn buildKernel(b: *std.build.Builder) !*std.build.LibExeObjStep {
     kernel.addIncludeDir("sources/mlibc");
     kernel.addIncludeDir("sources/mlibc/options/ansi/include");
     kernel.addIncludeDir("sources/mlibc/options/internal/include");
+    kernel.addIncludeDir("sources/mlibc/options/linux-headers/include");
+    kernel.addIncludeDir("sources/mlibc/options/posix/include");
     kernel.addIncludeDir("sources/mlibc/sysdeps/zigux/include");
     kernel.install();
     kernel.setTarget(target);

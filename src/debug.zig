@@ -52,8 +52,6 @@ pub fn print(string: []const u8) void {
     }
 
     _ = previous_vm.switchTo();
-
-    debugPrint(string);
 }
 
 pub fn debugPrint(string: []const u8) void {
