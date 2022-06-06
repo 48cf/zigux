@@ -458,12 +458,14 @@ pub fn forkProcess(parent: *process.Process) !*process.Process {
 
     errdefer root.allocator.destroy(new_process);
 
-    new_process.* = parent.*;
-    new_process.pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel);
-    new_process.parent = parent.pid;
-    new_process.address_space = try parent.address_space.fork();
-    new_process.files = try parent.files.fork();
-    new_process.exit_code = null;
+    new_process.* = .{
+        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel),
+        .parent = parent.pid,
+        .cwd = parent.cwd,
+        .files = try parent.files.fork(),
+        .address_space = try parent.address_space.fork(),
+        .exit_code = null,
+    };
 
     processes.append(&new_process.scheduler_node);
 
