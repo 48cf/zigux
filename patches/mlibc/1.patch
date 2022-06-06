@@ -241,14 +241,19 @@ index 0000000..6d911c7
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/zigux/syscall.h b/sysdeps/zigux/include/zigux/syscall.h
 new file mode 100644
-index 0000000..7f2fbba
+index 0000000..64f83f1
 --- /dev/null
 +++ b/sysdeps/zigux/include/zigux/syscall.h
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,177 @@
 +#ifndef _SYSCALL_H
 +#define _SYSCALL_H
 +
 +#include <stdint.h>
++
++#define ARCH_SET_GS 0x1001
++#define ARCH_SET_FS 0x1002
++#define ARCH_GET_FS 0x1003
++#define ARCH_GET_GS 0x1004
 +
 +#define SYS_PROC_EXIT 0x0
 +#define SYS_PROC_LOG 0x1
@@ -270,6 +275,11 @@ index 0000000..7f2fbba
 +#define SYS_FILE_IO_CONTROL 0x108
 +#define SYS_FILE_READ_DIR 0x109
 +#define SYS_FILE_CHDIR 0x10A
++#define SYS_FILE_MKDIR 0x10B
++#define SYS_FILE_PIPE 0x10C
++#define SYS_FILE_DUP 0x10D
++#define SYS_FILE_DUP2 0x10E
++#define SYS_FILE_FCNTL 0x10F
 +
 +#define SYS_MEM_MAP 0x200
 +#define SYS_MEM_UNMAP 0x201
@@ -518,10 +528,10 @@ index 0000000..23d499c
 +}
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 0000000..c7e4cf4
+index 0000000..6505246
 --- /dev/null
 +++ b/sysdeps/zigux/src/sysdeps.cpp
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,404 @@
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stddef.h>
@@ -536,11 +546,6 @@ index 0000000..c7e4cf4
 +#include <sys/ioctl.h>
 +#include <sys/stat.h>
 +#include <zigux/syscall.h>
-+
-+const auto ARCH_SET_GS = 0x1001;
-+const auto ARCH_SET_FS = 0x1002;
-+const auto ARCH_GET_FS = 0x1003;
-+const auto ARCH_GET_GS = 0x1004;
 +
 +#define STUB_IMPL(name) { sys_libc_log("Stub function " #name " was called"); sys_libc_panic(); }
 +
@@ -870,6 +875,63 @@ index 0000000..c7e4cf4
 +    memcpy(buf->release, "0.0.1", 6);
 +    memcpy(buf->version, "0.0.1", 6);
 +    memcpy(buf->machine, "x86_64", 7);
++    return 0;
++}
++
++int sys_access(const char *path, int mode) {
++    mlibc::infoLogger() << "sys_access() is not implemented" << frg::endlog;
++    return 0;
++}
++
++int sys_mkdir(const char *path) {
++    auto res = do_syscall(SYS_FILE_MKDIR, path);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    return 0;
++}
++
++int sys_pipe(int *fds, int flags) {
++    auto res = do_syscall(SYS_FILE_PIPE, fds, flags);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    return 0;
++}
++
++int sys_dup(int fd, int flags, int *newfd) {
++    auto res = do_syscall(SYS_FILE_DUP, fd, flags);
++
++    if (auto err = syscall_error(res))
++        return err;
++    
++    if (newfd)
++        *newfd = syscall_result<int>(res);
++
++    return 0;
++}
++
++int sys_dup2(int fd, int flags, int newfd) {
++    auto res = do_syscall(SYS_FILE_DUP2, fd, flags, newfd);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    return 0;
++}
++
++int sys_fcntl(int fd, int request, va_list args, int *result) {
++    auto arg = va_arg(args, uint64_t);
++    auto res = do_syscall(SYS_FILE_FCNTL, fd, request, arg);
++
++    if (auto err = syscall_error(res))
++        return err;
++
++    if (result)
++        *result = syscall_result<int>(res);
++
 +    return 0;
 +}
 +
