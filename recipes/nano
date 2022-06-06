@@ -1,0 +1,27 @@
+name=nano
+from_source=nano
+revision=1
+imagedeps="gcc"
+hostdeps="gcc autoconf automake pkg-config"
+deps="mlibc ncurses zlib"
+
+configure() {
+  export CFLAGS="-DSLOW_BUT_NO_HACKS"
+  export PKG_CONFIG_SYSROOT_DIR="${sysroot_dir}"
+  export PKG_CONFIG_LIBDIR="${sysroot_dir}/usr/lib/pkgconfig:${sysroot_dir}/usr/share/pkgconfig"
+  export gl_cv_type_wctype_t="yes"
+  export gl_cv_type_wctrans_t="yes"
+
+  ${source_dir}/configure \
+    --host=${common_triple} \
+    --prefix=${prefix} \
+    --sysconfdir=/etc
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make install-strip DESTDIR="${dest_dir}"
+}
