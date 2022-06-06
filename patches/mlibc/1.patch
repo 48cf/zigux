@@ -16,10 +16,10 @@ index 0000000..3003eae
 +
 +#endif
 diff --git a/meson.build b/meson.build
-index 6c1103d..4eeba4d 100644
+index 7b3730f..d4ad746 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -136,6 +136,11 @@ elif host_machine.system() == 'dripos'
+@@ -137,6 +137,11 @@ elif host_machine.system() == 'dripos'
  	rtdl_include_dirs += include_directories('sysdeps/dripos/include')
  	libc_include_dirs += include_directories('sysdeps/dripos/include')
  	subdir('sysdeps/dripos')
@@ -38,6 +38,14 @@ index 0000000..c945860
 +++ b/sysdeps/zigux/include/abi-bits/abi.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/abi.h
+\ No newline at end of file
+diff --git a/sysdeps/zigux/include/abi-bits/access.h b/sysdeps/zigux/include/abi-bits/access.h
+new file mode 120000
+index 0000000..171f75f
+--- /dev/null
++++ b/sysdeps/zigux/include/abi-bits/access.h
+@@ -0,0 +1 @@
++../../../../abis/mlibc/access.h
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/auxv.h b/sysdeps/zigux/include/abi-bits/auxv.h
 new file mode 120000
@@ -424,10 +432,10 @@ index 0000000..64f83f1
 +#endif // _SYSCALL_H
 diff --git a/sysdeps/zigux/meson.build b/sysdeps/zigux/meson.build
 new file mode 100644
-index 0000000..0c265e5
+index 0000000..75d5757
 --- /dev/null
 +++ b/sysdeps/zigux/meson.build
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,56 @@
 +rtdl_sources += files(
 +	'src/sysdeps.cpp',
 +)
@@ -440,6 +448,7 @@ index 0000000..0c265e5
 +if not no_headers
 +    install_headers(
 +		'include/abi-bits/abi.h',
++		'include/abi-bits/access.h',
 +		'include/abi-bits/auxv.h',
 +		'include/abi-bits/blkcnt_t.h',
 +		'include/abi-bits/blksize_t.h',
@@ -528,10 +537,10 @@ index 0000000..23d499c
 +}
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 0000000..6505246
+index 0000000..d124049
 --- /dev/null
 +++ b/sysdeps/zigux/src/sysdeps.cpp
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,409 @@
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stddef.h>
@@ -772,14 +781,14 @@ index 0000000..6505246
 +
 +int sys_isatty(int fd) {
 +    struct winsize ws;
-+          
++
 +    if (!sys_ioctl(fd, TIOCGWINSZ, &ws, nullptr))
 +        return 0;
 +
 +    return ENOTTY;
 +}
 +
-+int sys_tcgetattr(int fd, struct termios *attr) {  
++int sys_tcgetattr(int fd, struct termios *attr) {
 +    if (auto err = sys_ioctl(fd, TCGETS, attr, nullptr))
 +        return err;
 +
@@ -906,7 +915,7 @@ index 0000000..6505246
 +
 +    if (auto err = syscall_error(res))
 +        return err;
-+    
++
 +    if (newfd)
 +        *newfd = syscall_result<int>(res);
 +
@@ -932,6 +941,11 @@ index 0000000..6505246
 +    if (result)
 +        *result = syscall_result<int>(res);
 +
++    return 0;
++}
++
++int sys_sleep(time_t *secs, long *nanos) {
++    mlibc::infoLogger() << "sys_sleep() is not implemented" << frg::endlog;
 +    return 0;
 +}
 +
