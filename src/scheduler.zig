@@ -258,7 +258,7 @@ pub const Semaphore = struct {
 
         self.available += count;
 
-        if (self.queue.first) |node| {
+        while (self.queue.first) |node| {
             const waiter = @fieldParentPtr(Waiter, "node", node);
             const resources_needed = waiter.count;
 
@@ -267,6 +267,8 @@ pub const Semaphore = struct {
                 self.queue.remove(node);
 
                 enqueue(waiter.thread);
+            } else {
+                break;
             }
         }
 
