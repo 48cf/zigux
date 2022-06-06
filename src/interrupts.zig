@@ -4,6 +4,7 @@ const std = @import("std");
 
 const arch = @import("arch.zig");
 const debug = @import("debug.zig");
+const scheduler = @import("scheduler.zig");
 const per_cpu = @import("per_cpu.zig");
 const virt = @import("virt.zig");
 
@@ -131,7 +132,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
 
         logger.info("Killed {}:{} because of a protection violation", .{ process.pid, cpu_info.thread.?.tid });
 
-        process.exit_code = 0xff;
+        scheduler.exitProcess(process, 0xff);
 
         cpu_info.thread = null;
     } else {
