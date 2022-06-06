@@ -1,0 +1,22 @@
+name=init
+from_source=init
+revision=1
+hostdeps="gcc binutils"
+deps="mlibc"
+imagedeps="gcc meson ninja"
+
+configure() {
+  meson \
+    --cross-file ${base_dir}/misc/cross.ini \
+    --prefix=${prefix} \
+    --buildtype=debugoptimized \
+    ${source_dir}
+}
+
+build() {
+  ninja
+}
+
+install() {
+  DESTDIR="${dest_dir}" ninja install
+}

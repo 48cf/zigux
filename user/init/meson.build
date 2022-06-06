@@ -1,5 +1,2 @@
-project('init', 'cpp',
-  default_options : ['cpp_std=gnu++20'],
-)
-
-executable('init', 'main.cpp', install : true)
+project('init', 'c', default_options : ['c_std=gnu11'])
+executable('init', 'main.c', install : true)

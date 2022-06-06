@@ -147,17 +147,9 @@ fn main() !void {
 
     const process = try scheduler.spawnProcess(null);
     const thread = try scheduler.spawnThread(process);
-    const bash = try vfs.resolve(null, "/usr/bin/bash", 0);
+    const init = try vfs.resolve(null, "/usr/bin/init", 0);
 
-    try thread.exec(
-        bash,
-        &.{"/usr/bin/bash"},
-        &.{
-            "TERM=xterm-256color",
-            "HOME=/root",
-            "PATH=/bin:/usr/bin:/usr/local/bin",
-        },
-    );
+    try thread.exec(init, &.{"/usr/bin/init"}, &.{});
 
     scheduler.enqueue(thread);
 }
