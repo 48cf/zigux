@@ -15,6 +15,7 @@ const tty_vtable: vfs.VNodeVTable = .{
     .read = TtyVNode.read,
     .write = TtyVNode.write,
     .ioctl = TtyVNode.ioctl,
+    .stat = TtyVNode.stat,
 };
 
 var disk_number: usize = 1;
@@ -309,7 +310,7 @@ const TtyVNode = struct {
 
                 return .{ .ok = 0 };
             },
-            abi.TCSETS => {
+            abi.TCSETSW, abi.TCSETSF, abi.TCSETS => {
                 const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
 
                 self.state = result.*;
@@ -335,16 +336,19 @@ const TtyVNode = struct {
 
                 return .{ .ok = 0 };
             },
-            // TODO: Implement this properly - this is here only because
-            // ncurses (which is used by nano) seems to use this, and if
-            // this fails it calls into a stubbed mlibc function.
-            abi.TCSETSW => return .{ .ok = 0 },
             else => {
                 logger.warn("Unhandled IO control request 0x{X}", .{request});
 
                 return .{ .err = abi.EINVAL };
             },
         }
+    }
+
+    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+        _ = vnode;
+
+        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_mode = 0o777 | abi.S_IFCHR;
     }
 };
 
