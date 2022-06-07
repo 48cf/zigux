@@ -13,7 +13,7 @@ int main() {
 
     if (pid == 0) {
       char *argv[] = {"/usr/bin/bash", NULL};
-      char *envp[] = {"TERM=xterm-256color", "HOME=/root", "PATH=/bin:/usr/bin:/usr/local/bin", NULL};
+      char *envp[] = {"TERM=xterm", "HOME=/root", "PATH=/bin:/usr/bin:/usr/local/bin", NULL};
 
       execve("/usr/bin/bash", argv, envp);
     } else {
