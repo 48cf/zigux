@@ -11,6 +11,7 @@ pub const FileType = enum(u8) {
     Directory = '5',
     Fifo = '6',
     ContiguousFile = '7',
+    _,
 };
 
 pub const File = struct {
@@ -108,6 +109,16 @@ const TarIterator = struct {
         const file_block_size = if (block_leftover == 0) file_size else file_size + 512 - block_leftover;
 
         self.offset += @sizeOf(TarHeader) + file_block_size;
+
+        // TODO: Handle files with long names properly
+        if (header.link_indicator == 'L') {
+            return File{
+                .name = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size - 1],
+                .kind = @intToEnum(FileType, 'L'),
+                .data = "",
+                .link = "",
+            };
+        }
 
         return File{
             .name = header.fileName(),
