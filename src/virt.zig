@@ -320,14 +320,14 @@ pub const AddressSpace = struct {
     }
 
     pub fn loadExecutable(self: *AddressSpace, file: *vfs.VNode, base: u64) !LoadedExecutable {
-        logger.debug("Trying to load executable {} at 0x{X}", .{ file.getFullPath(), base });
-
         var stream = file.stream();
         var header = try std.elf.Header.read(&stream);
         var ph_iter = header.program_header_iterator(&stream);
         var ld_path: ?[]u8 = null;
         var entry: u64 = header.entry + base;
         var phdr: u64 = 0;
+
+        logger.debug("Trying to load executable {} at 0x{X}", .{ file.getFullPath(), base });
 
         while (try ph_iter.next()) |ph| {
             switch (ph.p_type) {
@@ -587,10 +587,10 @@ pub fn createAddressSpace() !AddressSpace {
 }
 
 pub fn handlePageFault(address: u64, reason: u64) !bool {
-    // TODO: Map all of the memory map entries too
-    if (address >= hhdm_uc and address <= hhdm_uc + utils.gib(16)) {
-        const page = utils.alignDown(u64, address, std.mem.page_size);
+    const page = utils.alignDown(u64, address, std.mem.page_size);
 
+    // TODO: Map all of the memory map entries too
+    if (address >= hhdm_uc and address < hhdm_uc + utils.gib(16)) {
         try kernel_address_space.page_table.mapPage(
             page,
             page - hhdm_uc,
@@ -598,9 +598,7 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
         );
 
         return true;
-    }
-
-    if (address < 0x8000_0000_0000_0000) {
+    } else if (address < 0x8000_0000_0000_0000) {
         return current_address_space.handlePageFault(address, reason);
     }
 
