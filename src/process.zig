@@ -170,6 +170,7 @@ const errorTypeMap = .{
     .{ error.NotOpenForWriting, abi.EROFS },
     .{ error.InvalidArgument, abi.EINVAL },
     .{ error.InvalidHandle, abi.EINVAL },
+    .{ error.InvalidElfMagic, abi.ENOEXEC },
 };
 
 fn errnoToError(errno: u16) anyerror {
@@ -182,14 +183,14 @@ fn errnoToError(errno: u16) anyerror {
     return error.Unexpected;
 }
 
-fn errorToErrno(err: anyerror) u16 {
+inline fn errorToErrno(err: anyerror) u16 {
     inline for (errorTypeMap) |pair| {
         if (pair[0] == err) {
             return pair[1];
         }
     }
 
-    unreachable;
+    std.debug.panicExtra(@errorReturnTrace(), "Unhandled error: {}", .{err});
 }
 
 pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
