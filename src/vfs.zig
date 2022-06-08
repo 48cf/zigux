@@ -7,6 +7,7 @@ const abi = @import("abi.zig");
 const tar = @import("tar.zig");
 const limine = @import("limine.zig");
 const mutex = @import("mutex.zig");
+const utils = @import("utils.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
 
@@ -189,17 +190,17 @@ pub const VNode = struct {
     }
 };
 
-fn formatPath(node: *VNode, writer: anytype) @TypeOf(writer).Error!void {
-    if (node.parent) |parent| {
-        try formatPath(parent, writer);
-        try writer.writeByte('/');
-    }
-
-    try writer.writeAll(node.name.?);
-}
-
 pub const VNodePath = struct {
     node: *VNode,
+
+    fn formatPath(node: *VNode, writer: anytype) @TypeOf(writer).Error!void {
+        if (node.parent) |parent| {
+            try formatPath(parent, writer);
+            try writer.writeByte('/');
+        }
+
+        try writer.writeAll(node.name.?);
+    }
 
     pub fn format(
         value: *const VNodePath,
@@ -268,6 +269,49 @@ pub const VNodeStream = struct {
     }
 };
 
+const SliceBackedFile = struct {
+    vnode: VNode,
+    data: []const u8,
+
+    const slice_backed_file_vtable: VNodeVTable = .{
+        .read = SliceBackedFile.read,
+        .write = SliceBackedFile.write,
+        .stat = SliceBackedFile.stat,
+    };
+
+    fn read(vnode: *VNode, buffer: []u8, offset: usize) ReadError!usize {
+        const self = @fieldParentPtr(SliceBackedFile, "vnode", vnode);
+
+        if (offset >= self.data.len) {
+            return 0;
+        }
+
+        const bytes_read = std.math.min(buffer.len, self.data.len - offset);
+
+        std.mem.copy(u8, buffer[0..bytes_read], self.data[offset .. offset + bytes_read]);
+
+        return bytes_read;
+    }
+
+    fn write(vnode: *VNode, buffer: []const u8, offset: usize) WriteError!usize {
+        _ = vnode;
+        _ = buffer;
+        _ = offset;
+
+        return error.NotOpenForWriting;
+    }
+
+    fn stat(vnode: *VNode, buffer: *abi.stat) StatError!void {
+        const self = @fieldParentPtr(SliceBackedFile, "vnode", vnode);
+
+        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_mode = 0o777 | abi.S_IFREG;
+        buffer.st_size = @intCast(c_long, self.data.len);
+        buffer.st_blksize = std.mem.page_size;
+        buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, self.data.len, std.mem.page_size));
+    }
+};
+
 pub const FileSystemVTable = struct {
     create_file: ?fn (self: *FileSystem) OomError!*VNode,
     create_dir: ?fn (self: *FileSystem) OomError!*VNode,
@@ -321,6 +365,21 @@ pub const FileSystem = struct {
 
 var root_vnode: ?*VNode = null;
 
+fn createSliceBackedFile(name: []const u8, data: []const u8) !*VNode {
+    const file = try root.allocator.create(SliceBackedFile);
+
+    file.* = .{
+        .vnode = .{
+            .vtable = &SliceBackedFile.slice_backed_file_vtable,
+            .filesystem = undefined,
+            .name = name,
+        },
+        .data = data,
+    };
+
+    return &file.vnode;
+}
+
 pub fn init(modules_res: *limine.Modules.Response) !void {
     const root_node = try ram_fs.init("", null);
 
@@ -364,12 +423,21 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
 
                 switch (file.kind) {
                     .Normal => {
-                        const file_node = try resolve(root_node, file.name, abi.O_CREAT);
-                        try file_node.writeAll(file.data, 0);
+                        const parent_path = std.fs.path.dirname(file.name) orelse unreachable;
+                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
+                        const file_node = try createSliceBackedFile(std.fs.path.basename(file.name), file.data);
+
+                        try parent.insert(file_node);
 
                         total_size += file.data.len;
                     },
-                    .SymbolicLink => continue, // We do one more loop later to fix those :)
+                    .SymbolicLink => {
+                        const parent_path = std.fs.path.dirname(file.name) orelse unreachable;
+                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
+                        const link_node = try parent.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
+
+                        try parent.insert(link_node);
+                    },
                     .Directory => _ = try resolve(root_node, file.name, abi.O_CREAT | abi.O_DIRECTORY),
                     else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
                 }
