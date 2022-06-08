@@ -170,3 +170,25 @@ index 17f8e5f30..f6daabc68 100644
  netbsd*)
    if echo __ELF__ | $CC -E - | $GREP __ELF__ > /dev/null; then
      lt_cv_deplibs_check_method='match_pattern /lib[[^/]]+(\.so\.[[0-9]]+\.[[0-9]]+|_pic\.a)$'
+diff --git a/libgcc/unwind-dw2.c b/libgcc/unwind-dw2.c
+index 6ccd885..9350093 100644
+--- a/libgcc/unwind-dw2.c
++++ b/libgcc/unwind-dw2.c
+@@ -37,7 +37,7 @@
+ #include "gthr.h"
+ #include "unwind-dw2.h"
+ 
+-#ifdef HAVE_SYS_SDT_H
++#if defined(HAVE_SYS_SDT_H) && !defined(__zigux__)
+ #include <sys/sdt.h>
+ #endif
+ 
+@@ -1631,7 +1631,7 @@ _Unwind_DebugHook (void *cfa __attribute__ ((__unused__)),
+ {
+   /* We only want to use stap probes starting with v3.  Earlier
+      versions added too much startup cost.  */
+-#if defined (HAVE_SYS_SDT_H) && defined (STAP_PROBE2) && _SDT_NOTE_TYPE >= 3
++#if defined (HAVE_SYS_SDT_H) && defined (STAP_PROBE2) && _SDT_NOTE_TYPE >= 3 && !defined(__zigux__)
+   STAP_PROBE2 (libgcc, unwind, cfa, handler);
+ #else
+   asm ("");
