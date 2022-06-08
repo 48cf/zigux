@@ -31,7 +31,7 @@ pub fn build(b: *std.build.Builder) !void {
 
     const kernel = try buildKernel(b);
 
-    const image_dir = b.pathJoin(&.{ b.cache_root, "image_root" });
+    const image_dir = b.pathJoin(&.{ b.cache_root, "image-root" });
     const image_path = b.pathJoin(&.{ b.cache_root, "image.iso" });
     const sysroot_path = b.pathJoin(&.{ b.cache_root, "sysroot.tar" });
 
