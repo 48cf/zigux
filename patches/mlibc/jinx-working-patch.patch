@@ -1,6 +1,6 @@
 diff --git a/abis/zigux/auxv.h b/abis/zigux/auxv.h
 new file mode 100644
-index 0000000..3003eae
+index 00000000..3003eae1
 --- /dev/null
 +++ b/abis/zigux/auxv.h
 @@ -0,0 +1,11 @@
@@ -16,7 +16,7 @@ index 0000000..3003eae
 +
 +#endif
 diff --git a/meson.build b/meson.build
-index 7b3730f..d4ad746 100644
+index 7b3730fa..d4ad746e 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -137,6 +137,11 @@ elif host_machine.system() == 'dripos'
@@ -33,7 +33,7 @@ index 7b3730f..d4ad746 100644
  endif
 diff --git a/sysdeps/zigux/include/abi-bits/abi.h b/sysdeps/zigux/include/abi-bits/abi.h
 new file mode 120000
-index 0000000..c945860
+index 00000000..c9458601
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/abi.h
 @@ -0,0 +1 @@
@@ -41,7 +41,7 @@ index 0000000..c945860
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/access.h b/sysdeps/zigux/include/abi-bits/access.h
 new file mode 120000
-index 0000000..171f75f
+index 00000000..171f75f8
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/access.h
 @@ -0,0 +1 @@
@@ -49,7 +49,7 @@ index 0000000..171f75f
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/auxv.h b/sysdeps/zigux/include/abi-bits/auxv.h
 new file mode 120000
-index 0000000..c7ae11f
+index 00000000..c7ae11f1
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/auxv.h
 @@ -0,0 +1 @@
@@ -57,7 +57,7 @@ index 0000000..c7ae11f
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/blkcnt_t.h b/sysdeps/zigux/include/abi-bits/blkcnt_t.h
 new file mode 120000
-index 0000000..e9d9f1b
+index 00000000..e9d9f1b4
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/blkcnt_t.h
 @@ -0,0 +1 @@
@@ -65,7 +65,7 @@ index 0000000..e9d9f1b
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/blksize_t.h b/sysdeps/zigux/include/abi-bits/blksize_t.h
 new file mode 120000
-index 0000000..c6dfb6e
+index 00000000..c6dfb6e0
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/blksize_t.h
 @@ -0,0 +1 @@
@@ -73,7 +73,7 @@ index 0000000..c6dfb6e
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/dev_t.h b/sysdeps/zigux/include/abi-bits/dev_t.h
 new file mode 120000
-index 0000000..0c1143b
+index 00000000..0c1143b9
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/dev_t.h
 @@ -0,0 +1 @@
@@ -81,7 +81,7 @@ index 0000000..0c1143b
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/errno.h b/sysdeps/zigux/include/abi-bits/errno.h
 new file mode 120000
-index 0000000..589859f
+index 00000000..589859fb
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/errno.h
 @@ -0,0 +1 @@
@@ -89,7 +89,7 @@ index 0000000..589859f
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/fcntl.h b/sysdeps/zigux/include/abi-bits/fcntl.h
 new file mode 120000
-index 0000000..ea5323a
+index 00000000..ea5323ad
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/fcntl.h
 @@ -0,0 +1 @@
@@ -97,7 +97,7 @@ index 0000000..ea5323a
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/gid_t.h b/sysdeps/zigux/include/abi-bits/gid_t.h
 new file mode 120000
-index 0000000..6a77218
+index 00000000..6a772180
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/gid_t.h
 @@ -0,0 +1 @@
@@ -105,7 +105,7 @@ index 0000000..6a77218
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/in.h b/sysdeps/zigux/include/abi-bits/in.h
 new file mode 120000
-index 0000000..b58c683
+index 00000000..b58c683f
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/in.h
 @@ -0,0 +1 @@
@@ -113,7 +113,7 @@ index 0000000..b58c683
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/ino_t.h b/sysdeps/zigux/include/abi-bits/ino_t.h
 new file mode 120000
-index 0000000..10d644e
+index 00000000..10d644e7
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/ino_t.h
 @@ -0,0 +1 @@
@@ -121,7 +121,7 @@ index 0000000..10d644e
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/limits.h b/sysdeps/zigux/include/abi-bits/limits.h
 new file mode 120000
-index 0000000..1aa5894
+index 00000000..1aa58942
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/limits.h
 @@ -0,0 +1 @@
@@ -129,7 +129,7 @@ index 0000000..1aa5894
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/mode_t.h b/sysdeps/zigux/include/abi-bits/mode_t.h
 new file mode 120000
-index 0000000..29d7733
+index 00000000..29d77331
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/mode_t.h
 @@ -0,0 +1 @@
@@ -137,7 +137,7 @@ index 0000000..29d7733
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/nlink_t.h b/sysdeps/zigux/include/abi-bits/nlink_t.h
 new file mode 120000
-index 0000000..7618c27
+index 00000000..7618c27f
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/nlink_t.h
 @@ -0,0 +1 @@
@@ -145,7 +145,7 @@ index 0000000..7618c27
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/pid_t.h b/sysdeps/zigux/include/abi-bits/pid_t.h
 new file mode 120000
-index 0000000..3fd26a7
+index 00000000..3fd26a7f
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/pid_t.h
 @@ -0,0 +1 @@
@@ -153,7 +153,7 @@ index 0000000..3fd26a7
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/reboot.h b/sysdeps/zigux/include/abi-bits/reboot.h
 new file mode 120000
-index 0000000..ecc3ddb
+index 00000000..ecc3ddb9
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/reboot.h
 @@ -0,0 +1 @@
@@ -161,7 +161,7 @@ index 0000000..ecc3ddb
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/resource.h b/sysdeps/zigux/include/abi-bits/resource.h
 new file mode 120000
-index 0000000..3e59c75
+index 00000000..3e59c750
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/resource.h
 @@ -0,0 +1 @@
@@ -169,7 +169,7 @@ index 0000000..3e59c75
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/seek-whence.h b/sysdeps/zigux/include/abi-bits/seek-whence.h
 new file mode 120000
-index 0000000..3bd41ef
+index 00000000..3bd41efd
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/seek-whence.h
 @@ -0,0 +1 @@
@@ -177,7 +177,7 @@ index 0000000..3bd41ef
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/signal.h b/sysdeps/zigux/include/abi-bits/signal.h
 new file mode 120000
-index 0000000..b20e511
+index 00000000..b20e5119
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/signal.h
 @@ -0,0 +1 @@
@@ -185,7 +185,7 @@ index 0000000..b20e511
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/socket.h b/sysdeps/zigux/include/abi-bits/socket.h
 new file mode 120000
-index 0000000..0e1d6be
+index 00000000..0e1d6be9
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/socket.h
 @@ -0,0 +1 @@
@@ -193,7 +193,7 @@ index 0000000..0e1d6be
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/stat.h b/sysdeps/zigux/include/abi-bits/stat.h
 new file mode 120000
-index 0000000..82642c3
+index 00000000..82642c3c
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/stat.h
 @@ -0,0 +1 @@
@@ -201,7 +201,7 @@ index 0000000..82642c3
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/termios.h b/sysdeps/zigux/include/abi-bits/termios.h
 new file mode 120000
-index 0000000..cfcfe76
+index 00000000..cfcfe763
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/termios.h
 @@ -0,0 +1 @@
@@ -209,7 +209,7 @@ index 0000000..cfcfe76
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/time.h b/sysdeps/zigux/include/abi-bits/time.h
 new file mode 120000
-index 0000000..97f3d52
+index 00000000..97f3d52d
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/time.h
 @@ -0,0 +1 @@
@@ -217,7 +217,7 @@ index 0000000..97f3d52
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/uid_t.h b/sysdeps/zigux/include/abi-bits/uid_t.h
 new file mode 120000
-index 0000000..1113eba
+index 00000000..1113eba6
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/uid_t.h
 @@ -0,0 +1 @@
@@ -225,7 +225,7 @@ index 0000000..1113eba
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/utsname.h b/sysdeps/zigux/include/abi-bits/utsname.h
 new file mode 120000
-index 0000000..17b993f
+index 00000000..17b993fe
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/utsname.h
 @@ -0,0 +1 @@
@@ -233,7 +233,7 @@ index 0000000..17b993f
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/vm-flags.h b/sysdeps/zigux/include/abi-bits/vm-flags.h
 new file mode 120000
-index 0000000..f1a985e
+index 00000000..f1a985e6
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/vm-flags.h
 @@ -0,0 +1 @@
@@ -241,7 +241,7 @@ index 0000000..f1a985e
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/abi-bits/wait.h b/sysdeps/zigux/include/abi-bits/wait.h
 new file mode 120000
-index 0000000..6d911c7
+index 00000000..6d911c7f
 --- /dev/null
 +++ b/sysdeps/zigux/include/abi-bits/wait.h
 @@ -0,0 +1 @@
@@ -249,7 +249,7 @@ index 0000000..6d911c7
 \ No newline at end of file
 diff --git a/sysdeps/zigux/include/zigux/syscall.h b/sysdeps/zigux/include/zigux/syscall.h
 new file mode 100644
-index 0000000..64f83f1
+index 00000000..64f83f1a
 --- /dev/null
 +++ b/sysdeps/zigux/include/zigux/syscall.h
 @@ -0,0 +1,177 @@
@@ -432,7 +432,7 @@ index 0000000..64f83f1
 +#endif // _SYSCALL_H
 diff --git a/sysdeps/zigux/meson.build b/sysdeps/zigux/meson.build
 new file mode 100644
-index 0000000..75d5757
+index 00000000..75d5757c
 --- /dev/null
 +++ b/sysdeps/zigux/meson.build
 @@ -0,0 +1,56 @@
@@ -494,7 +494,7 @@ index 0000000..75d5757
 +endif
 diff --git a/sysdeps/zigux/src/crt0-x86_64.S b/sysdeps/zigux/src/crt0-x86_64.S
 new file mode 100644
-index 0000000..93d47f1
+index 00000000..93d47f14
 --- /dev/null
 +++ b/sysdeps/zigux/src/crt0-x86_64.S
 @@ -0,0 +1,7 @@
@@ -507,7 +507,7 @@ index 0000000..93d47f1
 +    call mlibc_entry
 diff --git a/sysdeps/zigux/src/entry.cpp b/sysdeps/zigux/src/entry.cpp
 new file mode 100644
-index 0000000..23d499c
+index 00000000..23d499cf
 --- /dev/null
 +++ b/sysdeps/zigux/src/entry.cpp
 @@ -0,0 +1,24 @@
@@ -537,10 +537,10 @@ index 0000000..23d499c
 +}
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 0000000..d124049
+index 00000000..664c0486
 --- /dev/null
 +++ b/sysdeps/zigux/src/sysdeps.cpp
-@@ -0,0 +1,409 @@
+@@ -0,0 +1,416 @@
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stddef.h>
@@ -888,7 +888,14 @@ index 0000000..d124049
 +}
 +
 +int sys_access(const char *path, int mode) {
-+    mlibc::infoLogger() << "sys_access() is not implemented" << frg::endlog;
++    // This implementation will return 0 as long as the file exists, and ignores file permissions.
++    // When permissions are implemented in zigux, use statbuf.st_mode to determine the return value.
++
++    struct stat statbuf;
++
++    if (auto err = sys_stat(fsfd_target::path, 0, path, mode & AT_SYMLINK_NOFOLLOW, &statbuf))
++        return err;
++
 +    return 0;
 +}
 +
