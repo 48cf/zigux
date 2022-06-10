@@ -537,7 +537,7 @@ index 00000000..23d499cf
 +}
 diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 00000000..664c0486
+index 00000000..39eac05f
 --- /dev/null
 +++ b/sysdeps/zigux/src/sysdeps.cpp
 @@ -0,0 +1,416 @@
@@ -782,10 +782,10 @@ index 00000000..664c0486
 +int sys_isatty(int fd) {
 +    struct winsize ws;
 +
-+    if (!sys_ioctl(fd, TIOCGWINSZ, &ws, nullptr))
-+        return 0;
++    if (auto err = sys_ioctl(fd, TIOCGWINSZ, &ws, nullptr))
++        return err;
 +
-+    return ENOTTY;
++    return 0;
 +}
 +
 +int sys_tcgetattr(int fd, struct termios *attr) {
