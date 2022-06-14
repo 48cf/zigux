@@ -156,17 +156,26 @@ pub const Thread = struct {
             try envp_pointers.append(stack.rsp);
         }
 
-        // Align the stack before writing the rest
-        stack.rsp &= ~@intCast(u64, 0xF);
-
-        // Write the auxilary vector
         const auxv = [_][2]u64{
-            .{ 0, 0 },
             .{ std.elf.AT_ENTRY, executable.aux_vals.at_entry },
             .{ std.elf.AT_PHDR, executable.aux_vals.at_phdr },
             .{ std.elf.AT_PHENT, executable.aux_vals.at_phent },
             .{ std.elf.AT_PHNUM, executable.aux_vals.at_phnum },
         };
+
+        stack.rsp = utils.alignDown(u64, stack.rsp, 16);
+
+        // Calculate the amount of stuff we will write to the stack and misalign
+        // it on purpose so it's 16 byte aligned at the process entry after all the pushes
+        const pointer_count = auxv.len * 2 + envp_pointers.items.len + argv_pointers.items.len + 4;
+        const byte_count = pointer_count * 8;
+
+        if (!utils.isAligned(u64, stack.rsp - byte_count, 16)) {
+            stack.rsp -= 8;
+        }
+
+        // Write the auxilary vector
+        stack.writeInt(u64, 0);
 
         for (auxv) |pair| {
             stack.writeInt(u64, pair[1]);
@@ -192,6 +201,8 @@ pub const Thread = struct {
 
         // Write the argument count
         stack.writeInt(u64, final_argv.len);
+
+        std.debug.assert(utils.isAligned(u64, stack.rsp, 16));
 
         // Set up the registers
         self.regs.rsp = stack.rsp;
