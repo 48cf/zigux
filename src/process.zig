@@ -379,7 +379,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
                 break :blk fd.vnode;
             } else if (frame.rax == abi.SYS_FILE_STAT_PATH) blk: {
                 const path = try process.validateSentinel(u8, 0, frame.rdi);
-                break :blk try vfs.resolve(process.cwd, path, 0);
+                break :blk try vfs.resolve(process.cwd, path, frame.rdx | abi.O_NOFOLLOW);
             } else {
                 unreachable;
             };
@@ -390,12 +390,8 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         },
         abi.SYS_FILE_IO_CONTROL => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
-            const result = file.vnode.ioctl(frame.rsi, frame.rdx);
 
-            return switch (result) {
-                .ok => |value| value,
-                .err => |err| errnoToError(@truncate(u16, err)),
-            };
+            return try file.vnode.ioctl(frame.rsi, frame.rdx);
         },
         abi.SYS_FILE_READ_DIR => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;

@@ -296,7 +296,7 @@ const TtyVNode = struct {
         return buffer.len;
     }
 
-    fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlResult {
+    fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlError!u64 {
         const self = @fieldParentPtr(TtyVNode, "vnode", vnode);
         const process = per_cpu.get().currentProcess().?;
 
@@ -308,14 +308,14 @@ const TtyVNode = struct {
 
                 result.* = self.state;
 
-                return .{ .ok = 0 };
+                return 0;
             },
             abi.TCSETSW, abi.TCSETSF, abi.TCSETS => {
                 const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
 
                 self.state = result.*;
 
-                return .{ .ok = 0 };
+                return 0;
             },
             abi.TIOCGWINSZ => {
                 const term_res = root.term_req.response.?;
@@ -334,12 +334,12 @@ const TtyVNode = struct {
                     result.ws_ypixel = @intCast(c_ushort, framebuffer.height);
                 }
 
-                return .{ .ok = 0 };
+                return 0;
             },
             else => {
                 logger.warn("Unhandled IO control request 0x{X}", .{request});
 
-                return .{ .err = abi.EINVAL };
+                return error.InvalidArgument;
             },
         }
     }

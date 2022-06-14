@@ -130,8 +130,14 @@ const RamFSDirectory = struct {
         return buffer_offset;
     }
 
-    fn insert(vnode: *vfs.VNode, child: *vfs.VNode) vfs.OomError!void {
+    fn insert(vnode: *vfs.VNode, child: *vfs.VNode) vfs.InsertError!void {
         const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
+
+        for (self.children.items) |it| {
+            if (std.mem.eql(u8, it.name.?, child.name.?)) {
+                return error.PathAlreadyExists;
+            }
+        }
 
         try self.children.append(root.allocator, child);
     }

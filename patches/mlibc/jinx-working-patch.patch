@@ -1,8 +1,8 @@
-diff --git a/abis/zigux/auxv.h b/abis/zigux/auxv.h
+diff --git mlibc-workdir/abis/zigux/auxv.h mlibc-workdir/abis/zigux/auxv.h
 new file mode 100644
-index 00000000..3003eae1
+index 0000000..3003eae
 --- /dev/null
-+++ b/abis/zigux/auxv.h
++++ mlibc-workdir/abis/zigux/auxv.h
 @@ -0,0 +1,11 @@
 +#ifndef _ABI_BITS_AUXV_H
 +#define _ABI_BITS_AUXV_H
@@ -15,10 +15,10 @@ index 00000000..3003eae1
 +#define AT_EXECFN 31
 +
 +#endif
-diff --git a/meson.build b/meson.build
-index 7b3730fa..d4ad746e 100644
---- a/meson.build
-+++ b/meson.build
+diff --git mlibc-clean/meson.build mlibc-workdir/meson.build
+index 7b3730f..d4ad746 100644
+--- mlibc-clean/meson.build
++++ mlibc-workdir/meson.build
 @@ -137,6 +137,11 @@ elif host_machine.system() == 'dripos'
  	rtdl_include_dirs += include_directories('sysdeps/dripos/include')
  	libc_include_dirs += include_directories('sysdeps/dripos/include')
@@ -31,227 +31,227 @@ index 7b3730fa..d4ad746e 100644
  else
  	error('No sysdeps defined for OS: ' + host_machine.system())
  endif
-diff --git a/sysdeps/zigux/include/abi-bits/abi.h b/sysdeps/zigux/include/abi-bits/abi.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/abi.h mlibc-workdir/sysdeps/zigux/include/abi-bits/abi.h
 new file mode 120000
-index 00000000..c9458601
+index 0000000..c945860
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/abi.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/abi.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/abi.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/access.h b/sysdeps/zigux/include/abi-bits/access.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/access.h mlibc-workdir/sysdeps/zigux/include/abi-bits/access.h
 new file mode 120000
-index 00000000..171f75f8
+index 0000000..171f75f
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/access.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/access.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/access.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/auxv.h b/sysdeps/zigux/include/abi-bits/auxv.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/auxv.h mlibc-workdir/sysdeps/zigux/include/abi-bits/auxv.h
 new file mode 120000
-index 00000000..c7ae11f1
+index 0000000..c7ae11f
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/auxv.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/auxv.h
 @@ -0,0 +1 @@
 +../../../../abis/zigux/auxv.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/blkcnt_t.h b/sysdeps/zigux/include/abi-bits/blkcnt_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/blkcnt_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/blkcnt_t.h
 new file mode 120000
-index 00000000..e9d9f1b4
+index 0000000..e9d9f1b
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/blkcnt_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/blkcnt_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/blkcnt_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/blksize_t.h b/sysdeps/zigux/include/abi-bits/blksize_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/blksize_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/blksize_t.h
 new file mode 120000
-index 00000000..c6dfb6e0
+index 0000000..c6dfb6e
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/blksize_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/blksize_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/blksize_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/dev_t.h b/sysdeps/zigux/include/abi-bits/dev_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/dev_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/dev_t.h
 new file mode 120000
-index 00000000..0c1143b9
+index 0000000..0c1143b
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/dev_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/dev_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/dev_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/errno.h b/sysdeps/zigux/include/abi-bits/errno.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/errno.h mlibc-workdir/sysdeps/zigux/include/abi-bits/errno.h
 new file mode 120000
-index 00000000..589859fb
+index 0000000..589859f
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/errno.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/errno.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/errno.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/fcntl.h b/sysdeps/zigux/include/abi-bits/fcntl.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/fcntl.h mlibc-workdir/sysdeps/zigux/include/abi-bits/fcntl.h
 new file mode 120000
-index 00000000..ea5323ad
+index 0000000..ea5323a
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/fcntl.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/fcntl.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/fcntl.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/gid_t.h b/sysdeps/zigux/include/abi-bits/gid_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/gid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/gid_t.h
 new file mode 120000
-index 00000000..6a772180
+index 0000000..6a77218
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/gid_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/gid_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/gid_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/in.h b/sysdeps/zigux/include/abi-bits/in.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/in.h mlibc-workdir/sysdeps/zigux/include/abi-bits/in.h
 new file mode 120000
-index 00000000..b58c683f
+index 0000000..b58c683
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/in.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/in.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/in.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/ino_t.h b/sysdeps/zigux/include/abi-bits/ino_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/ino_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/ino_t.h
 new file mode 120000
-index 00000000..10d644e7
+index 0000000..10d644e
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/ino_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/ino_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/ino_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/limits.h b/sysdeps/zigux/include/abi-bits/limits.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/limits.h mlibc-workdir/sysdeps/zigux/include/abi-bits/limits.h
 new file mode 120000
-index 00000000..1aa58942
+index 0000000..1aa5894
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/limits.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/limits.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/limits.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/mode_t.h b/sysdeps/zigux/include/abi-bits/mode_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/mode_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/mode_t.h
 new file mode 120000
-index 00000000..29d77331
+index 0000000..29d7733
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/mode_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/mode_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/mode_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/nlink_t.h b/sysdeps/zigux/include/abi-bits/nlink_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/nlink_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/nlink_t.h
 new file mode 120000
-index 00000000..7618c27f
+index 0000000..7618c27
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/nlink_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/nlink_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/nlink_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/pid_t.h b/sysdeps/zigux/include/abi-bits/pid_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/pid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/pid_t.h
 new file mode 120000
-index 00000000..3fd26a7f
+index 0000000..3fd26a7
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/pid_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/pid_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/pid_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/reboot.h b/sysdeps/zigux/include/abi-bits/reboot.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/reboot.h mlibc-workdir/sysdeps/zigux/include/abi-bits/reboot.h
 new file mode 120000
-index 00000000..ecc3ddb9
+index 0000000..ecc3ddb
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/reboot.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/reboot.h
 @@ -0,0 +1 @@
 +../../../../abis/linux/x86_64/reboot.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/resource.h b/sysdeps/zigux/include/abi-bits/resource.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/resource.h mlibc-workdir/sysdeps/zigux/include/abi-bits/resource.h
 new file mode 120000
-index 00000000..3e59c750
+index 0000000..3e59c75
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/resource.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/resource.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/resource.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/seek-whence.h b/sysdeps/zigux/include/abi-bits/seek-whence.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/seek-whence.h mlibc-workdir/sysdeps/zigux/include/abi-bits/seek-whence.h
 new file mode 120000
-index 00000000..3bd41efd
+index 0000000..3bd41ef
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/seek-whence.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/seek-whence.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/seek-whence.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/signal.h b/sysdeps/zigux/include/abi-bits/signal.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/signal.h mlibc-workdir/sysdeps/zigux/include/abi-bits/signal.h
 new file mode 120000
-index 00000000..b20e5119
+index 0000000..b20e511
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/signal.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/signal.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/signal.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/socket.h b/sysdeps/zigux/include/abi-bits/socket.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/socket.h mlibc-workdir/sysdeps/zigux/include/abi-bits/socket.h
 new file mode 120000
-index 00000000..0e1d6be9
+index 0000000..0e1d6be
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/socket.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/socket.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/socket.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/stat.h b/sysdeps/zigux/include/abi-bits/stat.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/stat.h mlibc-workdir/sysdeps/zigux/include/abi-bits/stat.h
 new file mode 120000
-index 00000000..82642c3c
+index 0000000..82642c3
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/stat.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/stat.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/stat.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/termios.h b/sysdeps/zigux/include/abi-bits/termios.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/termios.h mlibc-workdir/sysdeps/zigux/include/abi-bits/termios.h
 new file mode 120000
-index 00000000..cfcfe763
+index 0000000..cfcfe76
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/termios.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/termios.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/termios.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/time.h b/sysdeps/zigux/include/abi-bits/time.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/time.h mlibc-workdir/sysdeps/zigux/include/abi-bits/time.h
 new file mode 120000
-index 00000000..97f3d52d
+index 0000000..97f3d52
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/time.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/time.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/time.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/uid_t.h b/sysdeps/zigux/include/abi-bits/uid_t.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/uid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/uid_t.h
 new file mode 120000
-index 00000000..1113eba6
+index 0000000..1113eba
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/uid_t.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/uid_t.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/uid_t.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/utsname.h b/sysdeps/zigux/include/abi-bits/utsname.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/utsname.h mlibc-workdir/sysdeps/zigux/include/abi-bits/utsname.h
 new file mode 120000
-index 00000000..17b993fe
+index 0000000..17b993f
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/utsname.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/utsname.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/utsname.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/vm-flags.h b/sysdeps/zigux/include/abi-bits/vm-flags.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/vm-flags.h mlibc-workdir/sysdeps/zigux/include/abi-bits/vm-flags.h
 new file mode 120000
-index 00000000..f1a985e6
+index 0000000..f1a985e
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/vm-flags.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/vm-flags.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/vm-flags.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/abi-bits/wait.h b/sysdeps/zigux/include/abi-bits/wait.h
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/wait.h mlibc-workdir/sysdeps/zigux/include/abi-bits/wait.h
 new file mode 120000
-index 00000000..6d911c7f
+index 0000000..6d911c7
 --- /dev/null
-+++ b/sysdeps/zigux/include/abi-bits/wait.h
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/wait.h
 @@ -0,0 +1 @@
 +../../../../abis/mlibc/wait.h
 \ No newline at end of file
-diff --git a/sysdeps/zigux/include/zigux/syscall.h b/sysdeps/zigux/include/zigux/syscall.h
+diff --git mlibc-workdir/sysdeps/zigux/include/zigux/syscall.h mlibc-workdir/sysdeps/zigux/include/zigux/syscall.h
 new file mode 100644
-index 00000000..64f83f1a
+index 0000000..64f83f1
 --- /dev/null
-+++ b/sysdeps/zigux/include/zigux/syscall.h
++++ mlibc-workdir/sysdeps/zigux/include/zigux/syscall.h
 @@ -0,0 +1,177 @@
 +#ifndef _SYSCALL_H
 +#define _SYSCALL_H
@@ -430,11 +430,11 @@ index 00000000..64f83f1a
 +
 +#endif // __cplusplus
 +#endif // _SYSCALL_H
-diff --git a/sysdeps/zigux/meson.build b/sysdeps/zigux/meson.build
+diff --git mlibc-workdir/sysdeps/zigux/meson.build mlibc-workdir/sysdeps/zigux/meson.build
 new file mode 100644
-index 00000000..75d5757c
+index 0000000..75d5757
 --- /dev/null
-+++ b/sysdeps/zigux/meson.build
++++ mlibc-workdir/sysdeps/zigux/meson.build
 @@ -0,0 +1,56 @@
 +rtdl_sources += files(
 +	'src/sysdeps.cpp',
@@ -492,11 +492,11 @@ index 00000000..75d5757c
 +		build_by_default: true,
 +	)
 +endif
-diff --git a/sysdeps/zigux/src/crt0-x86_64.S b/sysdeps/zigux/src/crt0-x86_64.S
+diff --git mlibc-workdir/sysdeps/zigux/src/crt0-x86_64.S mlibc-workdir/sysdeps/zigux/src/crt0-x86_64.S
 new file mode 100644
-index 00000000..93d47f14
+index 0000000..93d47f1
 --- /dev/null
-+++ b/sysdeps/zigux/src/crt0-x86_64.S
++++ mlibc-workdir/sysdeps/zigux/src/crt0-x86_64.S
 @@ -0,0 +1,7 @@
 +.section .text
 +
@@ -505,11 +505,11 @@ index 00000000..93d47f14
 +_start:
 +    lea main(%rip), %rdi
 +    call mlibc_entry
-diff --git a/sysdeps/zigux/src/entry.cpp b/sysdeps/zigux/src/entry.cpp
+diff --git mlibc-workdir/sysdeps/zigux/src/entry.cpp mlibc-workdir/sysdeps/zigux/src/entry.cpp
 new file mode 100644
-index 00000000..23d499cf
+index 0000000..23d499c
 --- /dev/null
-+++ b/sysdeps/zigux/src/entry.cpp
++++ mlibc-workdir/sysdeps/zigux/src/entry.cpp
 @@ -0,0 +1,24 @@
 +#include <stdint.h>
 +#include <stdlib.h>
@@ -535,12 +535,12 @@ index 00000000..23d499cf
 +
 +  exit(result);
 +}
-diff --git a/sysdeps/zigux/src/sysdeps.cpp b/sysdeps/zigux/src/sysdeps.cpp
+diff --git mlibc-workdir/sysdeps/zigux/src/sysdeps.cpp mlibc-workdir/sysdeps/zigux/src/sysdeps.cpp
 new file mode 100644
-index 00000000..664c0486
+index 0000000..495e933
 --- /dev/null
-+++ b/sysdeps/zigux/src/sysdeps.cpp
-@@ -0,0 +1,416 @@
++++ mlibc-workdir/sysdeps/zigux/src/sysdeps.cpp
+@@ -0,0 +1,427 @@
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stddef.h>
@@ -954,6 +954,17 @@ index 00000000..664c0486
 +int sys_sleep(time_t *secs, long *nanos) {
 +    mlibc::infoLogger() << "sys_sleep() is not implemented" << frg::endlog;
 +    return 0;
++}
++
++int sys_readlink(const char *path, void *buffer, size_t max_size, ssize_t *length) {
++    int fd;
++
++    if (auto err = sys_open(path, O_NOFOLLOW, &fd))
++        return err;
++    
++    auto read_err = sys_read(fd, buffer, max_size, length);
++    sys_close(fd);
++    return read_err;
 +}
 +
 +}

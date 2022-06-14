@@ -11,20 +11,17 @@ const utils = @import("utils.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
 
-pub const OomError = error{
-    OutOfMemory,
-};
-
-pub const NotDirError = error{
-    NotDir,
-};
+pub const OomError = error{OutOfMemory};
+pub const NotDirError = error{NotDir};
+pub const FaultError = error{AddressInaccessible};
 
 pub const OpenError = std.os.OpenError || OomError;
 pub const ReadError = std.os.PReadError || OomError;
 pub const ReadDirError = ReadError || NotDirError;
 pub const WriteError = std.os.PWriteError || OomError;
+pub const InsertError = std.os.MakeDirError || OomError;
 pub const SymlinkError = std.os.SymLinkError || OomError;
-pub const IoctlResult = union(enum) { ok: usize, err: usize };
+pub const IoctlError = error{ InvalidArgument, NoDevice } || FaultError;
 pub const StatError = std.os.FStatAtError || OomError;
 
 pub const VNodeVTable = struct {
@@ -32,8 +29,8 @@ pub const VNodeVTable = struct {
     read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize = null,
     read_dir: ?fn (self: *VNode, buffer: []u8, offset: *usize) ReadDirError!usize = null,
     write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize = null,
-    insert: ?fn (self: *VNode, child: *VNode) OomError!void = null,
-    ioctl: ?fn (self: *VNode, request: u64, arg: u64) IoctlResult = null,
+    insert: ?fn (self: *VNode, child: *VNode) InsertError!void = null,
+    ioctl: ?fn (self: *VNode, request: u64, arg: u64) IoctlError!u64 = null,
     stat: ?fn (self: *VNode, buffer: *abi.stat) StatError!void = null,
 };
 
@@ -149,13 +146,13 @@ pub const VNode = struct {
         }
     }
 
-    pub fn ioctl(self: *VNode, request: u64, arg: u64) IoctlResult {
+    pub fn ioctl(self: *VNode, request: u64, arg: u64) !u64 {
         const vnode = self.getEffectiveVNode();
 
         if (vnode.vtable.ioctl) |fun| {
             return fun(vnode, request, arg);
         } else {
-            return .{ .err = abi.ENOSYS };
+            return error.NoDevice;
         }
     }
 
@@ -164,6 +161,14 @@ pub const VNode = struct {
 
         if (vnode.vtable.stat) |fun| {
             return fun(vnode, buffer);
+        } else if (vnode.kind == .Symlink) {
+            const target = self.symlink_target.?;
+
+            buffer.* = std.mem.zeroes(abi.stat);
+            buffer.st_mode |= 0o777 | abi.S_IFLNK;
+            buffer.st_size = @intCast(c_long, target.len);
+            buffer.st_blksize = std.mem.page_size;
+            buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, target.len, std.mem.page_size));
         } else {
             return error.NotImplemented;
         }
@@ -443,29 +448,12 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
                 }
             }
 
-            iterator = tar.iterate(data_blob);
-
-            while (try iterator.next()) |file| {
-                files += 1;
-
-                switch (file.kind) {
-                    .SymbolicLink => {
-                        const parent_path = std.fs.path.dirname(file.name) orelse unreachable;
-                        const parent_node = try resolve(root_node, parent_path, abi.O_CREAT);
-                        const link_node = try parent_node.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
-
-                        try parent_node.insert(link_node);
-                    },
-                    else => continue,
-                }
-            }
-
             logger.info("Loaded {} ({}KiB) files from {}", .{ files, total_size / 1024, module_file.getFullPath() });
         }
     }
 }
 
-pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || error{ NotImplemented, NotFound })!*VNode {
+pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertError || error{NotImplemented})!*VNode {
     if (cwd == null) {
         std.debug.assert(std.fs.path.isAbsolute(path));
 
@@ -504,7 +492,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || error{ 
                                     break :blk node;
                                 }
                             } else {
-                                return error.NotFound;
+                                return error.FileNotFound;
                             }
                         },
                         else => return err,
@@ -530,7 +518,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || error{ 
             if (next_node) |new_node| {
                 next = new_node;
             } else {
-                return error.NotFound;
+                return error.FileNotFound;
             }
         }
     }
