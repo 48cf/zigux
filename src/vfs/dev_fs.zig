@@ -39,6 +39,7 @@ const BlockDevice = struct {
     const vnode_vtable: vfs.VNodeVTable = .{
         .read = BlockDevice.read,
         .write = BlockDevice.write,
+        .stat = BlockDevice.stat,
     };
 
     fn iterateSectors(
@@ -115,22 +116,34 @@ const BlockDevice = struct {
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+        const max_read = std.math.min(buffer.len, self.sector_count * self.sector_size - offset);
 
         _ = flags;
 
-        try self.iterateSectors(buffer, offset, doSmallRead, doLargeRead);
+        try self.iterateSectors(buffer[0..max_read], offset, doSmallRead, doLargeRead);
 
-        return buffer.len;
+        return max_read;
     }
 
     fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+        const max_write = std.math.min(buffer.len, self.sector_count * self.sector_size - offset);
 
         _ = flags;
 
-        try self.iterateSectors(buffer, offset, doSmallWrite, doLargeWrite);
+        try self.iterateSectors(buffer[0..max_write], offset, doSmallWrite, doLargeWrite);
 
-        return buffer.len;
+        return max_write;
+    }
+
+    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+        const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+
+        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_mode = 0o777 | abi.S_IFBLK;
+        buffer.st_size = @intCast(c_long, self.sector_count * self.sector_size);
+        buffer.st_blksize = @intCast(c_long, self.sector_size);
+        buffer.st_blocks = @intCast(c_long, self.sector_count);
     }
 };
 
