@@ -56,14 +56,14 @@ fn parseShebang(file: *vfs.VNode) !Shebang {
     var offset: usize = 2;
     var char: u8 = 0;
 
-    _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset);
+    _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset, 0);
 
     if (char == ' ') {
         offset += 1;
     }
 
     while (true) {
-        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset);
+        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset, 0);
 
         offset += 1;
 
@@ -75,7 +75,7 @@ fn parseShebang(file: *vfs.VNode) !Shebang {
     }
 
     while (true) {
-        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset);
+        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset, 0);
 
         offset += 1;
 
@@ -103,7 +103,7 @@ pub const Thread = struct {
     ) !void {
         var shebang_sig = [2]u8{ 0, 0 };
 
-        _ = try file.read(&shebang_sig, 0);
+        _ = try file.read(&shebang_sig, 0, 0);
 
         var file_to_load = file;
         var final_argv = argv;

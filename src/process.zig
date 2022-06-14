@@ -335,7 +335,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         abi.SYS_FILE_READ => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
-            const bytes_read = try file.vnode.read(buffer, file.offset);
+            const bytes_read = try file.vnode.read(buffer, file.offset, 0); // TODO: Pass read flags there
 
             file.offset += bytes_read;
 
@@ -344,7 +344,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         abi.SYS_FILE_WRITE => {
             const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
             const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
-            const bytes_written = try file.vnode.write(buffer, file.offset);
+            const bytes_written = try file.vnode.write(buffer, file.offset, 0); // TODO: Pass write flags there
 
             file.offset += bytes_written;
 

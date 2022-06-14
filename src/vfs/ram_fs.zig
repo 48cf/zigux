@@ -32,8 +32,10 @@ const RamFSFile = struct {
     vnode: vfs.VNode,
     data: std.ArrayListAlignedUnmanaged(u8, std.mem.page_size) = .{},
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
+
+        _ = flags;
 
         if (offset >= self.data.items.len) {
             return 0;
@@ -50,8 +52,10 @@ const RamFSFile = struct {
         return bytes_read;
     }
 
-    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
+
+        _ = flags;
 
         if (buffer.len + offset > self.data.items.len) {
             self.data.resize(root.allocator, buffer.len + offset) catch return error.OutOfMemory;
@@ -108,6 +112,8 @@ const RamFSDirectory = struct {
             if (buffer_offset + real_size > buffer.len) {
                 break;
             }
+
+            logger.debug("{s}: {}", .{ child.name.?, child.kind });
 
             dir_ent.d_ino = 0;
             dir_ent.d_off = 0;

@@ -333,7 +333,7 @@ pub const AddressSpace = struct {
             switch (ph.p_type) {
                 std.elf.PT_INTERP => {
                     ld_path = try root.allocator.alloc(u8, ph.p_filesz);
-                    _ = try file.read(ld_path.?, ph.p_offset);
+                    _ = try file.read(ld_path.?, ph.p_offset, 0);
                 },
                 std.elf.PT_PHDR => phdr = ph.p_vaddr + base,
                 std.elf.PT_LOAD => {
@@ -362,7 +362,7 @@ pub const AddressSpace = struct {
                     const mapping = try root.allocator.create(Mapping);
 
                     try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, protToFlags(prot, true));
-                    _ = try file.read(page_hh[0..ph.p_filesz], ph.p_offset);
+                    _ = try file.read(page_hh[0..ph.p_filesz], ph.p_offset, 0);
 
                     mapping.* = .{
                         .base = virt_addr,

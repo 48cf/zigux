@@ -113,16 +113,20 @@ const BlockDevice = struct {
         try self.vtable.write_block(self, sector, &temp_buffer);
     }
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+
+        _ = flags;
 
         try self.iterateSectors(buffer, offset, doSmallRead, doLargeRead);
 
         return buffer.len;
     }
 
-    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+
+        _ = flags;
 
         try self.iterateSectors(buffer, offset, doSmallWrite, doLargeWrite);
 
@@ -190,9 +194,10 @@ const TtyVNode = struct {
         .c_lflag = abi.ECHO | abi.ICANON,
     }),
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize) vfs.ReadError!usize {
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
         _ = vnode;
         _ = offset;
+        _ = flags;
 
         if (tty_buffer.pop()) |byte| {
             buffer[0] = byte;
@@ -283,9 +288,10 @@ const TtyVNode = struct {
         }
     }
 
-    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize) vfs.WriteError!usize {
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
         _ = vnode;
         _ = offset;
+        _ = flags;
 
         const km_buffer = try root.allocator.dupe(u8, buffer);
 
@@ -432,7 +438,7 @@ const GptPartitionEntry = extern struct {
 fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
     var buffer = try root.allocator.alloc(u8, sector_size * 2);
 
-    _ = try device.vnode.read(buffer, 0);
+    _ = try device.vnode.read(buffer, 0, 0);
 
     const dev = try vfs.resolve(null, "/dev", 0);
     const mbr_header = @ptrCast(*align(1) const MbrHeader, buffer);
@@ -445,6 +451,7 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
             _ = try device.vnode.read(
                 std.mem.asBytes(&entry),
                 gpt_header.partition_entry_lba * sector_size + i * gpt_header.size_of_partition_entry,
+                0,
             );
 
             if (entry.starting_lba == 0) {

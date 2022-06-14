@@ -26,9 +26,9 @@ pub const StatError = std.os.FStatAtError || OomError;
 
 pub const VNodeVTable = struct {
     open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
-    read: ?fn (self: *VNode, buffer: []u8, offset: usize) ReadError!usize = null,
+    read: ?fn (self: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize = null,
     read_dir: ?fn (self: *VNode, buffer: []u8, offset: *usize) ReadDirError!usize = null,
-    write: ?fn (self: *VNode, buffer: []const u8, offset: usize) WriteError!usize = null,
+    write: ?fn (self: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize = null,
     insert: ?fn (self: *VNode, child: *VNode) InsertError!void = null,
     ioctl: ?fn (self: *VNode, request: u64, arg: u64) IoctlError!u64 = null,
     stat: ?fn (self: *VNode, buffer: *abi.stat) StatError!void = null,
@@ -70,11 +70,11 @@ pub const VNode = struct {
         }
     }
 
-    pub fn read(self: *VNode, buffer: []u8, offset: usize) !usize {
+    pub fn read(self: *VNode, buffer: []u8, offset: usize, flags: usize) !usize {
         const vnode = self.getEffectiveVNode();
 
         if (vnode.vtable.read) |fun| {
-            return fun(vnode, buffer, offset);
+            return fun(vnode, buffer, offset, flags);
         } else if (vnode.kind == .Symlink) {
             const read_length = std.math.min(buffer.len, vnode.symlink_target.?.len);
 
@@ -96,11 +96,11 @@ pub const VNode = struct {
         }
     }
 
-    pub fn write(self: *VNode, buffer: []const u8, offset: usize) !usize {
+    pub fn write(self: *VNode, buffer: []const u8, offset: usize, flags: usize) !usize {
         const vnode = self.getEffectiveVNode();
 
         if (vnode.vtable.write) |fun| {
-            return fun(vnode, buffer, offset);
+            return fun(vnode, buffer, offset, flags);
         } else if (vnode.kind == .Symlink) {
             return error.NotOpenForWriting;
         } else {
@@ -108,12 +108,12 @@ pub const VNode = struct {
         }
     }
 
-    pub fn writeAll(self: *VNode, buffer: []const u8, offset: usize) !void {
+    pub fn writeAll(self: *VNode, buffer: []const u8, offset: usize, flags: usize) !void {
         var buf = buffer;
         var off = offset;
 
         while (buf.len > 0) {
-            const written = try self.write(buf, off);
+            const written = try self.write(buf, off, flags);
 
             if (written == 0) {
                 return error.EndOfStream;
@@ -262,7 +262,8 @@ pub const VNodeStream = struct {
     }
 
     fn read(self: *VNodeStream, buffer: []u8) ReaderError!usize {
-        return self.node.read(buffer, self.offset);
+        // TODO: Figure out what flags to pass in here..?
+        return self.node.read(buffer, self.offset, 0);
     }
 
     pub fn seekableStream(self: *VNodeStream) SeekableStream {
@@ -284,8 +285,10 @@ const SliceBackedFile = struct {
         .stat = SliceBackedFile.stat,
     };
 
-    fn read(vnode: *VNode, buffer: []u8, offset: usize) ReadError!usize {
+    fn read(vnode: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize {
         const self = @fieldParentPtr(SliceBackedFile, "vnode", vnode);
+
+        _ = flags;
 
         if (offset >= self.data.len) {
             return 0;
@@ -298,10 +301,11 @@ const SliceBackedFile = struct {
         return bytes_read;
     }
 
-    fn write(vnode: *VNode, buffer: []const u8, offset: usize) WriteError!usize {
+    fn write(vnode: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize {
         _ = vnode;
         _ = buffer;
         _ = offset;
+        _ = flags;
 
         return error.NotOpenForWriting;
     }
@@ -415,7 +419,7 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
         const module_file = try modules_dir.filesystem.createFile(name);
         const data_blob = module.address[0..module.size];
 
-        try module_file.writeAll(data_blob, 0);
+        try module_file.writeAll(data_blob, 0, 0);
         try modules_dir.insert(module_file);
 
         if (std.mem.endsWith(u8, name, ".tar")) {
