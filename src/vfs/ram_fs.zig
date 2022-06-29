@@ -13,6 +13,7 @@ const ram_fs_vtable: vfs.FileSystemVTable = .{
     .create_file = RamFS.createFile,
     .create_dir = RamFS.createDir,
     .create_symlink = RamFS.createSymlink,
+    .allocate_inode = RamFS.allocateInode,
 };
 
 const ram_fs_file_vtable: vfs.VNodeVTable = .{
@@ -72,6 +73,7 @@ const RamFSFile = struct {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
 
         buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_ino = @intCast(c_long, vnode.inode);
         buffer.st_mode = 0o777 | abi.S_IFREG;
         buffer.st_size = @intCast(c_long, self.data.items.len);
         buffer.st_blksize = std.mem.page_size;
@@ -115,8 +117,8 @@ const RamFSDirectory = struct {
 
             logger.debug("{s}: {}", .{ child.name.?, child.kind });
 
-            dir_ent.d_ino = 0;
             dir_ent.d_off = 0;
+            dir_ent.d_ino = @intCast(c_long, vnode.inode);
             dir_ent.d_reclen = @truncate(c_ushort, real_size);
             dir_ent.d_type = switch (child.kind) {
                 .File => abi.DT_REG,
@@ -152,6 +154,7 @@ const RamFSDirectory = struct {
         _ = vnode;
 
         buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_ino = @intCast(c_long, vnode.inode);
         buffer.st_mode = 0o777 | abi.S_IFDIR;
     }
 };
@@ -159,6 +162,7 @@ const RamFSDirectory = struct {
 const RamFS = struct {
     filesystem: vfs.FileSystem,
     root: RamFSDirectory,
+    inode_counter: u64,
 
     fn createFile(fs: *vfs.FileSystem) vfs.OomError!*vfs.VNode {
         const node = try root.allocator.create(RamFSFile);
@@ -197,6 +201,12 @@ const RamFS = struct {
 
         return node;
     }
+
+    fn allocateInode(self: *vfs.FileSystem) vfs.OomError!u64 {
+        const fs = @fieldParentPtr(RamFS, "filesystem", self);
+
+        return @atomicRmw(usize, &fs.inode_counter, .Add, 1, .AcqRel);
+    }
 };
 
 pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
@@ -217,6 +227,7 @@ pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
                 .parent = parent,
             },
         },
+        .inode_counter = 0,
     };
 
     return &ramfs.root.vnode;

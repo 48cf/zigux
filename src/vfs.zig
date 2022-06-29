@@ -50,6 +50,7 @@ pub const VNode = struct {
     parent: ?*VNode = null,
     name: ?[]const u8 = null,
     symlink_target: ?[]const u8 = null,
+    inode: u64 = 0,
     lock: mutex.AtomicMutex = .{},
 
     fn getEffectiveVNode(self: *VNode) *VNode {
@@ -325,6 +326,7 @@ pub const FileSystemVTable = struct {
     create_file: ?fn (self: *FileSystem) OomError!*VNode,
     create_dir: ?fn (self: *FileSystem) OomError!*VNode,
     create_symlink: ?fn (self: *FileSystem, target: []const u8) OomError!*VNode,
+    allocate_inode: fn (self: *FileSystem) OomError!u64,
 };
 
 pub const FileSystem = struct {
@@ -334,10 +336,12 @@ pub const FileSystem = struct {
 
     pub fn createFile(self: *FileSystem, name: []const u8) !*VNode {
         if (self.vtable.create_file) |fun| {
+            const inode = try self.vtable.allocate_inode(self);
             const node = try fun(self);
 
             node.kind = .File;
             node.name = try root.allocator.dupe(u8, name);
+            node.inode = inode;
 
             return node;
         } else {
@@ -347,10 +351,12 @@ pub const FileSystem = struct {
 
     pub fn createDir(self: *FileSystem, name: []const u8) !*VNode {
         if (self.vtable.create_dir) |fun| {
+            const inode = try self.vtable.allocate_inode(self);
             const node = try fun(self);
 
             node.kind = .Directory;
             node.name = try root.allocator.dupe(u8, name);
+            node.inode = inode;
 
             return node;
         } else {
@@ -360,10 +366,12 @@ pub const FileSystem = struct {
 
     pub fn createSymlink(self: *FileSystem, name: []const u8, target: []const u8) !*VNode {
         if (self.vtable.create_symlink) |fun| {
+            const inode = try self.vtable.allocate_inode(self);
             const node = try fun(self, target);
 
             node.kind = .Symlink;
             node.name = try root.allocator.dupe(u8, name);
+            node.inode = inode;
 
             return node;
         } else {
