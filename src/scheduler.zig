@@ -489,6 +489,14 @@ pub fn exitProcess(proc: *process.Process, exit_code: u8) void {
     proc.exit_code = exit_code;
     proc.waitpid_semaphore.release(1);
 
+    logger.debug("Open files:", .{});
+
+    var files = proc.files.files.iterator();
+
+    while (files.next()) |it| {
+        logger.debug("  {}: {}", .{ it.key_ptr.*, it.value_ptr.*.vnode.getFullPath() });
+    }
+
     if (getProcessByPid(proc.parent)) |parent| {
         processes.remove(&proc.scheduler_node);
         parent.zombie_children.append(&proc.scheduler_node);
@@ -496,6 +504,7 @@ pub fn exitProcess(proc: *process.Process, exit_code: u8) void {
     }
 
     logger.debug("Exiting process {} with code {}", .{ proc.pid, proc.exit_code });
+    per_cpu.get().thread = null;
 }
 
 pub fn exitThread() noreturn {

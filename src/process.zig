@@ -241,8 +241,6 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
     return switch (frame.rax) {
         abi.SYS_PROC_EXIT => {
-            cpu_info.thread = null;
-
             scheduler.exitProcess(process, @truncate(u8, frame.rdi));
             scheduler.reschedule(frame);
 
