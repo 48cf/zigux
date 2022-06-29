@@ -11,6 +11,8 @@ const utils = @import("utils.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
 const ram_fs = @import("vfs/ram_fs.zig");
 
+const RingWaitQueue = @import("containers/ring_buffer.zig").RingWaitQueue;
+
 pub const OomError = error{OutOfMemory};
 pub const NotDirError = error{NotDir};
 pub const FaultError = error{AddressInaccessible};
@@ -26,6 +28,7 @@ pub const StatError = std.os.FStatAtError || OomError;
 
 pub const VNodeVTable = struct {
     open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
+    close: ?fn (self: *VNode) void = null,
     read: ?fn (self: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize = null,
     read_dir: ?fn (self: *VNode, buffer: []u8, offset: *usize) ReadDirError!usize = null,
     write: ?fn (self: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize = null,
@@ -68,6 +71,14 @@ pub const VNode = struct {
             return fun(vnode, name, flags);
         } else {
             return error.NotImplemented;
+        }
+    }
+
+    pub fn close(self: *VNode) void {
+        const vnode = self.getEffectiveVNode();
+
+        if (vnode.vtable.close) |fun| {
+            return fun(vnode);
         }
     }
 
@@ -276,6 +287,75 @@ pub const VNodeStream = struct {
     }
 };
 
+const Pipe = struct {
+    vnode: VNode,
+    buffer: RingWaitQueue(u8, 1024) = .{},
+    closed: bool = false,
+
+    const vtable: VNodeVTable = .{
+        .close = Pipe.close,
+        .read = Pipe.read,
+        .write = Pipe.write,
+    };
+
+    fn close(vnode: *VNode) void {
+        const self = @fieldParentPtr(Pipe, "vnode", vnode);
+
+        self.closed = true;
+        self.buffer.semaphore.release(1);
+    }
+
+    fn read(vnode: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize {
+        _ = offset;
+        _ = flags;
+
+        const self = @fieldParentPtr(Pipe, "vnode", vnode);
+
+        if (!self.closed) {
+            while (true) {
+                self.buffer.semaphore.acquire(1);
+
+                if (self.closed) {
+                    return 0;
+                }
+
+                buffer[0] = self.buffer.buffer.pop() orelse continue;
+
+                break;
+            }
+
+            for (buffer[1..]) |*byte, i| {
+                byte.* = self.buffer.buffer.pop() orelse return i + 1;
+            }
+        } else {
+            for (buffer) |*byte, i| {
+                byte.* = self.buffer.buffer.pop() orelse return i;
+            }
+        }
+
+        return buffer.len;
+    }
+
+    fn write(vnode: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize {
+        _ = offset;
+        _ = flags;
+
+        const self = @fieldParentPtr(Pipe, "vnode", vnode);
+
+        if (self.closed) {
+            return error.BrokenPipe;
+        }
+
+        for (buffer) |byte, i| {
+            if (!self.buffer.push(byte)) {
+                return if (i == 0) error.WouldBlock else i;
+            }
+        }
+
+        return buffer.len;
+    }
+};
+
 const SliceBackedFile = struct {
     vnode: VNode,
     data: []const u8,
@@ -424,10 +504,9 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
 
     for (modules_res.modules[0..modules_res.module_count]) |module| {
         const name = std.fs.path.basename(std.mem.span(module.path));
-        const module_file = try modules_dir.filesystem.createFile(name);
         const data_blob = module.address[0..module.size];
+        const module_file = try createSliceBackedFile(name, data_blob);
 
-        try module_file.writeAll(data_blob, 0, 0);
         try modules_dir.insert(module_file);
 
         if (std.mem.endsWith(u8, name, ".tar")) {
@@ -536,4 +615,17 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
     }
 
     return next;
+}
+
+pub fn createPipe() !*VNode {
+    const pipe = try root.allocator.create(Pipe);
+
+    pipe.* = .{
+        .vnode = .{
+            .vtable = &Pipe.vtable,
+            .filesystem = undefined,
+        },
+    };
+
+    return &pipe.vnode;
 }

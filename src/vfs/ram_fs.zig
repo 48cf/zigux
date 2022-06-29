@@ -115,8 +115,6 @@ const RamFSDirectory = struct {
                 break;
             }
 
-            logger.debug("{s}: {}", .{ child.name.?, child.kind });
-
             dir_ent.d_off = 0;
             dir_ent.d_ino = @intCast(c_long, vnode.inode);
             dir_ent.d_reclen = @truncate(c_ushort, real_size);

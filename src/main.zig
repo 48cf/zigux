@@ -20,7 +20,6 @@ const ps2 = @import("drivers/ps2.zig");
 
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
-// TODO: Demand page that bitch :^)
 const PageAllocator = struct {
     bump: u64 = 0xFFFF_A000_0000_0000,
 
@@ -129,6 +128,13 @@ fn main() !void {
     const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
 
+    per_cpu.initFeatures();
+
+    asm volatile ("wrgsbase %[base]"
+        :
+        : [base] "r" (@as(u64, 0)),
+    );
+
     std.debug.assert(hhdm_res.offset == virt.asHigherHalf(u64, 0));
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
@@ -182,10 +188,12 @@ pub fn log(
 
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
+    var tid = if (per_cpu.tryGet()) |cpu_info| blk: {
+        break :blk if (cpu_info.thread) |thread| thread.tid else 0;
+    } else 0;
 
-    writer.print("{s}({s}): ", .{ @tagName(level), @tagName(scope) }) catch unreachable;
+    writer.print("[{d:>3}] ({s}) {s}: ", .{ tid, @tagName(scope), @tagName(level) }) catch unreachable;
     writer.print(fmt ++ "\n", args) catch unreachable;
-    writer.writeByte(0) catch unreachable;
 
-    debug.debugPrint(std.mem.span(@ptrCast([*:0]const u8, &bytes)));
+    debug.debugPrint(buffer.getWritten());
 }

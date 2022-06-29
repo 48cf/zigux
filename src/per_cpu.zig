@@ -24,6 +24,20 @@ pub const PerCpu = struct {
     }
 };
 
+pub fn initFeatures() void {
+    var cr4 = asm volatile ("mov %%cr4, %[result]"
+        : [result] "=r" (-> u64),
+    );
+
+    cr4 |= 1 << 9;
+    cr4 |= 1 << 16;
+
+    asm volatile ("mov %[value], %%cr4"
+        :
+        : [value] "r" (cr4),
+    );
+}
+
 pub fn init() !void {
     const instance = try root.allocator.create(PerCpu);
 
@@ -43,21 +57,14 @@ pub fn init() !void {
 
     arch.Msr.gs_base.write(@ptrToInt(instance));
     arch.Msr.gs_kernel_base.write(0);
-
-    var cr4 = asm volatile ("mov %%cr4, %[result]"
-        : [result] "=r" (-> u64),
-    );
-
-    cr4 |= 1 << 9;
-
-    asm volatile ("mov %[value], %%cr4"
-        :
-        : [value] "r" (cr4),
-    );
 }
 
 pub inline fn get() *PerCpu {
-    return asm volatile ("mov %%gs:[0], %[result]"
+    return tryGet().?;
+}
+
+pub inline fn tryGet() ?*PerCpu {
+    return asm volatile ("rdgsbase %[result]"
         : [result] "=r" (-> *PerCpu),
     );
 }

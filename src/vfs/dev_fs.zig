@@ -18,6 +18,7 @@ const tty_vtable: vfs.VNodeVTable = .{
     .stat = TtyVNode.stat,
 };
 
+var term_buffer: [1024]u8 = undefined;
 var disk_number: usize = 1;
 
 const BlockDeviceError = error{
@@ -306,20 +307,17 @@ const TtyVNode = struct {
         _ = offset;
         _ = flags;
 
-        const km_buffer = try root.allocator.dupe(u8, buffer);
+        const written = std.math.min(buffer.len, term_buffer.len);
 
-        defer root.allocator.free(km_buffer);
+        std.mem.copy(u8, &term_buffer, buffer[0..written]);
+        debug.print(term_buffer[0..written]);
 
-        debug.print(km_buffer);
-
-        return buffer.len;
+        return written;
     }
 
     fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlError!u64 {
         const self = @fieldParentPtr(TtyVNode, "vnode", vnode);
         const process = per_cpu.get().currentProcess().?;
-
-        _ = self;
 
         switch (request) {
             abi.TCGETS => {

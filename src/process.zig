@@ -89,7 +89,14 @@ const FileTable = struct {
             self.fd_counter = fd;
         }
 
-        return self.files.swapRemove(fd);
+        defer _ = self.files.swapRemove(fd);
+
+        if (self.get(fd)) |file| {
+            file.vnode.close();
+            return true;
+        }
+
+        return false;
     }
 };
 
@@ -183,6 +190,20 @@ fn errnoToError(errno: u16) anyerror {
     return error.Unexpected;
 }
 
+fn syscallNumberToString(syscall_num: u64) ?[]const u8 {
+    @setEvalBranchQuota(10000);
+
+    inline for (@typeInfo(abi).Struct.decls) |decl| {
+        if (comptime std.mem.startsWith(u8, decl.name, "SYS_")) {
+            if (@field(abi, decl.name) == syscall_num) {
+                return decl.name;
+            }
+        }
+    }
+
+    return null;
+}
+
 inline fn errorToErrno(err: anyerror) u16 {
     inline for (errorTypeMap) |pair| {
         if (pair[0] == err) {
@@ -194,11 +215,24 @@ inline fn errorToErrno(err: anyerror) u16 {
 }
 
 pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
-    frame.rax = syscallHandlerImpl(frame) catch |err| blk: {
+    const syscall_name = syscallNumberToString(frame.rax) orelse "???";
+
+    logger.debug(
+        "Syscall {s}: {{ 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X}, 0x{X} }}",
+        .{ syscall_name, frame.rdi, frame.rsi, frame.rdx, frame.r10, frame.r8, frame.r9 },
+    );
+
+    frame.rax = syscallHandlerImpl(frame) catch |err| {
+        logger.debug("Syscall {s} returned {}", .{ syscall_name, err });
+
         const errno = errorToErrno(err);
 
-        break :blk @bitCast(u64, @as(i64, -@bitCast(i16, errno)));
+        frame.rax = @bitCast(u64, @as(i64, -@bitCast(i16, errno)));
+
+        return;
     } orelse return;
+
+    logger.debug("Syscall {s} returned 0x{X}", .{ syscall_name, frame.rax });
 }
 
 fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
@@ -435,6 +469,18 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             );
 
             return error.NotImplemented;
+        },
+        abi.SYS_FILE_PIPE => {
+            const buffer = try process.validateBuffer([]i32, frame.rdi, 2);
+            const file = try vfs.createPipe();
+
+            const read_end = try process.files.insert(file);
+            const write_end = try process.files.insert(file);
+
+            buffer[0] = @truncate(i32, @bitCast(i64, read_end));
+            buffer[1] = @truncate(i32, @bitCast(i64, write_end));
+
+            return 0;
         },
         abi.SYS_MEM_MAP => {
             // All stuff that we don't support (currently) :/
