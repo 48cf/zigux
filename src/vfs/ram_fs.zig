@@ -125,6 +125,7 @@ const RamFSDirectory = struct {
                 .CharaterDevice => abi.DT_CHR,
                 .BlockDevice => abi.DT_BLK,
                 .Fifo => abi.DT_FIFO,
+                .Socket => abi.DT_SOCK,
             };
 
             std.mem.copy(u8, dir_ent.d_name[0..name.len], name);

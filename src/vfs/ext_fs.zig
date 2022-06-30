@@ -1,6 +1,6 @@
 const logger = std.log.scoped(.extfs);
 
-const root = @import("std");
+const root = @import("root");
 const std = @import("std");
 
 const utils = @import("../utils.zig");
@@ -49,6 +49,26 @@ const Inode = extern struct {
     size_high_or_dir_acl: u32,
     fragment_block_address: u32,
     os_specific_2: [12]u8,
+
+    fn kind(self: *const @This()) vfs.VNodeKind {
+        return switch (@truncate(u4, self.type_and_permissions >> 12)) {
+            0x1 => .Fifo,
+            0x2 => .CharaterDevice,
+            0x4 => .Directory,
+            0x6 => .BlockDevice,
+            0x8 => .File,
+            0xA => .Symlink,
+            0xC => .Socket,
+            else => |kind| std.debug.panic("Unknown inode file type: 0x{X}", .{kind}),
+        };
+    }
+
+    fn size(self: *const @This()) u64 {
+        return switch (self.kind()) {
+            .File => @as(u64, self.size_high_or_dir_acl) << 32 | @as(u64, self.size_low),
+            else => return self.size_low,
+        };
+    }
 };
 
 const SuperBlock = extern struct {
@@ -141,6 +161,14 @@ const ExtFS = struct {
         return block_group;
     }
 
+    fn resolveInodeBlock(self: *const @This(), inode: *const Inode, block: u64) u64 {
+        std.debug.assert(block < utils.divRoundUp(u64, inode.size(), self.superblock.blockSize()));
+
+        if (block < 12) {
+            return inode.direct_block_pointer[block];
+        } else @panic("TOO MANY BLOCKS AAAAAAAAAAAA");
+    }
+
     fn readInode(self: *const @This(), index: u64) !Inode {
         var inode: Inode = undefined;
 
@@ -175,7 +203,14 @@ pub fn init(block: *vfs.VNode) !void {
 
     if (ext_fs.superblock.signature == 0xef53) {
         var root_inode = try ext_fs.readInode(2);
+        var root_block = try root.allocator.alloc(u8, ext_fs.superblock.blockSize());
+        defer root.allocator.free(root_block);
+
+        var root_block_index = ext_fs.resolveInodeBlock(&root_inode, 0);
+        var root_block_offset = ext_fs.superblock.blockToOffset(root_block_index);
+        try block.readAll(root_block, root_block_offset, 0);
 
         logger.debug("{}", .{root_inode});
+        logger.debug("{}", .{std.fmt.fmtSliceHexUpper(root_block)});
     }
 }

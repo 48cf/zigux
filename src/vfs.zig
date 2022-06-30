@@ -44,6 +44,7 @@ pub const VNodeKind = enum {
     CharaterDevice,
     BlockDevice,
     Fifo,
+    Socket,
 };
 
 pub const VNode = struct {
