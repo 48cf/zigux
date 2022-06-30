@@ -3,9 +3,10 @@ const logger = std.log.scoped(.phys);
 const std = @import("std");
 const arch = @import("arch.zig");
 const limine = @import("limine.zig");
-const mutex = @import("mutex.zig");
 const utils = @import("utils.zig");
 const virt = @import("virt.zig");
+
+const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const Bitmap = struct {
     data: []u8,
@@ -27,7 +28,7 @@ const Bitmap = struct {
     }
 };
 
-var lock: mutex.AtomicMutex = .{};
+var lock: IrqSpinlock = .{};
 var bitmap: Bitmap = undefined;
 var highest_phys_addr: u64 = 0;
 
@@ -108,7 +109,7 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
 }
 
 pub fn allocate(pages: usize, zero: bool) ?u64 {
-    lock.lock();
+    _ = lock.lock();
 
     defer lock.unlock();
 
