@@ -238,7 +238,9 @@ pub const Semaphore = struct {
     }
 
     pub fn acquire(self: *Semaphore, count: isize) void {
-        const ints_enabled = self.lock.lock();
+        self.lock.lock();
+
+        const ints_enabled = self.lock.re_enable;
         const thread = per_cpu.get().thread.?;
 
         if (self.available >= count) {
@@ -265,8 +267,7 @@ pub const Semaphore = struct {
     }
 
     pub fn release(self: *Semaphore, count: isize) void {
-        _ = self.lock.lock();
-
+        self.lock.lock();
         self.available += count;
 
         while (self.queue.first) |node| {
@@ -516,16 +517,14 @@ pub fn exitThread() noreturn {
 }
 
 pub fn enqueue(thread: *Thread) void {
-    _ = scheduler_lock.lock();
-
+    scheduler_lock.lock();
     defer scheduler_lock.unlock();
 
     scheduler_queue.append(&thread.node);
 }
 
 pub fn dequeueOrNull() ?*Thread {
-    _ = scheduler_lock.lock();
-
+    scheduler_lock.lock();
     defer scheduler_lock.unlock();
 
     if (scheduler_queue.popFirst()) |thread| {

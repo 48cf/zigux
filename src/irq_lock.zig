@@ -8,7 +8,7 @@ pub const IrqSpinlock = struct {
     inner: mutex.AtomicMutex = .{},
     re_enable: bool = undefined,
 
-    pub fn lock(self: *IrqSpinlock) bool {
+    pub fn lock(self: *IrqSpinlock) void {
         if (arch.readEflags() & 0x200 != 0) {
             while (true) {
                 asm volatile ("cli");
@@ -25,8 +25,6 @@ pub const IrqSpinlock = struct {
             self.inner.lock();
             self.re_enable = false;
         }
-
-        return self.re_enable;
     }
 
     pub fn ungrab(self: *IrqSpinlock) void {

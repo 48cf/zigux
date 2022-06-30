@@ -91,7 +91,7 @@ pub const os = .{
     },
 };
 
-pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = mutex.AtomicMutex }){};
+pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = IrqSpinlock }){};
 pub var allocator = gp_allocator.allocator();
 
 pub export var boot_info_req: limine.BootloaderInfo.Request = .{ .revision = 0 };
@@ -182,8 +182,7 @@ pub fn log(
     comptime fmt: []const u8,
     args: anytype,
 ) void {
-    _ = print_lock.lock();
-
+    print_lock.lock();
     defer print_lock.unlock();
 
     var buffer = std.io.fixedBufferStream(&bytes);

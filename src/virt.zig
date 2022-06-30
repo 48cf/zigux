@@ -303,8 +303,7 @@ pub const AddressSpace = struct {
     }
 
     pub fn switchTo(self: *AddressSpace) *AddressSpace {
-        _ = paging_lock.lock();
-
+        paging_lock.lock();
         defer paging_lock.unlock();
 
         const previous = current_address_space;
@@ -394,8 +393,7 @@ pub const AddressSpace = struct {
     }
 
     pub fn handlePageFault(self: *AddressSpace, address: u64, reason: u64) !bool {
-        _ = self.lock.lock();
-
+        self.lock.lock();
         defer self.lock.unlock();
 
         if (reason & FaultReason.Present != 0) {
@@ -461,14 +459,12 @@ pub const AddressSpace = struct {
     }
 
     pub fn fork(self: *AddressSpace) !AddressSpace {
-        _ = self.lock.lock();
-
+        self.lock.lock();
         defer self.lock.unlock();
 
         var new_as = try createAddressSpace();
 
-        _ = new_as.lock.lock();
-
+        new_as.lock.lock();
         defer new_as.lock.unlock();
 
         new_as.alloc_base = self.alloc_base;

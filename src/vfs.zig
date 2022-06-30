@@ -155,7 +155,6 @@ pub const VNode = struct {
 
     pub fn insert(self: *VNode, child: *VNode) !void {
         self.lock.lock();
-
         defer self.lock.unlock();
 
         std.debug.assert(child.name != null);
@@ -205,7 +204,6 @@ pub const VNode = struct {
 
     pub fn mount(self: *VNode, other: *VNode) void {
         self.lock.lock();
-
         defer self.lock.unlock();
 
         std.debug.assert(self.mounted_vnode == null);

@@ -109,8 +109,7 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
 }
 
 pub fn allocate(pages: usize, zero: bool) ?u64 {
-    _ = lock.lock();
-
+    lock.lock();
     defer lock.unlock();
 
     if (pages > total_pages - used_pages) {
