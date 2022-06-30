@@ -177,7 +177,7 @@ const errorTypeMap = .{
     .{ error.NotOpenForWriting, abi.EROFS },
     .{ error.InvalidArgument, abi.EINVAL },
     .{ error.InvalidHandle, abi.EINVAL },
-    .{ error.InvalidElfMagic, abi.ENOEXEC },
+    .{ error.NotExecutable, abi.ENOEXEC },
 };
 
 fn errnoToError(errno: u16) anyerror {
@@ -319,7 +319,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             thread.regs.ds = 0x40 | 3;
             thread.regs.es = 0x40 | 3;
 
-            try thread.exec(file, argv_copy.items, envp_copy.items);
+            thread.exec(file, argv_copy.items, envp_copy.items) catch return error.NotExecutable;
 
             frame.* = thread.regs;
 
