@@ -43,6 +43,7 @@ pub const VNodeKind = enum {
     Symlink,
     CharaterDevice,
     BlockDevice,
+    Fifo,
 };
 
 pub const VNode = struct {
@@ -624,6 +625,8 @@ pub fn createPipe() !*VNode {
         .vnode = .{
             .vtable = &Pipe.vtable,
             .filesystem = undefined,
+            .kind = .Fifo,
+            .name = "(pipe)",
         },
     };
 
