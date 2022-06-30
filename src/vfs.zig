@@ -99,6 +99,22 @@ pub const VNode = struct {
         }
     }
 
+    pub fn readAll(self: *VNode, buffer: []u8, offset: usize, flags: usize) !void {
+        var buf = buffer;
+        var off = offset;
+
+        while (buf.len > 0) {
+            const read_amount = try self.read(buf, off, flags);
+
+            if (read_amount == 0) {
+                return error.EndOfStream;
+            }
+
+            buf = buf[read_amount..];
+            off += read_amount;
+        }
+    }
+
     pub fn readDir(self: *VNode, buffer: []u8, offset: *usize) !usize {
         const vnode = self.getEffectiveVNode();
 
