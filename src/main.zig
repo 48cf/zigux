@@ -1,13 +1,13 @@
 const logger = std.log.scoped(.main);
 
 const std = @import("std");
+const limine = @import("limine");
 
 const apic = @import("apic.zig");
 const acpi = @import("acpi.zig");
 const arch = @import("arch.zig");
 const interrupts = @import("interrupts.zig");
 const debug = @import("debug.zig");
-const limine = @import("limine.zig");
 const mutex = @import("mutex.zig");
 const per_cpu = @import("per_cpu.zig");
 const pci = @import("pci.zig");
@@ -25,87 +25,90 @@ const PageAllocator = struct {
 
     const heap_logger = std.log.scoped(.heap);
 
-    fn alloc(ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
+    fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
         _ = ptr_align;
-        _ = len_align;
         _ = ret_addr;
 
         const pages = utils.alignUp(usize, len, std.mem.page_size) / std.mem.page_size;
-        const self = @ptrCast(*PageAllocator, @alignCast(8, ptr));
+        const self = @ptrCast(*PageAllocator, @alignCast(8, ctx));
         const base = self.bump;
 
         if (phys.freePages() < pages) {
-            return error.OutOfMemory;
+            return null;
         }
 
         var i: usize = 0;
 
         while (i < pages) : (i += 1) {
-            const page = phys.allocate(1, true) orelse return error.OutOfMemory;
+            const page = phys.allocate(1, true) orelse return null;
 
             virt.kernel_address_space.page_table.mapPage(
                 base + i * std.mem.page_size,
                 page,
                 virt.Flags.Present | virt.Flags.Writable,
-            ) catch return error.OutOfMemory;
+            ) catch return null;
         }
 
         self.bump += pages * std.mem.page_size;
 
-        return @ptrCast([*]u8, @intToPtr(*u8, base))[0..len];
+        return @ptrCast([*]u8, @intToPtr(*u8, base));
     }
 
-    fn resize(ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
-        _ = ptr;
+    fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+        _ = ctx;
         _ = buf;
         _ = buf_align;
         _ = new_len;
-        _ = len_align;
         _ = ret_addr;
 
-        return null;
+        return false;
     }
 
-    fn free(ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void {
-        _ = ptr;
+    fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
+        _ = ctx;
         _ = buf;
         _ = buf_align;
         _ = ret_addr;
     }
 };
 
-var page_allocator = PageAllocator{};
+var page_heap_allocator = PageAllocator{};
 var print_lock: IrqSpinlock = .{};
 
 pub const log_level = std.log.Level.debug;
-pub const os = .{
-    .heap = .{
-        .page_allocator = std.mem.Allocator{
-            .ptr = &page_allocator,
+
+pub const os = struct {
+    pub const heap = struct {
+        pub const page_allocator = std.mem.Allocator{
+            .ptr = &page_heap_allocator,
             .vtable = &std.mem.Allocator.VTable{
                 .alloc = PageAllocator.alloc,
                 .resize = PageAllocator.resize,
                 .free = PageAllocator.free,
             },
-        },
-    },
+        };
+    };
+};
+
+pub const std_options = struct {
+    pub const logFn = log;
 };
 
 pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = IrqSpinlock }){};
 pub var allocator = gp_allocator.allocator();
 
-pub export var boot_info_req: limine.BootloaderInfo.Request = .{ .revision = 0 };
-pub export var hhdm_req: limine.Hhdm.Request = .{ .revision = 0 };
-pub export var term_req: limine.Terminal.Request = .{ .revision = 0 };
-pub export var memory_map_req: limine.MemoryMap.Request = .{ .revision = 0 };
-pub export var modules_req: limine.Modules.Request = .{ .revision = 0 };
-pub export var kernel_file_req: limine.KernelFile.Request = .{ .revision = 0 };
-pub export var rsdp_req: limine.Rsdp.Request = .{ .revision = 0 };
-pub export var kernel_addr_req: limine.KernelAddress.Request = .{ .revision = 0 };
+pub export var boot_info_req: limine.BootloaderInfoRequest = .{};
+pub export var hhdm_req: limine.HhdmRequest = .{};
+pub export var term_req: limine.TerminalRequest = .{};
+pub export var memory_map_req: limine.MemoryMapRequest = .{};
+pub export var modules_req: limine.ModuleRequest = .{};
+pub export var kernel_file_req: limine.KernelFileRequest = .{};
+pub export var rsdp_req: limine.RsdpRequest = .{};
+pub export var kernel_addr_req: limine.KernelAddressRequest = .{};
 
 export fn platformMain() noreturn {
     main() catch |err| {
-        logger.err("Failed to initialize: {e}", .{err});
+        logger.err("Failed to initialize: {any}", .{err});
 
         if (@errorReturnTrace()) |stack_trace| {
             debug.printStackTrace(stack_trace);
@@ -160,12 +163,13 @@ fn main() !void {
     scheduler.enqueue(thread);
 }
 
-pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
     asm volatile ("cli");
 
-    _ = stack_trace;
+    _ = error_return_trace;
+    _ = ret_addr;
 
-    logger.err("Kernel panic: {s}", .{message});
+    logger.err("Kernel panic: {s}", .{msg});
 
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
 

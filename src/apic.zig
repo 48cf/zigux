@@ -141,7 +141,7 @@ pub fn handleIoApicIso(ioapic_id: u8, irq_source: u8, gsi: u32, flags: u16) void
 }
 
 fn mapGsiToIoApic(gsi: u32) u8 {
-    for (io_apics) |io_apic, i| {
+    for (io_apics, 0..) |io_apic, i| {
         if (io_apic) |ioa| {
             const gsi_count = ioa.gsi_count();
 

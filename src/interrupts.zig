@@ -15,8 +15,8 @@ pub const syscall_vector: u8 = 0xFD;
 pub const sched_call_vector: u8 = 0xFE;
 pub const spurious_vector: u8 = 0xFF;
 
-pub const InterruptStub = fn () callconv(.Naked) void;
-pub const InterruptHandler = fn (*InterruptFrame) void;
+pub const InterruptStub = *const fn () callconv(.Naked) void;
+pub const InterruptHandler = *const fn (*InterruptFrame) void;
 
 pub const InterruptFrame = extern struct {
     es: u64,
@@ -45,7 +45,7 @@ pub const InterruptFrame = extern struct {
     ss: u64,
 };
 
-pub fn makeHandlers() [256]fn () callconv(.Naked) void {
+pub fn makeHandlers() [256]InterruptStub {
     var result = [1]InterruptStub{undefined} ** 256;
 
     comptime var i: usize = 0;
@@ -101,7 +101,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
         if (std.mem.eql(u8, code[0..2], &.{ 0x0f, 0x05 })) {
             frame.rip += 2;
 
-            return @call(.{ .modifier = .always_tail }, handlers[syscall_vector], .{frame});
+            return @call(.always_tail, handlers[syscall_vector], .{frame});
         }
     } else if (frame.vector == 0xE) blk: {
         const cr2 = asm volatile ("mov %%cr2, %[result]"
@@ -109,7 +109,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
         );
 
         const handled = virt.handlePageFault(cr2, frame.error_code) catch |err| {
-            logger.err("Failed to handle the page fault: {e}", .{err});
+            logger.err("Failed to handle the page fault: {any}", .{err});
 
             break :blk;
         };

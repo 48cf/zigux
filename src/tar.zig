@@ -48,7 +48,7 @@ const TarHeader = extern struct {
     }
 
     fn fileName(self: *const TarHeader) []const u8 {
-        for (self.file_name) |ch, i| {
+        for (self.file_name, 0..) |ch, i| {
             if (ch == 0) {
                 return self.file_name[0..i];
             }
@@ -58,7 +58,7 @@ const TarHeader = extern struct {
     }
 
     fn linkedName(self: *const TarHeader) []const u8 {
-        for (self.linked_name) |ch, i| {
+        for (self.linked_name, 0..) |ch, i| {
             if (ch == 0) {
                 return self.linked_name[0..i];
             }

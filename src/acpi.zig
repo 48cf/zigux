@@ -1,9 +1,9 @@
 const logger = std.log.scoped(.acpi);
 
 const std = @import("std");
+const limine = @import("limine");
 
 const apic = @import("apic.zig");
-const limine = @import("limine.zig");
 const virt = @import("virt.zig");
 
 const Rsdp = extern struct {
@@ -90,7 +90,7 @@ fn parse(comptime T: type, bytes: []const u8) !void {
     }
 }
 
-pub fn init(rsdp_res: *limine.Rsdp.Response) !void {
+pub fn init(rsdp_res: *limine.RsdpResponse) !void {
     const rsdp = @intToPtr(RsdpPtr, rsdp_res.address);
 
     switch (rsdp.revision) {

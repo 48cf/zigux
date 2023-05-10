@@ -1,9 +1,0 @@
-name=nyancat
-version=1.2.1
-source_method=git
-clone_url="https://github.com/klange/nyancat.git"
-tag="master"
-
-regenerate() {
-  true
-}

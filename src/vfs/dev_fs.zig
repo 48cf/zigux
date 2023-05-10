@@ -138,11 +138,11 @@ const BlockDevice = struct {
         return max_write;
     }
 
-    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+    fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
 
-        buffer.* = std.mem.zeroes(abi.stat);
-        buffer.st_mode = 0o777 | abi.S_IFBLK;
+        buffer.* = std.mem.zeroes(abi.C.stat);
+        buffer.st_mode = 0o777 | abi.C.S_IFBLK;
         buffer.st_size = @intCast(c_long, self.sector_count * self.sector_size);
         buffer.st_blksize = @intCast(c_long, self.sector_size);
         buffer.st_blocks = @intCast(c_long, self.sector_count);
@@ -205,8 +205,8 @@ var tty_buffer: @import("../containers/ring_buffer.zig").RingBuffer(u8, 16) = .{
 
 const TtyVNode = struct {
     vnode: vfs.VNode,
-    state: abi.termios = std.mem.zeroInit(abi.termios, .{
-        .c_lflag = abi.ECHO | abi.ICANON,
+    state: abi.C.termios = std.mem.zeroInit(abi.C.termios, .{
+        .c_lflag = abi.C.ECHO | abi.C.ICANON,
     }),
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
@@ -321,24 +321,24 @@ const TtyVNode = struct {
         const process = per_cpu.get().currentProcess().?;
 
         switch (request) {
-            abi.TCGETS => {
-                const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
+            abi.C.TCGETS => {
+                const result = process.validatePointer(abi.C.termios, arg) catch return .{ .err = abi.C.EINVAL };
 
                 result.* = self.state;
 
                 return 0;
             },
-            abi.TCSETSW, abi.TCSETSF, abi.TCSETS => {
-                const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
+            abi.C.TCSETSW, abi.C.TCSETSF, abi.C.TCSETS => {
+                const result = process.validatePointer(abi.C.termios, arg) catch return .{ .err = abi.C.EINVAL };
 
                 self.state = result.*;
 
                 return 0;
             },
-            abi.TIOCGWINSZ => {
+            abi.C.TIOCGWINSZ => {
                 const term_res = root.term_req.response.?;
                 const terminal = term_res.terminals[0];
-                const result = process.validatePointer(abi.winsize, arg) catch return .{ .err = abi.EINVAL };
+                const result = process.validatePointer(abi.C.winsize, arg) catch return .{ .err = abi.C.EINVAL };
 
                 result.* = .{
                     .ws_row = @intCast(c_ushort, terminal.rows),
@@ -362,11 +362,11 @@ const TtyVNode = struct {
         }
     }
 
-    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+    fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
         _ = vnode;
 
-        buffer.* = std.mem.zeroes(abi.stat);
-        buffer.st_mode = 0o777 | abi.S_IFCHR;
+        buffer.* = std.mem.zeroes(abi.C.stat);
+        buffer.st_mode = 0o777 | abi.C.S_IFCHR;
     }
 };
 
@@ -459,7 +459,7 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
     if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
         var entry: GptPartitionEntry = undefined;
 
-        for (utils.range(10)) |_, i| {
+        for (utils.range(10), 0..) |_, i| {
             _ = try device.vnode.read(
                 std.mem.asBytes(&entry),
                 gpt_header.partition_entry_lba * sector_size + i * gpt_header.size_of_partition_entry,

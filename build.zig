@@ -1,10 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-
-const Features = std.Target.x86.Feature;
-
-const kernel_build_mode: std.builtin.Mode = .Debug;
-const user_build_mode: std.builtin.Mode = .ReleaseSafe;
 
 const target = blk: {
     var tgt = std.zig.CrossTarget{
@@ -12,6 +6,8 @@ const target = blk: {
         .os_tag = .freestanding,
         .abi = .none,
     };
+
+    const Features = std.Target.x86.Feature;
 
     tgt.cpu_features_sub.addFeature(@enumToInt(Features.mmx));
     tgt.cpu_features_sub.addFeature(@enumToInt(Features.sse));
@@ -24,67 +20,28 @@ const target = blk: {
 };
 
 pub fn build(b: *std.build.Builder) !void {
-    // const init = try buildProgram(b, "init");
-    // const init_path = b.getInstallPath(init.install_step.?.dest_dir, init.out_filename);
-    //
-    // image.step.dependOn(&init.install_step.?.step);
-
-    const kernel = try buildKernel(b);
-
-    const image_dir = b.pathJoin(&.{ b.cache_root, "image-root" });
-    const image_path = b.pathJoin(&.{ b.cache_root, "image.iso" });
-    const sysroot_path = b.pathJoin(&.{ b.cache_root, "sysroot.tar" });
-
-    const kernel_path = b.getInstallPath(kernel.install_step.?.dest_dir, kernel.out_filename);
-
-    const qemu = b.addSystemCommand(&.{ "/usr/bin/env", "sh", "misc/run-emulator.sh", image_path });
-    const image = b.addSystemCommand(&.{
-        "/usr/bin/env",
-        "sh",
-        "misc/create-image.sh",
-        image_dir,
-        image_path,
-        "sysroot",
-        sysroot_path,
-        kernel_path,
+    const kernel = b.addExecutable(.{
+        .name = "kernel",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = .ReleaseSafe,
     });
 
-    image.step.dependOn(&kernel.install_step.?.step);
-    qemu.step.dependOn(&image.step);
-
-    if (b.args) |args| {
-        qemu.addArgs(args);
-    }
-
-    b.step("image", "Builds the image").dependOn(&image.step);
-    b.step("run", "Runs the image").dependOn(&qemu.step);
-}
-
-fn buildKernel(b: *std.build.Builder) !*std.build.LibExeObjStep {
-    const kernel = b.addExecutable("kernel", "src/main.zig");
-
     kernel.code_model = .kernel;
-    kernel.setBuildMode(kernel_build_mode);
+
     kernel.setLinkerScriptPath(.{ .path = "misc/linker.ld" });
-    kernel.addIncludeDir("sources/mlibc");
-    kernel.addIncludeDir("sources/mlibc/options/ansi/include");
-    kernel.addIncludeDir("sources/mlibc/options/internal/include");
-    kernel.addIncludeDir("sources/mlibc/options/linux-headers/include");
-    kernel.addIncludeDir("sources/mlibc/options/posix/include");
-    kernel.addIncludeDir("sources/mlibc/sysdeps/zigux/include");
-    kernel.install();
-    kernel.setTarget(target);
+    kernel.addAnonymousModule("limine", .{
+        .source_file = .{ .path = "limine-zig/limine.zig" },
+    });
 
-    return kernel;
-}
+    kernel.addIncludePath("sources/mlibc");
+    kernel.addIncludePath("sources/mlibc/options/ansi/include");
+    kernel.addIncludePath("sources/mlibc/options/internal/include");
+    kernel.addIncludePath("sources/mlibc/options/linux-headers/include");
+    kernel.addIncludePath("sources/mlibc/options/posix/include");
+    kernel.addIncludePath("sources/mlibc/sysdeps/zigux/include");
 
-fn buildProgram(b: *std.build.Builder, comptime name: []const u8) !*std.build.LibExeObjStep {
-    const kernel = b.addExecutable(name, "user/" ++ name ++ "/main.zig");
+    const kernel_install = b.addInstallArtifact(kernel);
 
-    kernel.code_model = .small;
-    kernel.setBuildMode(user_build_mode);
-    kernel.install();
-    kernel.setTarget(target);
-
-    return kernel;
+    b.default_step.dependOn(&kernel_install.step);
 }

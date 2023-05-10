@@ -39,7 +39,7 @@ pub fn initFeatures() void {
 }
 
 pub fn init() !void {
-    const instance = try root.allocator.create(PerCpu);
+    var instance = try root.allocator.create(PerCpu);
 
     instance.* = .{
         .self = instance,

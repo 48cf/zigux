@@ -2,10 +2,10 @@ const logger = std.log.scoped(.virt);
 
 const root = @import("root");
 const std = @import("std");
+const limine = @import("limine");
 
 const arch = @import("arch.zig");
 const abi = @import("abi.zig");
-const limine = @import("limine.zig");
 const phys = @import("phys.zig");
 const utils = @import("utils.zig");
 const vfs = @import("vfs.zig");
@@ -76,16 +76,16 @@ inline fn protToFlags(prot: u64, user: bool) u64 {
     if (user)
         flags |= Flags.User;
 
-    if (prot & abi.PROT_WRITE != 0)
+    if (prot & abi.C.PROT_WRITE != 0)
         flags |= Flags.Writable;
 
-    if (prot & abi.PROT_EXEC == 0)
+    if (prot & abi.C.PROT_EXEC == 0)
         flags |= Flags.NoExecute;
 
     return flags;
 }
 
-const PageTableEntry = packed struct {
+const PageTableEntry = extern struct {
     value: u64,
 
     pub fn getAddress(self: *const PageTableEntry) u64 {
@@ -105,7 +105,7 @@ const PageTableEntry = packed struct {
     }
 };
 
-const PageTable = packed struct {
+const PageTable = extern struct {
     entries: [512]PageTableEntry,
 
     pub fn translate(self: *PageTable, virt_addr: u64) ?u64 {
@@ -349,13 +349,13 @@ pub const AddressSpace = struct {
                     var prot: u64 = 0;
 
                     if (ph.p_flags & std.elf.PF_R != 0)
-                        prot |= abi.PROT_READ;
+                        prot |= abi.C.PROT_READ;
 
                     if (ph.p_flags & std.elf.PF_W != 0)
-                        prot |= abi.PROT_WRITE;
+                        prot |= abi.C.PROT_WRITE;
 
                     if (ph.p_flags & std.elf.PF_X != 0)
-                        prot |= abi.PROT_EXEC;
+                        prot |= abi.C.PROT_EXEC;
 
                     const virt_addr = utils.alignDown(u64, ph.p_vaddr, std.mem.page_size) + base;
                     const mapping = try root.allocator.create(Mapping);
@@ -367,7 +367,7 @@ pub const AddressSpace = struct {
                         .base = virt_addr,
                         .length = page_count * std.mem.page_size,
                         .prot = prot,
-                        .flags = abi.MAP_ANONYMOUS | abi.MAP_PRIVATE | abi.MAP_FIXED,
+                        .flags = abi.C.MAP_ANONYMOUS | abi.C.MAP_PRIVATE | abi.C.MAP_FIXED,
                     };
 
                     self.insertMapping(mapping);
@@ -479,7 +479,7 @@ pub const AddressSpace = struct {
             new_as.insertMapping(new_mapping);
 
             // TODO: Please someone implement CoW for me :sadge:
-            for (utils.range(utils.alignUp(usize, mapping.length, std.mem.page_size) / std.mem.page_size)) |_, page_index| {
+            for (utils.range(utils.alignUp(usize, mapping.length, std.mem.page_size) / std.mem.page_size), 0..) |_, page_index| {
                 const original_page = self.page_table.translate(mapping.base + page_index * std.mem.page_size) orelse continue;
                 const new_page = phys.allocate(1, true) orelse return error.OutOfMemory;
 
@@ -528,7 +528,7 @@ var current_cr3: u64 = undefined;
 fn map_section(
     comptime section_name: []const u8,
     page_table: *PageTable,
-    kernel_addr_res: *limine.KernelAddress.Response,
+    kernel_addr_res: *limine.KernelAddressResponse,
     flags: u64,
 ) !void {
     const begin = @extern(*u8, .{ .name = section_name ++ "_begin" });
@@ -541,7 +541,7 @@ fn map_section(
     try page_table.map(virt_base, phys_base, size, flags);
 }
 
-pub fn init(kernel_addr_res: *limine.KernelAddress.Response) !void {
+pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
     const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
     const page_table = asHigherHalf(*PageTable, page_table_phys);
 

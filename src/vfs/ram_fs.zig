@@ -69,12 +69,12 @@ const RamFSFile = struct {
         return buffer.len;
     }
 
-    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
+    fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
 
-        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_ino = @intCast(c_long, vnode.inode);
-        buffer.st_mode = 0o777 | abi.S_IFREG;
+        buffer.st_mode = 0o777 | abi.C.S_IFREG;
         buffer.st_size = @intCast(c_long, self.data.items.len);
         buffer.st_blksize = std.mem.page_size;
         buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, self.data.items.len, std.mem.page_size));
@@ -101,15 +101,14 @@ const RamFSDirectory = struct {
 
     fn readDir(vnode: *vfs.VNode, buffer: []u8, offset: *usize) vfs.ReadDirError!usize {
         const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
-        const aligned_buffer = @alignCast(8, buffer);
 
-        var dir_ent = @ptrCast(*abi.dirent, aligned_buffer);
+        var dir_ent = @ptrCast(*abi.C.dirent, @alignCast(8, buffer));
         var buffer_offset: usize = 0;
 
         while (offset.* < self.children.items.len) : (offset.* += 1) {
             const child = self.children.items[offset.*];
             const name = child.name.?;
-            const real_size = @sizeOf(abi.dirent) - 1024 + name.len + 1;
+            const real_size = @sizeOf(abi.C.dirent) - 1024 + name.len + 1;
 
             if (buffer_offset + real_size > buffer.len) {
                 break;
@@ -119,20 +118,20 @@ const RamFSDirectory = struct {
             dir_ent.d_ino = @intCast(c_long, vnode.inode);
             dir_ent.d_reclen = @truncate(c_ushort, real_size);
             dir_ent.d_type = switch (child.kind) {
-                .File => abi.DT_REG,
-                .Directory => abi.DT_DIR,
-                .Symlink => abi.DT_LNK,
-                .CharaterDevice => abi.DT_CHR,
-                .BlockDevice => abi.DT_BLK,
-                .Fifo => abi.DT_FIFO,
-                .Socket => abi.DT_SOCK,
+                .File => abi.C.DT_REG,
+                .Directory => abi.C.DT_DIR,
+                .Symlink => abi.C.DT_LNK,
+                .CharaterDevice => abi.C.DT_CHR,
+                .BlockDevice => abi.C.DT_BLK,
+                .Fifo => abi.C.DT_FIFO,
+                .Socket => abi.C.DT_SOCK,
             };
 
             std.mem.copy(u8, dir_ent.d_name[0..name.len], name);
 
             dir_ent.d_name[name.len] = 0;
             buffer_offset += real_size;
-            dir_ent = @ptrCast(*abi.dirent, aligned_buffer[buffer_offset..]);
+            dir_ent = @ptrCast(*abi.C.dirent, @alignCast(8, buffer[buffer_offset..]));
         }
 
         return buffer_offset;
@@ -150,12 +149,10 @@ const RamFSDirectory = struct {
         try self.children.append(root.allocator, child);
     }
 
-    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
-        _ = vnode;
-
-        buffer.* = std.mem.zeroes(abi.stat);
+    fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
+        buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_ino = @intCast(c_long, vnode.inode);
-        buffer.st_mode = 0o777 | abi.S_IFDIR;
+        buffer.st_mode = 0o777 | abi.C.S_IFDIR;
     }
 };
 

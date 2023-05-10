@@ -2,10 +2,10 @@ const logger = std.log.scoped(.vfs);
 
 const root = @import("root");
 const std = @import("std");
+const limine = @import("limine");
 
 const abi = @import("abi.zig");
 const tar = @import("tar.zig");
-const limine = @import("limine.zig");
 const mutex = @import("mutex.zig");
 const utils = @import("utils.zig");
 const dev_fs = @import("vfs/dev_fs.zig");
@@ -27,14 +27,14 @@ pub const IoctlError = error{ InvalidArgument, NoDevice } || FaultError;
 pub const StatError = std.os.FStatAtError || OomError;
 
 pub const VNodeVTable = struct {
-    open: ?fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
-    close: ?fn (self: *VNode) void = null,
-    read: ?fn (self: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize = null,
-    read_dir: ?fn (self: *VNode, buffer: []u8, offset: *usize) ReadDirError!usize = null,
-    write: ?fn (self: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize = null,
-    insert: ?fn (self: *VNode, child: *VNode) InsertError!void = null,
-    ioctl: ?fn (self: *VNode, request: u64, arg: u64) IoctlError!u64 = null,
-    stat: ?fn (self: *VNode, buffer: *abi.stat) StatError!void = null,
+    open: ?*const fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
+    close: ?*const fn (self: *VNode) void = null,
+    read: ?*const fn (self: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize = null,
+    read_dir: ?*const fn (self: *VNode, buffer: []u8, offset: *usize) ReadDirError!usize = null,
+    write: ?*const fn (self: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize = null,
+    insert: ?*const fn (self: *VNode, child: *VNode) InsertError!void = null,
+    ioctl: ?*const fn (self: *VNode, request: u64, arg: u64) IoctlError!u64 = null,
+    stat: ?*const fn (self: *VNode, buffer: *abi.C.stat) StatError!void = null,
 };
 
 pub const VNodeKind = enum {
@@ -185,7 +185,7 @@ pub const VNode = struct {
         }
     }
 
-    pub fn stat(self: *VNode, buffer: *abi.stat) !void {
+    pub fn stat(self: *VNode, buffer: *abi.C.stat) !void {
         const vnode = self.getEffectiveVNode();
 
         if (vnode.vtable.stat) |fun| {
@@ -193,8 +193,8 @@ pub const VNode = struct {
         } else if (vnode.kind == .Symlink) {
             const target = self.symlink_target.?;
 
-            buffer.* = std.mem.zeroes(abi.stat);
-            buffer.st_mode |= 0o777 | abi.S_IFLNK;
+            buffer.* = std.mem.zeroes(abi.C.stat);
+            buffer.st_mode |= 0o777 | abi.C.S_IFLNK;
             buffer.st_size = @intCast(c_long, target.len);
             buffer.st_blksize = std.mem.page_size;
             buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, target.len, std.mem.page_size));
@@ -340,11 +340,11 @@ const Pipe = struct {
                 break;
             }
 
-            for (buffer[1..]) |*byte, i| {
+            for (buffer[1..], 1..) |*byte, i| {
                 byte.* = self.buffer.buffer.pop() orelse return i + 1;
             }
         } else {
-            for (buffer) |*byte, i| {
+            for (buffer, 0..) |*byte, i| {
                 byte.* = self.buffer.buffer.pop() orelse return i;
             }
         }
@@ -362,7 +362,7 @@ const Pipe = struct {
             return error.BrokenPipe;
         }
 
-        for (buffer) |byte, i| {
+        for (buffer, 0..) |byte, i| {
             if (!self.buffer.push(byte)) {
                 return if (i == 0) error.WouldBlock else i;
             }
@@ -407,11 +407,11 @@ const SliceBackedFile = struct {
         return error.NotOpenForWriting;
     }
 
-    fn stat(vnode: *VNode, buffer: *abi.stat) StatError!void {
+    fn stat(vnode: *VNode, buffer: *abi.C.stat) StatError!void {
         const self = @fieldParentPtr(SliceBackedFile, "vnode", vnode);
 
-        buffer.* = std.mem.zeroes(abi.stat);
-        buffer.st_mode = 0o777 | abi.S_IFREG;
+        buffer.* = std.mem.zeroes(abi.C.stat);
+        buffer.st_mode = 0o777 | abi.C.S_IFREG;
         buffer.st_size = @intCast(c_long, self.data.len);
         buffer.st_blksize = std.mem.page_size;
         buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, self.data.len, std.mem.page_size));
@@ -419,10 +419,10 @@ const SliceBackedFile = struct {
 };
 
 pub const FileSystemVTable = struct {
-    create_file: ?fn (self: *FileSystem) OomError!*VNode,
-    create_dir: ?fn (self: *FileSystem) OomError!*VNode,
-    create_symlink: ?fn (self: *FileSystem, target: []const u8) OomError!*VNode,
-    allocate_inode: fn (self: *FileSystem) OomError!u64,
+    create_file: ?*const fn (self: *FileSystem) OomError!*VNode,
+    create_dir: ?*const fn (self: *FileSystem) OomError!*VNode,
+    create_symlink: ?*const fn (self: *FileSystem, target: []const u8) OomError!*VNode,
+    allocate_inode: *const fn (self: *FileSystem) OomError!u64,
 };
 
 pub const FileSystem = struct {
@@ -536,7 +536,7 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
                 switch (file.kind) {
                     .Normal => {
                         const parent_path = std.fs.path.dirname(file.name) orelse unreachable;
-                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
+                        const parent = try resolve(root_node, parent_path, abi.C.O_CREAT);
                         const file_node = try createSliceBackedFile(std.fs.path.basename(file.name), file.data);
 
                         try parent.insert(file_node);
@@ -545,12 +545,12 @@ pub fn init(modules_res: *limine.Modules.Response) !void {
                     },
                     .SymbolicLink => {
                         const parent_path = std.fs.path.dirname(file.name) orelse unreachable;
-                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
+                        const parent = try resolve(root_node, parent_path, abi.C.O_CREAT);
                         const link_node = try parent.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
 
                         try parent.insert(link_node);
                     },
-                    .Directory => _ = try resolve(root_node, file.name, abi.O_CREAT | abi.O_DIRECTORY),
+                    .Directory => _ = try resolve(root_node, file.name, abi.C.O_CREAT | abi.C.O_DIRECTORY),
                     else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
                 }
             }
@@ -584,8 +584,8 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
                         error.FileNotFound => {
                             const fs = next.getEffectiveFs();
 
-                            if (flags & abi.O_CREAT != 0) {
-                                if (flags & abi.O_DIRECTORY != 0 or iter.rest().len > 0) {
+                            if (flags & abi.C.O_CREAT != 0) {
+                                if (flags & abi.C.O_DIRECTORY != 0 or iter.rest().len > 0) {
                                     const node = try fs.createDir(component);
 
                                     try next.insert(node);
@@ -607,7 +607,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
                 };
             }
 
-            if (flags & abi.O_NOFOLLOW == 0 and next_node.?.kind == .Symlink) {
+            if (flags & abi.C.O_NOFOLLOW == 0 and next_node.?.kind == .Symlink) {
                 const new_node = next_node.?;
                 const target = new_node.symlink_target.?;
 

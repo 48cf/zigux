@@ -6,7 +6,7 @@ sysroot_dir=$3
 sysroot_path=$4
 
 if [ ! -d "$sysroot_dir" ]; then
-  jinx sysroot
+  ./jinx sysroot
 fi
 
 make -C limine >/dev/null 2>&1

@@ -14,7 +14,7 @@ pub fn printStackIterator(stack_iter: std.debug.StackIterator) void {
     var iter = stack_iter;
 
     init() catch |nested_err| {
-        logger.err("Failed to initialize debug info: {e}", .{nested_err});
+        logger.err("Failed to initialize debug info: {any}", .{nested_err});
     };
 
     logger.err("Stack backtrace:", .{});
@@ -26,7 +26,7 @@ pub fn printStackIterator(stack_iter: std.debug.StackIterator) void {
 
 pub fn printStackTrace(stack_trace: *std.builtin.StackTrace) void {
     init() catch |nested_err| {
-        logger.err("Failed to initialize debug info: {e}", .{nested_err});
+        logger.err("Failed to initialize debug info: {any}", .{nested_err});
     };
 
     logger.err("Stack backtrace:", .{});
@@ -48,7 +48,7 @@ pub fn print(string: []const u8) void {
     const previous_vm = virt.kernel_address_space.switchTo();
 
     if (root.term_req.response) |term_res| {
-        term_res.write_fn(term_res.terminals[0], @ptrCast([*:0]const u8, string), string.len);
+        term_res.write_fn.?(term_res.terminals[0], @ptrCast([*:0]const u8, string), string.len);
     }
 
     _ = previous_vm.switchTo();
@@ -78,6 +78,12 @@ fn init() !void {
             .debug_line = try getSectionSlice(kernel_file.address, ".debug_line"),
             .debug_ranges = try getSectionSlice(kernel_file.address, ".debug_ranges"),
             .debug_line_str = null,
+            .debug_str_offsets = null,
+            .debug_loclists = null,
+            .debug_rnglists = null,
+            .debug_addr = null,
+            .debug_names = null,
+            .debug_frame = null,
         };
 
         try std.dwarf.openDwarfDebugInfo(&debug_info.?, debug_allocator.allocator());

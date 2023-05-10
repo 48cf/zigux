@@ -1,8 +1,9 @@
 const logger = std.log.scoped(.phys);
 
 const std = @import("std");
+const limine = @import("limine");
+
 const arch = @import("arch.zig");
-const limine = @import("limine.zig");
 const utils = @import("utils.zig");
 const virt = @import("virt.zig");
 
@@ -36,17 +37,15 @@ var total_pages: usize = undefined;
 var used_pages: usize = undefined;
 var last_allocation: usize = undefined;
 
-pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
-    const entries = memory_map_res.entries[0..memory_map_res.entry_count];
-
+pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
     logger.info("Current system memory map:", .{});
 
-    var bitmap_region: ?*limine.MemoryMap.Entry = null;
+    var bitmap_region: ?*limine.MemoryMapEntry = null;
 
-    for (entries) |entry| {
+    for (memory_map_res.entries()) |entry| {
         logger.info("  base=0x{X:0>16}, length=0x{X:0>16}, kind={}", .{ entry.base, entry.length, entry.kind });
 
-        if (entry.kind == .Usable and entry.base + entry.length > highest_phys_addr) {
+        if (entry.kind == .usable and entry.base + entry.length > highest_phys_addr) {
             highest_phys_addr = entry.base + entry.length;
         }
     }
@@ -56,8 +55,8 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
     logger.debug("Highest available address: 0x{X:0>16}", .{highest_phys_addr});
     logger.debug("Required bitmap size: {}KiB", .{bitmap_size / 1024});
 
-    for (entries) |entry| {
-        if (entry.kind == .Usable and entry.length >= bitmap_size) {
+    for (memory_map_res.entries()) |entry| {
+        if (entry.kind == .usable and entry.length >= bitmap_size) {
             bitmap_region = entry;
             break;
         }
@@ -77,10 +76,10 @@ pub fn init(memory_map_res: *limine.MemoryMap.Response) !void {
     used_pages = 0;
     last_allocation = 0;
 
-    std.mem.set(u8, bitmap.data, 0xFF);
+    @memset(bitmap.data, 0xFF);
 
-    for (entries) |entry| {
-        if (entry.kind == .Usable) {
+    for (memory_map_res.entries()) |entry| {
+        if (entry.kind == .usable) {
             const base = utils.alignDown(u64, entry.base, std.mem.page_size) / std.mem.page_size;
             const length = utils.alignUp(u64, entry.length, std.mem.page_size) / std.mem.page_size;
 
@@ -136,7 +135,7 @@ pub fn allocate(pages: usize, zero: bool) ?u64 {
     if (zero) {
         const allocation_data = virt.asHigherHalf([*]u8, address);
 
-        @memset(allocation_data, 0, pages * std.mem.page_size);
+        @memset(allocation_data[0 .. pages * std.mem.page_size], 0);
     }
 
     return address;

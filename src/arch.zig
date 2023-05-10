@@ -88,7 +88,7 @@ pub const Msr = struct {
     }
 };
 
-pub const Tss = packed struct {
+pub const Tss = extern struct {
     reserved: u32 = 0,
     rsp: [3]u64 = .{ 0, 0, 0 },
     reserved0: u64 = 0,
@@ -108,7 +108,7 @@ pub const Idt = struct {
             .base = @ptrToInt(self),
         };
 
-        for (interrupts.makeHandlers()) |handler, i| {
+        for (interrupts.makeHandlers(), 0..) |handler, i| {
             const ist: u8 = if (i == interrupts.sched_call_vector) 1 else 0;
             const flags: u8 = if (i == interrupts.syscall_vector) 0xee else 0x8e;
 
@@ -206,9 +206,9 @@ const GdtEntryExtended = extern struct {
     reserved: u32,
 };
 
-const DescriptorTableRegister = packed struct {
-    limit: u16,
-    base: u64,
+const DescriptorTableRegister = extern struct {
+    limit: u16 align(1), 
+    base: u64 align(1),
 };
 
 comptime {
@@ -217,6 +217,5 @@ comptime {
     std.debug.assert(@sizeOf(GdtEntryExtended) == 16);
 
     std.debug.assert(@sizeOf(DescriptorTableRegister) == 10);
-    std.debug.assert(@bitOffsetOf(DescriptorTableRegister, "limit") == 0);
-    std.debug.assert(@bitOffsetOf(DescriptorTableRegister, "base") == 16);
+    std.debug.assert(@offsetOf(DescriptorTableRegister, "limit") == 0);
 }

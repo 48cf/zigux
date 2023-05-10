@@ -327,7 +327,7 @@ pub fn init() !void {
     };
 
     idle_thread.regs.rsp = virt.asHigherHalf(u64, stack + std.mem.page_size);
-    idle_thread.regs.rip = @ptrToInt(idleThread);
+    idle_thread.regs.rip = @ptrToInt(&idleThread);
     idle_thread.regs.rflags = 0x202;
     idle_thread.regs.cs = 0x28;
     idle_thread.regs.ss = 0x30;
@@ -343,8 +343,8 @@ pub fn spawnThread(parent: *process.Process) !*Thread {
     const stack_base = try parent.address_space.mmap(
         0,
         thread_stack_pages * std.mem.page_size,
-        abi.PROT_READ | abi.PROT_WRITE,
-        abi.MAP_PRIVATE | abi.MAP_FIXED,
+        abi.C.PROT_READ | abi.C.PROT_WRITE,
+        abi.C.MAP_PRIVATE | abi.C.MAP_FIXED,
         null,
         0,
     );
@@ -504,7 +504,7 @@ pub fn exitProcess(proc: *process.Process, exit_code: u8) void {
         parent.waitpid_child_semaphore.release(1);
     }
 
-    logger.debug("Exiting process {} with code {}", .{ proc.pid, proc.exit_code });
+    logger.debug("Exiting process {d} with code {any}", .{ proc.pid, proc.exit_code });
     per_cpu.get().thread = null;
 }
 
@@ -577,7 +577,7 @@ pub fn ungrabAndReschedule(lock: *IrqSpinlock) void {
     schedCall(callback, @ptrToInt(lock));
 }
 
-pub fn schedCall(func: fn (*interrupts.InterruptFrame, usize) void, arg: usize) void {
+pub fn schedCall(func: *const fn (*interrupts.InterruptFrame, usize) void, arg: usize) void {
     asm volatile ("int %[vec]"
         :
         : [vec] "i" (interrupts.sched_call_vector),
@@ -587,7 +587,7 @@ pub fn schedCall(func: fn (*interrupts.InterruptFrame, usize) void, arg: usize) 
 }
 
 fn schedCallHandler(frame: *interrupts.InterruptFrame) void {
-    const func = @intToPtr(fn (*interrupts.InterruptFrame, usize) void, frame.rax);
+    const func = @intToPtr(*const fn (*interrupts.InterruptFrame, usize) void, frame.rax);
 
     func(frame, frame.rcx);
 }

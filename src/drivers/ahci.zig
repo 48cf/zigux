@@ -233,7 +233,7 @@ const Port = extern struct {
     }
 
     fn issueCommands(self: *volatile Port, slot_bits: u32) void {
-        logger.debug("0x{X}: Sending {d} command(s)", .{ @ptrToInt(self), @popCount(u32, slot_bits) });
+        logger.debug("0x{X}: Sending {d} command(s)", .{ @ptrToInt(self), @popCount(slot_bits) });
 
         self.waitReady();
         self.command_issue |= slot_bits;
@@ -470,11 +470,11 @@ const PortState = struct {
         const disk_size = self.sector_count * self.sector_size;
 
         for (std.mem.bytesAsSlice(u16, buffer[20..40])) |*value| {
-            value.* = @byteSwap(u16, value.*);
+            value.* = @byteSwap(value.*);
         }
 
         for (std.mem.bytesAsSlice(u16, buffer[54..94])) |*value| {
-            value.* = @byteSwap(u16, value.*);
+            value.* = @byteSwap(value.*);
         }
 
         const serial_str = std.mem.trimRight(u8, buffer[20..40], " ");
@@ -581,7 +581,7 @@ fn controllerThread(abar: *volatile Abar) !void {
 
     const ports_implemented = abar.ports_implemented;
 
-    for (abar.ports) |*port, i| {
+    for (abar.ports, 0..) |*port, i| {
         if ((ports_implemented >> @intCast(u5, i)) & 1 == 0) {
             continue;
         }

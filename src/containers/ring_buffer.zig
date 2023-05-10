@@ -3,7 +3,7 @@
 const scheduler = @import("../scheduler.zig");
 
 pub fn RingBuffer(comptime T: type, comptime max_size: usize) type {
-    if (@popCount(usize, max_size) != 1) {
+    if (@popCount(max_size) != 1) {
         // Required both for mask() and `written`/`read` overflowing
         @compileError("Size must be a power of 2!");
     }

@@ -59,7 +59,7 @@ const Inode = extern struct {
             0x8 => .File,
             0xA => .Symlink,
             0xC => .Socket,
-            else => |kind| std.debug.panic("Unknown inode file type: 0x{X}", .{kind}),
+            else => |inode_kind| std.debug.panic("Unknown inode file type: 0x{X}", .{inode_kind}),
         };
     }
 
