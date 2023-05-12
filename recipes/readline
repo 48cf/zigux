@@ -1,0 +1,27 @@
+name=readline
+from_source=readline
+revision=1
+hostdeps="gcc autoconf automake libtool pkg-config"
+deps="core-libs ncurses"
+
+configure() {
+  ${source_dir}/configure \
+    --host=${common_target} \
+    --prefix=${prefix} \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --disable-static \
+    --enable-multibyte \
+    --with-curses
+}
+
+build() {
+  make SHLIB_LIBS="-lncursesw" -j${parallelism}
+}
+
+install() {
+  make SHLIB_LIBS="-lncursesw" DESTDIR=${dest_dir} install
+
+  ${common_target}-strip ${dest_dir}${prefix}/lib/libhistory.so.8
+  ${common_target}-strip ${dest_dir}${prefix}/lib/libreadline.so.8
+}

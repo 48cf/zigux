@@ -1,0 +1,25 @@
+name=limine
+from_source=limine
+revision=1
+hostdeps="gcc autoconf automake libtool pkg-config"
+deps="core-libs"
+imagedeps="mtools nasm"
+
+configure() {
+  ${source_dir}/configure \
+    --host=${common_target} \
+    --prefix=${prefix} \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --enable-all \
+    --disable-uefi-aarch64 \
+    TOOLCHAIN_FOR_TARGET=${common_target}
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make DESTDIR=${dest_dir} install-strip
+}

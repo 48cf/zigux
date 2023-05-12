@@ -1,0 +1,12 @@
+[binaries]
+c = 'x86_64-zigux-gcc'
+cpp = 'x86_64-zigux-g++'
+ar = 'x86_64-zigux-ar'
+strip = 'x86_64-zigux-strip'
+pkgconfig = 'x86_64-zigux-pkg-config'
+
+[host_machine]
+system = 'zigux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'

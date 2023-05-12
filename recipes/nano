@@ -1,0 +1,22 @@
+name=nano
+from_source=nano
+revision=1
+hostdeps="gcc automake autoconf libtool pkg-config"
+deps="core-libs ncurses libintl"
+
+configure() {
+  ${source_dir}/configure \
+    --host=${common_target} \
+    --prefix=${prefix} \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --disable-nls
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make DESTDIR=${dest_dir} install-strip
+}

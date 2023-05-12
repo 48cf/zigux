@@ -1,0 +1,35 @@
+name=openssl
+from_source=openssl
+revision=1
+hostdeps="gcc pkg-config"
+deps="core-libs zlib"
+
+configure() {
+    CC=${common_target}-gcc \
+    CXX=${common_target}-g++ \
+    AR=${common_target}-ar \
+  ${source_dir}/Configure \
+    --prefix=${prefix} \
+    --openssldir=/etc/ssl \
+    --libdir=lib \
+    ${common_target} \
+    shared \
+    zlib-dynamic \
+    no-afalgeng
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  # Disable installing static libraries.
+  sed -i '/INSTALL_LIBS/s/libcrypto.a libssl.a//' Makefile
+
+  make DESTDIR=${dest_dir} MANSUFFIX=ssl install
+
+  ${common_target}-strip ${dest_dir}${prefix}/bin/openssl
+  ${common_target}-strip ${dest_dir}${prefix}/lib/libcrypto.so.1.1
+  ${common_target}-strip ${dest_dir}${prefix}/lib/libssl.so.1.1
+  ${common_target}-strip ${dest_dir}${prefix}/lib/engines-1.1/*
+}

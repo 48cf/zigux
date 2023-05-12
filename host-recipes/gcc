@@ -1,0 +1,33 @@
+name=gcc
+from_source=gcc-host
+revision=1
+imagedeps="gcc"
+hostdeps="autoconf automake libtool pkg-config"
+hostrundeps="binutils"
+deps="mlibc-headers"
+
+configure() {
+  cp -rp ${source_dir}/. ./
+  mkdir -p build && cd build
+
+    CFLAGS_FOR_TARGET="${CFLAGS}" \
+    CXXFLAGS_FOR_TARGET="${CXXFLAGS}" \
+  ../configure \
+    --prefix=${prefix} \
+    --target=${common_target} \
+    --with-sysroot=${sysroot_dir} \
+    --disable-nls \
+    --disable-multilib \
+    --enable-languages=c,c++,lto \
+    --enable-initfini-array \
+    --enable-shared \
+    --enable-host-shared
+}
+
+build() {
+  make -C build -j${parallelism} all-gcc
+}
+
+install() {
+  make -C build DESTDIR=${dest_dir} install-gcc
+}

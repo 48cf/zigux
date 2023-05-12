@@ -1,0 +1,23 @@
+name=binutils
+from_source=binutils
+revision=1
+imagedeps="gcc"
+hostdeps="autoconf automake libtool pkg-config"
+
+configure() {
+  ${source_dir}/configure \
+    --prefix=${prefix} \
+    --target=${common_target} \
+    --with-sysroot=${sysroot_dir} \
+    --disable-nls \
+    --disable-werror \
+    --disable-dependency-tracking
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make DESTDIR=${dest_dir} install-strip
+}

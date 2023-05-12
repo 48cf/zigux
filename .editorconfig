@@ -1,0 +1,8 @@
+root = true
+
+[Makefile]
+indent_style = tab
+
+[{host-recipes,recipes,source-recipes}/*]
+indent_style = space
+indent_size = 2

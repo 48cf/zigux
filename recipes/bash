@@ -1,0 +1,26 @@
+name=bash
+from_source=bash
+revision=1
+imagedeps="gcc"
+hostdeps="gcc autoconf automake libtool pkg-config"
+deps="core-libs ncurses readline"
+
+configure() {
+  ${source_dir}/configure \
+    --host=${common_target} \
+    --prefix=${prefix} \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --without-bash-malloc  \
+    --disable-nls \
+    --with-installed-readline=${sysroot}/usr/lib
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make DESTDIR=${dest_dir} install-strip
+  ln -s bash ${dest_dir}${prefix}/bin/sh
+}

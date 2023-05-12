@@ -1,0 +1,26 @@
+name=pkg-config
+from_source=pkg-config
+revision=1
+imagedeps="gcc"
+hostdeps="automake autoconf libtool"
+
+configure() {
+  ${source_dir}/configure --prefix=${prefix}
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make DESTDIR=${dest_dir} install-strip
+  ln -s pkgconf ${dest_dir}${prefix}/bin/${common_target}-pkg-config
+  mkdir -p ${dest_dir}${prefix}/share/pkgconfig/personality.d
+  cat <<EOF >${dest_dir}${prefix}/share/pkgconfig/personality.d/${common_target}.personality
+Triplet: ${common_target}
+SysrootDir: ${sysroot_dir}
+DefaultSearchPaths: ${sysroot_dir}/usr/lib/pkgconfig:${sysroot_dir}/usr/share/pkgconfig
+SystemIncludePaths: ${sysroot_dir}/usr/include
+SystemLibraryPaths: ${sysroot_dir}/usr/lib
+EOF
+}

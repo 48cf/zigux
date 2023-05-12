@@ -1,0 +1,23 @@
+# /etc/profile
+
+umask 022
+
+append_path () {
+  case ":$PATH:" in
+    *:"$1":*)
+      ;;
+    *)
+      PATH="${PATH:+$PATH:}$1"
+  esac
+}
+
+append_path "/usr/bin"
+append_path "/usr/local/bin"
+append_path "/usr/local/sbin"
+
+export PATH
+export PS1="\[\e[1;32m\]\u@\h\[\e[0m\] \[\e[1;34m\]\w\[\e[0m\]\$ "
+
+unset -f append_path
+unset TERMCAP
+unset MANPATH

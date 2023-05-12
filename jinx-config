@@ -1,2 +1,7 @@
-common_triple="x86_64-zigux"
-common_cflags="-O2 -pipe"
+common_target_arch="x86_64"
+common_target="${common_target_arch}-zigux"
+common_cflags="-pipe -O2 -mtune=native"
+common_cxxflags="${common_cflags}"
+
+export CFLAGS="$CFLAGS ${common_cflags}"
+export CXXFLAGS="$CXXFLAGS ${common_cxxflags}"

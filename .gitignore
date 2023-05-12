@@ -1,9 +1,17 @@
 .jinx-cache
+.vscode
+
 builds
 host-builds
 host-pkgs
+iso_root
 pkgs
 sources
 sysroot
 zig-cache
 zig-out
+
+bochsout.log
+initramfs.tar
+jinx
+zigux.iso

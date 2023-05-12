@@ -1,28 +1,28 @@
-#!/usr/bin/env sh
+#!/bin/sh
 
-image_dir=$1
-image_path=$2
-sysroot_dir=$3
-sysroot_path=$4
+set -ex
 
-if [ ! -d "$sysroot_dir" ]; then
-  ./jinx sysroot
-fi
+# Prepare the sysroot.
+rm -rf sysroot
+./jinx sysroot
+./jinx host-build limine
 
-make -C limine >/dev/null 2>&1
-mkdir -p "$image_dir" >/dev/null 2>&1
+# Make an initramfs tarball from the sysroot.
+(cd sysroot && tar cf ../initramfs.tar *)
 
-if [ ! -f "$sysroot_path" ] || [ "$sysroot_dir" -nt "$sysroot_path" ]; then
-  tar -C "$sysroot_dir" -cf "$sysroot_path" . >/dev/null 2>&1
-  touch -r "$sysroot_dir" "$sysroot_path"
-fi
+# Prepare the ISO root.
+rm -rf iso_root
+mkdir -p iso_root
+cp pkgs/kernel/usr/bin/kernel iso_root/
+cp initramfs.tar iso_root/
+cp misc/limine.cfg iso_root/
+cp host-pkgs/limine/usr/local/share/limine/limine.sys iso_root/
+cp host-pkgs/limine/usr/local/share/limine/limine-cd.bin iso_root/
 
-sysroot_in_image="$image_dir"/"$(basename $sysroot_path)"
+# Create the ISO.
+xorriso -as mkisofs -b limine-cd.bin \
+  -no-emul-boot -boot-load-size 4 -boot-info-table \
+  --protective-msdos-label iso_root -o zigux.iso
 
-if [ ! -f "$sysroot_in_image" ] || [ "$sysroot_path" -nt "$sysroot_in_image" ]; then
-  cp "$sysroot_path" "$sysroot_in_image"
-fi
-
-cp ${@:5} misc/limine.cfg limine/limine.sys limine/limine-cd.bin "$image_dir" >/dev/null 2>&1
-xorriso -as mkisofs -b limine-cd.bin -no-emul-boot -boot-info-table --protective-msdos-label "$image_dir" -o "$image_path" >/dev/null 2>&1
-limine/limine-deploy "$image_path" >/dev/null 2>&1
+# Install Limine.
+host-pkgs/limine/usr/local/bin/limine-deploy zigux.iso

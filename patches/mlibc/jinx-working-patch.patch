@@ -1,0 +1,724 @@
+diff --git mlibc-clean/meson.build mlibc-workdir/meson.build
+index 35fd858..e6d4f1f 100644
+--- mlibc-clean/meson.build
++++ mlibc-workdir/meson.build
+@@ -160,6 +160,10 @@ elif host_machine.system() == 'dripos'
+ 	rtdl_include_dirs += include_directories('sysdeps/dripos/include')
+ 	libc_include_dirs += include_directories('sysdeps/dripos/include')
+ 	subdir('sysdeps/dripos')
++elif host_machine.system() == 'zigux'
++	rtdl_include_dirs += include_directories('sysdeps/zigux/include')
++	libc_include_dirs += include_directories('sysdeps/zigux/include')
++	subdir('sysdeps/zigux')
+ else
+ 	error('No sysdeps defined for OS: ' + host_machine.system())
+ endif
+diff --git mlibc-workdir/sysdeps/zigux/generic/entry.cpp mlibc-workdir/sysdeps/zigux/generic/entry.cpp
+new file mode 100644
+index 0000000..bb3ed17
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/generic/entry.cpp
+@@ -0,0 +1,21 @@
++#include <stdint.h>
++#include <stdlib.h>
++
++#include <mlibc/elf/startup.h>
++
++extern "C" uintptr_t *__dlapi_entrystack();
++
++void __mlibc_initLocale();
++
++static mlibc::exec_stack_data stack_data;
++
++extern "C" void __mlibc_entry(int (*main_fn)(int, char **, char **)) {
++    __mlibc_initLocale();
++
++    mlibc::parse_exec_stack(__dlapi_entrystack(), &stack_data);
++    mlibc::set_startup_data(stack_data.argc, stack_data.argv, stack_data.envp);
++
++    int result = main_fn(stack_data.argc, stack_data.argv, stack_data.envp);
++
++    exit(result);
++}
+diff --git mlibc-workdir/sysdeps/zigux/generic/generic.cpp mlibc-workdir/sysdeps/zigux/generic/generic.cpp
+new file mode 100644
+index 0000000..714b9a7
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/generic/generic.cpp
+@@ -0,0 +1,44 @@
++#include <mlibc/all-sysdeps.hpp>
++#include <mlibc/debug.hpp>
++#include <zigux/syscall.h>
++
++#define UNIMPLEMENTED(x) { mlibc::panicLogger() << "Unimplemented sysdep: " << #x << frg::endlog; }
++
++namespace mlibc {
++
++void sys_libc_panic() {
++    mlibc::infoLogger() << "libc_panic" << frg::endlog;
++    sys_exit(1);
++}
++
++void sys_libc_log(const char *msg) {
++    do_syscall(SYS_libc_log, msg);
++}
++
++void sys_exit(int code) {
++    do_syscall(SYS_exit, code);
++}
++
++int sys_anon_allocate(size_t size, void **pointer) UNIMPLEMENTED(sys_anon_allocate)
++int sys_anon_free(void *pointer, size_t size) UNIMPLEMENTED(sys_anon_free)
++int sys_close(int fd) UNIMPLEMENTED(sys_close)
++int sys_futex_wait(int *pointer, int expected, const struct timespec *time) UNIMPLEMENTED(sys_futex_wait)
++int sys_futex_wake(int *pointer) UNIMPLEMENTED(sys_futex_wake)
++int sys_open(const char *filename, int flags, mode_t mode, int *fd) UNIMPLEMENTED(sys_open)
++int sys_open_dir(const char *path, int *handle) UNIMPLEMENTED(sys_open_dir)
++int sys_read(int fd, void *buf, size_t count, ssize_t *bytes_read) UNIMPLEMENTED(sys_read)
++int sys_read_entries(int handle, void *buffer, size_t max_size, size_t *bytes_read) UNIMPLEMENTED(sys_read_entries)
++int sys_readlink(const char *path, void *buffer, size_t max_size, ssize_t *length) UNIMPLEMENTED(sys_readlink)
++int sys_seek(int fd, off_t offset, int whence, off_t *new_offset) UNIMPLEMENTED(sys_seek)
++int sys_tcb_set(void *pointer) UNIMPLEMENTED(sys_tcb_set)
++int sys_vm_map(void *hint, size_t size, int prot, int flags, int fd, off_t offset, void **window) UNIMPLEMENTED(sys_vm_map)
++
++#ifndef MLIBC_BUILDING_RTDL
++
++int sys_clock_get(int clock, time_t *secs, long *nanos) UNIMPLEMENTED(sys_clock_get)
++int sys_vm_unmap(void *address, size_t size) UNIMPLEMENTED(sys_vm_unmap)
++int sys_write(int fd, const void *buffer, size_t count, ssize_t *written) UNIMPLEMENTED(sys_write)
++
++#endif
++
++}
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/access.h mlibc-workdir/sysdeps/zigux/include/abi-bits/access.h
+new file mode 120000
+index 0000000..cb83931
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/access.h
+@@ -0,0 +1 @@
++../../../../abis/linux/access.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/auxv.h mlibc-workdir/sysdeps/zigux/include/abi-bits/auxv.h
+new file mode 120000
+index 0000000..c43f878
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/auxv.h
+@@ -0,0 +1 @@
++../../../../abis/linux/auxv.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/blkcnt_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/blkcnt_t.h
+new file mode 120000
+index 0000000..0b0ec27
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/blkcnt_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/blkcnt_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/blksize_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/blksize_t.h
+new file mode 120000
+index 0000000..7dc8d7c
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/blksize_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/blksize_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/clockid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/clockid_t.h
+new file mode 120000
+index 0000000..6a42da5
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/clockid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/clockid_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/dev_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/dev_t.h
+new file mode 120000
+index 0000000..bca881e
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/dev_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/dev_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/epoll.h mlibc-workdir/sysdeps/zigux/include/abi-bits/epoll.h
+new file mode 120000
+index 0000000..eb4b76d
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/epoll.h
+@@ -0,0 +1 @@
++../../../../abis/linux/epoll.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/errno.h mlibc-workdir/sysdeps/zigux/include/abi-bits/errno.h
+new file mode 120000
+index 0000000..6e507de
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/errno.h
+@@ -0,0 +1 @@
++../../../../abis/linux/errno.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/fcntl.h mlibc-workdir/sysdeps/zigux/include/abi-bits/fcntl.h
+new file mode 120000
+index 0000000..463e2c9
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/fcntl.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fcntl.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/fsblkcnt_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/fsblkcnt_t.h
+new file mode 120000
+index 0000000..898dfb2
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/fsblkcnt_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fsblkcnt_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/fsfilcnt_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/fsfilcnt_t.h
+new file mode 120000
+index 0000000..791755c
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/fsfilcnt_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fsfilcnt_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/gid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/gid_t.h
+new file mode 120000
+index 0000000..abce6d6
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/gid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/gid_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/in.h mlibc-workdir/sysdeps/zigux/include/abi-bits/in.h
+new file mode 120000
+index 0000000..418d1d5
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/in.h
+@@ -0,0 +1 @@
++../../../../abis/linux/in.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/ino_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/ino_t.h
+new file mode 120000
+index 0000000..4c20aca
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/ino_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ino_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/inotify.h mlibc-workdir/sysdeps/zigux/include/abi-bits/inotify.h
+new file mode 120000
+index 0000000..b5cb282
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/inotify.h
+@@ -0,0 +1 @@
++../../../../abis/linux/inotify.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/ioctls.h mlibc-workdir/sysdeps/zigux/include/abi-bits/ioctls.h
+new file mode 120000
+index 0000000..595106b
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/ioctls.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ioctls.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/limits.h mlibc-workdir/sysdeps/zigux/include/abi-bits/limits.h
+new file mode 120000
+index 0000000..6c88db2
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/limits.h
+@@ -0,0 +1 @@
++../../../../abis/linux/limits.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/mode_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/mode_t.h
+new file mode 120000
+index 0000000..5d78fdf
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/mode_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/mode_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/mqueue.h mlibc-workdir/sysdeps/zigux/include/abi-bits/mqueue.h
+new file mode 120000
+index 0000000..fa87b07
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/mqueue.h
+@@ -0,0 +1 @@
++../../../../abis/linux/mqueue.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/nlink_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/nlink_t.h
+new file mode 120000
+index 0000000..bb3b625
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/nlink_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/nlink_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/packet.h mlibc-workdir/sysdeps/zigux/include/abi-bits/packet.h
+new file mode 120000
+index 0000000..998ef1a
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/packet.h
+@@ -0,0 +1 @@
++../../../../abis/linux/packet.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/pid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/pid_t.h
+new file mode 120000
+index 0000000..baa90f6
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/pid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/pid_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/poll.h mlibc-workdir/sysdeps/zigux/include/abi-bits/poll.h
+new file mode 120000
+index 0000000..8ea6a0a
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/poll.h
+@@ -0,0 +1 @@
++../../../../abis/linux/poll.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/ptrace.h mlibc-workdir/sysdeps/zigux/include/abi-bits/ptrace.h
+new file mode 120000
+index 0000000..b2517b2
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/ptrace.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ptrace.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/reboot.h mlibc-workdir/sysdeps/zigux/include/abi-bits/reboot.h
+new file mode 120000
+index 0000000..77013a4
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/reboot.h
+@@ -0,0 +1 @@
++../../../../abis/linux/reboot.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/resource.h mlibc-workdir/sysdeps/zigux/include/abi-bits/resource.h
+new file mode 120000
+index 0000000..88d7402
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/resource.h
+@@ -0,0 +1 @@
++../../../../abis/linux/resource.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/seek-whence.h mlibc-workdir/sysdeps/zigux/include/abi-bits/seek-whence.h
+new file mode 120000
+index 0000000..df7bccf
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/seek-whence.h
+@@ -0,0 +1 @@
++../../../../abis/linux/seek-whence.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/shm.h mlibc-workdir/sysdeps/zigux/include/abi-bits/shm.h
+new file mode 120000
+index 0000000..067d8c4
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/shm.h
+@@ -0,0 +1 @@
++../../../../abis/linux/shm.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/signal.h mlibc-workdir/sysdeps/zigux/include/abi-bits/signal.h
+new file mode 120000
+index 0000000..4dcb0b7
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/signal.h
+@@ -0,0 +1 @@
++../../../../abis/linux/signal.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/socket.h mlibc-workdir/sysdeps/zigux/include/abi-bits/socket.h
+new file mode 120000
+index 0000000..f1dc016
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/socket.h
+@@ -0,0 +1 @@
++../../../../abis/linux/socket.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/socklen_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/socklen_t.h
+new file mode 120000
+index 0000000..41f3b11
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/socklen_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/socklen_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/stat.h mlibc-workdir/sysdeps/zigux/include/abi-bits/stat.h
+new file mode 120000
+index 0000000..1f63b41
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/stat.h
+@@ -0,0 +1 @@
++../../../../abis/linux/stat.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/statfs.h mlibc-workdir/sysdeps/zigux/include/abi-bits/statfs.h
+new file mode 120000
+index 0000000..e3d202f
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/statfs.h
+@@ -0,0 +1 @@
++../../../../abis/linux/statfs.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/statvfs.h mlibc-workdir/sysdeps/zigux/include/abi-bits/statvfs.h
+new file mode 120000
+index 0000000..1fc80c2
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/statvfs.h
+@@ -0,0 +1 @@
++../../../../abis/linux/statvfs.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/suseconds_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/suseconds_t.h
+new file mode 120000
+index 0000000..9ed6597
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/suseconds_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/suseconds_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/termios.h mlibc-workdir/sysdeps/zigux/include/abi-bits/termios.h
+new file mode 120000
+index 0000000..ee8f0b0
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/termios.h
+@@ -0,0 +1 @@
++../../../../abis/linux/termios.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/time.h mlibc-workdir/sysdeps/zigux/include/abi-bits/time.h
+new file mode 120000
+index 0000000..2a02625
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/time.h
+@@ -0,0 +1 @@
++../../../../abis/linux/time.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/uid_t.h mlibc-workdir/sysdeps/zigux/include/abi-bits/uid_t.h
+new file mode 120000
+index 0000000..b306777
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/uid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/uid_t.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/utsname.h mlibc-workdir/sysdeps/zigux/include/abi-bits/utsname.h
+new file mode 120000
+index 0000000..b285754
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/utsname.h
+@@ -0,0 +1 @@
++../../../../abis/linux/utsname.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/vm-flags.h mlibc-workdir/sysdeps/zigux/include/abi-bits/vm-flags.h
+new file mode 120000
+index 0000000..bbe258c
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/vm-flags.h
+@@ -0,0 +1 @@
++../../../../abis/linux/vm-flags.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/wait.h mlibc-workdir/sysdeps/zigux/include/abi-bits/wait.h
+new file mode 120000
+index 0000000..feb2840
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/wait.h
+@@ -0,0 +1 @@
++../../../../abis/linux/wait.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/abi-bits/xattr.h mlibc-workdir/sysdeps/zigux/include/abi-bits/xattr.h
+new file mode 120000
+index 0000000..66412d7
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/abi-bits/xattr.h
+@@ -0,0 +1 @@
++../../../../abis/linux/xattr.h
+\ No newline at end of file
+diff --git mlibc-workdir/sysdeps/zigux/include/zigux/syscall.h mlibc-workdir/sysdeps/zigux/include/zigux/syscall.h
+new file mode 100644
+index 0000000..03e8b35
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/include/zigux/syscall.h
+@@ -0,0 +1,146 @@
++#ifndef _ZIGUX__SYSCALL_H
++#define _ZIGUX__SYSCALL_H
++
++#include <stdint.h>
++
++#define SYS_libc_log 0
++#define SYS_exit 1
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++inline uint64_t syscall_0(uint64_t n) {
++    uint64_t res;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n)
++        : "memory"
++    );
++    return res;
++}
++
++inline uint64_t syscall_1(uint64_t n, uint64_t a) {
++    uint64_t res;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n), "D" (a)
++        : "memory"
++    );
++    return res;
++}
++
++inline uint64_t syscall_2(uint64_t n, uint64_t a, uint64_t b) {
++    uint64_t res;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n), "D" (a), "S" (b)
++        : "memory"
++    );
++    return res;
++}
++
++inline uint64_t syscall_3(uint64_t n, uint64_t a, uint64_t b, uint64_t c) {
++    uint64_t res;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n), "D" (a), "S" (b), "d" (c)
++        : "memory"
++    );
++    return res;
++}
++
++inline uint64_t syscall_4(uint64_t n, uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
++    uint64_t res;
++    register uint64_t r10 asm("r10") = d;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n), "D" (a), "S" (b), "d" (c), "r" (r10)
++        : "memory"
++    );
++    return res;
++}
++
++inline uint64_t syscall_5(uint64_t n, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e) {
++    uint64_t res;
++    register uint64_t r10 asm("r10") = d;
++    register uint64_t r8 asm("r8") = e;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n), "D" (a), "S" (b), "d" (c), "r" (r10), "r" (r8)
++        : "memory"
++    );
++    return res;
++}
++
++inline uint64_t syscall_6(uint64_t n, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f) {
++    uint64_t res;
++    register uint64_t r10 asm("r10") = d;
++    register uint64_t r8 asm("r8") = e;
++    register uint64_t r9 asm("r9") = f;
++    asm volatile(
++        "int $0xfd"
++        : "=a" (res)
++        : "a" (n), "D" (a), "S" (b), "d" (c), "r" (r10), "r" (r8), "r" (r9)
++        : "memory"
++    );
++    return res;
++}
++
++#ifdef __cplusplus
++}
++
++inline uint64_t do_syscall(uint64_t n) {
++    return syscall_0(n);
++}
++
++inline uint64_t do_syscall(uint64_t n, uint64_t a) {
++    return syscall_1(n, a);
++}
++
++inline uint64_t do_syscall(uint64_t n, uint64_t a, uint64_t b) {
++    return syscall_2(n, a, b);
++}
++
++inline uint64_t do_syscall(uint64_t n, uint64_t a, uint64_t b, uint64_t c) {
++    return syscall_3(n, a, b, c);
++}
++
++inline uint64_t do_syscall(uint64_t n, uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
++    return syscall_4(n, a, b, c, d);
++}
++
++inline uint64_t do_syscall(uint64_t n, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e)  {
++    return syscall_5(n, a, b, c, d, e);
++}
++
++inline uint64_t do_syscall(uint64_t n, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f)  {
++    return syscall_6(n, a, b, c, d, e, f);
++}
++
++template <typename... T>
++inline uint64_t do_syscall(uint64_t n, T... a){
++    return do_syscall(n, (uint64_t)(a)...);
++}
++
++inline int syscall_error(uint64_t ret) {
++    if((uint64_t)ret > -4096UL)
++        return -(int64_t)ret;
++
++    return 0;
++}
++
++template <typename T>
++inline T syscall_result(uint64_t res) {
++    return (int64_t)res;
++}
++
++#endif // __cplusplus
++
++#endif
+diff --git mlibc-workdir/sysdeps/zigux/meson.build mlibc-workdir/sysdeps/zigux/meson.build
+new file mode 100644
+index 0000000..a34bd53
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/meson.build
+@@ -0,0 +1,90 @@
++rtdl_sources += files(
++	'generic/generic.cpp'
++)
++
++libc_sources += files(
++	'generic/entry.cpp',
++	'generic/generic.cpp',
++)
++
++if not no_headers
++	install_headers(
++		'include/abi-bits/auxv.h',
++		'include/abi-bits/seek-whence.h',
++		'include/abi-bits/vm-flags.h',
++		'include/abi-bits/errno.h',
++		'include/abi-bits/fcntl.h',
++		'include/abi-bits/in.h',
++		'include/abi-bits/reboot.h',
++		'include/abi-bits/resource.h',
++		'include/abi-bits/stat.h',
++		'include/abi-bits/signal.h',
++		'include/abi-bits/socket.h',
++		'include/abi-bits/termios.h',
++		'include/abi-bits/time.h',
++		'include/abi-bits/blkcnt_t.h',
++		'include/abi-bits/blksize_t.h',
++		'include/abi-bits/dev_t.h',
++		'include/abi-bits/gid_t.h',
++		'include/abi-bits/ino_t.h',
++		'include/abi-bits/mode_t.h',
++		'include/abi-bits/nlink_t.h',
++		'include/abi-bits/pid_t.h',
++		'include/abi-bits/uid_t.h',
++		'include/abi-bits/access.h',
++		'include/abi-bits/wait.h',
++		'include/abi-bits/limits.h',
++		'include/abi-bits/utsname.h',
++		'include/abi-bits/ptrace.h',
++		'include/abi-bits/poll.h',
++		'include/abi-bits/epoll.h',
++		'include/abi-bits/packet.h',
++		'include/abi-bits/inotify.h',
++		'include/abi-bits/clockid_t.h',
++		'include/abi-bits/shm.h',
++		'include/abi-bits/mqueue.h',
++		'include/abi-bits/suseconds_t.h',
++		'include/abi-bits/fsfilcnt_t.h',
++		'include/abi-bits/fsblkcnt_t.h',
++		'include/abi-bits/socklen_t.h',
++		'include/abi-bits/statfs.h',
++		'include/abi-bits/statvfs.h',
++		'include/abi-bits/ioctls.h',
++		'include/abi-bits/xattr.h',
++		subdir: 'abi-bits',
++	)
++
++	install_headers(
++		'include/zigux/syscall.h',
++		subdir: 'zigux',
++	)
++endif
++
++if not headers_only
++	crt = custom_target('crt0',
++		build_by_default: true,
++		command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++		input: host_machine.cpu_family() / 'crt-src/crt0.S',
++		output: 'crt0.o',
++		install: true,
++		install_dir: get_option('libdir'),
++	)
++
++	custom_target('crti',
++		build_by_default: true,
++		command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++		input: host_machine.cpu_family() / 'crt-src/crti.S',
++		output: 'crti.o',
++		install: true,
++		install_dir: get_option('libdir'),
++	)
++
++	custom_target('crtn',
++		build_by_default: true,
++		command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++		input: host_machine.cpu_family() / 'crt-src/crtn.S',
++		output: 'crtn.o',
++		install: true,
++		install_dir: get_option('libdir'),
++	)
++endif
+diff --git mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crt0.S mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crt0.S
+new file mode 100644
+index 0000000..5ad3636
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crt0.S
+@@ -0,0 +1,8 @@
++.section .text
++.global _start
++
++_start:
++    mov $main, %rdi
++    call __mlibc_entry
++
++.section .note.GNU-stack,"",%progbits
+diff --git mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crti.S mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crti.S
+new file mode 100644
+index 0000000..6d01b69
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crti.S
+@@ -0,0 +1,13 @@
++.section .init
++.global _init
++
++_init:
++	push %rax
++
++.section .fini
++.global _fini
++
++_fini:
++	push %rax
++
++.section .note.GNU-stack,"",%progbits
+diff --git mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crtn.S mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crtn.S
+new file mode 100644
+index 0000000..a947906
+--- /dev/null
++++ mlibc-workdir/sysdeps/zigux/x86_64/crt-src/crtn.S
+@@ -0,0 +1,9 @@
++.section .init
++	pop %rax
++	ret
++
++.section .fini
++	pop %rax
++	ret
++
++.section .note.GNU-stack,"",%progbits
