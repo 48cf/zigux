@@ -31,7 +31,6 @@ pub fn build(b: *std.build.Builder) !void {
 
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
     kernel.addAnonymousModule("limine", .{ .source_file = .{ .path = "limine-zig/limine.zig" } });
-    kernel.addIncludePath("/sysroot/usr/include");
     kernel.addIncludePath("../pkgs/mlibc-headers/usr/include");
     kernel.addIncludePath("../pkgs/linux-headers/usr/include");
 
