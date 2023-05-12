@@ -163,14 +163,14 @@ pub const Thread = struct {
             .{ std.elf.AT_PHNUM, executable.aux_vals.at_phnum },
         };
 
-        stack.rsp = utils.alignDown(u64, stack.rsp, 16);
+        stack.rsp = std.mem.alignBackwardGeneric(u64, stack.rsp, 16);
 
         // Calculate the amount of stuff we will write to the stack and misalign
         // it on purpose so it's 16 byte aligned at the process entry after all the pushes
         const pointer_count = auxv.len * 2 + envp_pointers.items.len + argv_pointers.items.len + 4;
         const byte_count = pointer_count * 8;
 
-        if (!utils.isAligned(u64, stack.rsp - byte_count, 16)) {
+        if (!std.mem.isAlignedGeneric(u64, stack.rsp - byte_count, 16)) {
             stack.rsp -= 8;
         }
 
@@ -202,7 +202,7 @@ pub const Thread = struct {
         // Write the argument count
         stack.writeInt(u64, final_argv.len);
 
-        std.debug.assert(utils.isAligned(u64, stack.rsp, 16));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, stack.rsp, 16));
 
         // Set up the registers
         self.regs.rsp = stack.rsp;

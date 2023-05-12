@@ -132,7 +132,7 @@ const SuperBlock = extern struct {
     fn blockGroupOffset(self: *const @This(), index: u64) u64 {
         std.debug.assert(index < self.blockGroups());
 
-        const block_group_desc_offset = utils.alignUp(u64, 2048, self.blockSize());
+        const block_group_desc_offset = std.mem.alignForwardGeneric(u64, 2048, self.blockSize());
         return block_group_desc_offset + @sizeOf(BlockGroupDesc) * index;
     }
 

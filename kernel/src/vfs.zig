@@ -197,7 +197,7 @@ pub const VNode = struct {
             buffer.st_mode |= 0o777 | abi.C.S_IFLNK;
             buffer.st_size = @intCast(c_long, target.len);
             buffer.st_blksize = std.mem.page_size;
-            buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, target.len, std.mem.page_size));
+            buffer.st_blocks = @intCast(c_long, std.mem.alignForward(target.len, std.mem.page_size) / std.mem.page_size);
         } else {
             return error.NotImplemented;
         }
@@ -414,7 +414,7 @@ const SliceBackedFile = struct {
         buffer.st_mode = 0o777 | abi.C.S_IFREG;
         buffer.st_size = @intCast(c_long, self.data.len);
         buffer.st_blksize = std.mem.page_size;
-        buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, self.data.len, std.mem.page_size));
+        buffer.st_blocks = @intCast(c_long, std.mem.alignForward(self.data.len, std.mem.page_size) / std.mem.page_size);
     }
 };
 

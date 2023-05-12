@@ -77,7 +77,7 @@ const RamFSFile = struct {
         buffer.st_mode = 0o777 | abi.C.S_IFREG;
         buffer.st_size = @intCast(c_long, self.data.items.len);
         buffer.st_blksize = std.mem.page_size;
-        buffer.st_blocks = @intCast(c_long, utils.divRoundUp(usize, self.data.items.len, std.mem.page_size));
+        buffer.st_blocks = @intCast(c_long, std.mem.alignForward(self.data.items.len, std.mem.page_size) / std.mem.page_size);
     }
 };
 

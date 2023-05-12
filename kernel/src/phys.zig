@@ -50,7 +50,7 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
         }
     }
 
-    const bitmap_size = utils.alignUp(u64, highest_phys_addr, std.mem.page_size) / std.mem.page_size / 8 + 1;
+    const bitmap_size = std.mem.alignForwardGeneric(u64, highest_phys_addr, std.mem.page_size) / std.mem.page_size / 8 + 1;
 
     logger.debug("Highest available address: 0x{X:0>16}", .{highest_phys_addr});
     logger.debug("Required bitmap size: {}KiB", .{bitmap_size / 1024});
@@ -80,8 +80,8 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
 
     for (memory_map_res.entries()) |entry| {
         if (entry.kind == .usable) {
-            const base = utils.alignDown(u64, entry.base, std.mem.page_size) / std.mem.page_size;
-            const length = utils.alignUp(u64, entry.length, std.mem.page_size) / std.mem.page_size;
+            const base = std.mem.alignBackwardGeneric(u64, entry.base, std.mem.page_size) / std.mem.page_size;
+            const length = std.mem.alignForwardGeneric(u64, entry.length, std.mem.page_size) / std.mem.page_size;
 
             var i: usize = 0;
 
@@ -93,8 +93,8 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
         }
     }
 
-    const bitmap_base = utils.alignDown(u64, bitmap_region.?.base, std.mem.page_size) / std.mem.page_size;
-    const bitmap_length = utils.alignUp(u64, bitmap_size, std.mem.page_size) / std.mem.page_size;
+    const bitmap_base = std.mem.alignBackwardGeneric(u64, bitmap_region.?.base, std.mem.page_size) / std.mem.page_size;
+    const bitmap_length = std.mem.alignForwardGeneric(u64, bitmap_size, std.mem.page_size) / std.mem.page_size;
 
     var i: usize = 0;
 

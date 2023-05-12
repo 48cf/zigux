@@ -203,15 +203,15 @@ const PageTable = extern struct {
     pub fn map(self: *PageTable, virt_addr: u64, phys_addr: u64, size: usize, flags: u64) !void {
         var i: u64 = 0;
 
-        std.debug.assert(utils.isAligned(u64, virt_addr, std.mem.page_size));
-        std.debug.assert(utils.isAligned(u64, phys_addr, std.mem.page_size));
-        std.debug.assert(utils.isAligned(u64, size, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, virt_addr, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, phys_addr, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
 
         while (i < size) {
             const new_virt_addr = virt_addr + i;
             const new_phys_addr = phys_addr + i;
 
-            if (utils.isAligned(u64, new_virt_addr, two_mib) and utils.isAligned(u64, new_phys_addr, two_mib) and size - i >= two_mib) {
+            if (std.mem.isAlignedGeneric(u64, new_virt_addr, two_mib) and std.mem.isAlignedGeneric(u64, new_phys_addr, two_mib) and size - i >= two_mib) {
                 try self.mapPage(new_virt_addr, new_phys_addr, flags | Flags.LargePage);
                 i += two_mib;
             } else {
@@ -224,15 +224,15 @@ const PageTable = extern struct {
     pub fn remap(self: *PageTable, virt_addr: u64, phys_addr: u64, size: usize, flags: u64) !void {
         var i: u64 = 0;
 
-        std.debug.assert(utils.isAligned(u64, virt_addr, std.mem.page_size));
-        std.debug.assert(utils.isAligned(u64, phys_addr, std.mem.page_size));
-        std.debug.assert(utils.isAligned(u64, size, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, virt_addr, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, phys_addr, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
 
         while (i < size) {
             const new_virt_addr = virt_addr + i;
             const new_phys_addr = phys_addr + i;
 
-            if (utils.isAligned(u64, new_virt_addr, two_mib) and utils.isAligned(u64, new_phys_addr, two_mib) and size - i >= two_mib) {
+            if (std.mem.isAlignedGeneric(u64, new_virt_addr, two_mib) and std.mem.isAlignedGeneric(u64, new_phys_addr, two_mib) and size - i >= two_mib) {
                 try self.remapPage(new_virt_addr, new_phys_addr, flags | Flags.LargePage);
                 i += two_mib;
             } else {
@@ -245,13 +245,13 @@ const PageTable = extern struct {
     pub fn unmap(self: *PageTable, virt_addr: u64, size: usize) !void {
         var i: u64 = 0;
 
-        std.debug.assert(utils.isAligned(u64, virt_addr, std.mem.page_size));
-        std.debug.assert(utils.isAligned(u64, size, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, virt_addr, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
 
         while (i < size) {
             const new_virt_addr = virt_addr + i;
 
-            if (utils.isAligned(u64, new_virt_addr, two_mib) and size - i >= two_mib) {
+            if (std.mem.isAlignedGeneric(u64, new_virt_addr, two_mib) and size - i >= two_mib) {
                 try self.unmapPage(new_virt_addr, true);
                 i += two_mib;
             } else {
@@ -342,7 +342,7 @@ pub const AddressSpace = struct {
                     );
 
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
-                    const page_count = utils.divRoundUp(u64, misalign + ph.p_memsz, std.mem.page_size);
+                    const page_count = std.mem.alignForwardGeneric(u64, misalign + ph.p_memsz, std.mem.page_size) / std.mem.page_size;
                     const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
                     const page_hh = asHigherHalf([*]u8, page_phys + misalign);
 
@@ -357,7 +357,7 @@ pub const AddressSpace = struct {
                     if (ph.p_flags & std.elf.PF_X != 0)
                         prot |= abi.C.PROT_EXEC;
 
-                    const virt_addr = utils.alignDown(u64, ph.p_vaddr, std.mem.page_size) + base;
+                    const virt_addr = std.mem.alignBackwardGeneric(u64, ph.p_vaddr, std.mem.page_size) + base;
                     const mapping = try root.allocator.create(Mapping);
 
                     try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, protToFlags(prot, true));
@@ -406,7 +406,7 @@ pub const AddressSpace = struct {
             const mapping = @fieldParentPtr(Mapping, "node", node);
 
             if (address >= mapping.base and address < mapping.base + mapping.length) {
-                const base = utils.alignDown(u64, address, std.mem.page_size);
+                const base = std.mem.alignBackwardGeneric(u64, address, std.mem.page_size);
                 const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
                 const flags = protToFlags(mapping.prot, true);
 
@@ -435,8 +435,8 @@ pub const AddressSpace = struct {
             return error.InvalidArgument;
         }
 
-        var address = utils.alignDown(u64, hint, std.mem.page_size);
-        var size = utils.alignUp(u64, length, std.mem.page_size);
+        var address = std.mem.alignBackwardGeneric(u64, hint, std.mem.page_size);
+        var size = std.mem.alignForwardGeneric(u64, length, std.mem.page_size);
 
         if (address == 0) {
             self.alloc_base -= size;
@@ -479,7 +479,7 @@ pub const AddressSpace = struct {
             new_as.insertMapping(new_mapping);
 
             // TODO: Please someone implement CoW for me :sadge:
-            for (utils.range(utils.alignUp(usize, mapping.length, std.mem.page_size) / std.mem.page_size), 0..) |_, page_index| {
+            for (0..utils.alignUp(usize, mapping.length, std.mem.page_size) / std.mem.page_size) |page_index| {
                 const original_page = self.page_table.translate(mapping.base + page_index * std.mem.page_size) orelse continue;
                 const new_page = phys.allocate(1, true) orelse return error.OutOfMemory;
 
@@ -534,8 +534,8 @@ fn map_section(
     const begin = @extern(*u8, .{ .name = section_name ++ "_begin" });
     const end = @extern(*u8, .{ .name = section_name ++ "_end" });
 
-    const start_addr = utils.alignDown(usize, @ptrToInt(begin), std.mem.page_size);
-    const end_addr = utils.alignUp(usize, @ptrToInt(end), std.mem.page_size);
+    const start_addr = std.mem.alignBackward(@ptrToInt(begin), std.mem.page_size);
+    const end_addr = std.mem.alignForward(@ptrToInt(end), std.mem.page_size);
 
     try page_table.map(start_addr, start_addr - kernel_addr_res.virtual_base + kernel_addr_res.physical_base, end_addr - start_addr, flags);
 }
@@ -582,7 +582,7 @@ pub fn createAddressSpace() !AddressSpace {
 }
 
 pub fn handlePageFault(address: u64, reason: u64) !bool {
-    const page = utils.alignDown(u64, address, std.mem.page_size);
+    const page = std.mem.alignBackwardGeneric(u64, address, std.mem.page_size);
 
     // TODO: Map all of the memory map entries too
     if (address >= hhdm_uc and address < hhdm_uc + utils.gib(16)) {

@@ -401,7 +401,7 @@ const PortState = struct {
 
     fn setupCommandHeaders(self: *PortState) !void {
         const port_io_size = @sizeOf(CommandList) + @sizeOf(RecvFis);
-        const page_count = utils.alignUp(u64, port_io_size, std.mem.page_size) / std.mem.page_size;
+        const page_count = std.mem.alignForwardGeneric(u64, port_io_size, std.mem.page_size) / std.mem.page_size;
         const commands_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
         const fis_phys = commands_phys + @sizeOf(CommandList);
 

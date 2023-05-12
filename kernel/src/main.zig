@@ -29,7 +29,7 @@ const PageAllocator = struct {
         _ = ptr_align;
         _ = ret_addr;
 
-        const pages = utils.alignUp(usize, len, std.mem.page_size) / std.mem.page_size;
+        const pages = std.mem.alignForward(len, std.mem.page_size) / std.mem.page_size;
         const self = @ptrCast(*PageAllocator, @alignCast(8, ctx));
         const base = self.bump;
 

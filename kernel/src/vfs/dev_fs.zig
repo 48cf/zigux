@@ -457,7 +457,7 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
     if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
         var entry: GptPartitionEntry = undefined;
 
-        for (utils.range(10), 0..) |_, i| {
+        for (0..10) |i| {
             _ = try device.vnode.read(
                 std.mem.asBytes(&entry),
                 gpt_header.partition_entry_lba * sector_size + i * gpt_header.size_of_partition_entry,
