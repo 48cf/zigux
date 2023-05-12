@@ -11,6 +11,7 @@ pub const FileType = enum(u8) {
     Directory = '5',
     Fifo = '6',
     ContiguousFile = '7',
+    LongFileName = 'L',
     _,
 };
 
@@ -74,6 +75,7 @@ const TarHeader = extern struct {
 
 const TarIterator = struct {
     buffer: []const u8,
+    name_override: ?[]const u8,
     offset: usize,
 
     pub fn next(self: *TarIterator) !?File {
@@ -112,16 +114,16 @@ const TarIterator = struct {
 
         // TODO: Handle files with long names properly
         if (header.link_indicator == 'L') {
-            return File{
-                .name = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size - 1],
-                .kind = @intToEnum(FileType, 'L'),
-                .data = "",
-                .link = "",
-            };
+            self.name_override = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size - 1];
+            return self.next();
         }
 
-        return File{
-            .name = header.fileName(),
+        const name = self.name_override orelse header.fileName();
+
+        self.name_override = null;
+
+        return .{
+            .name = name,
             .kind = @intToEnum(FileType, header.link_indicator),
             .data = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size],
             .link = header.linkedName(),
@@ -130,5 +132,9 @@ const TarIterator = struct {
 };
 
 pub fn iterate(bytes: []const u8) TarIterator {
-    return TarIterator{ .buffer = bytes, .offset = 0 };
+    return .{
+        .buffer = bytes,
+        .name_override = null,
+        .offset = 0,
+    };
 }
