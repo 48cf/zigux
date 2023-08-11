@@ -1,0 +1,20 @@
+name=kernel
+from_source=kernel
+revision=1
+hostdeps="zig"
+
+configure() {
+  true
+}
+
+build() {
+  true
+}
+
+install() {
+  zig build \
+    --cache-dir $(realpath .) \
+    --global-cache-dir $(realpath .) \
+    --prefix ${dest_dir}/${prefix} \
+    --build-file ${source_dir}/build.zig
+}

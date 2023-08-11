@@ -1,0 +1,6 @@
+[submodule "kernel/limine-zig"]
+	path = kernel/limine-zig
+	url = https://github.com/limine-bootloader/limine-zig.git
+[submodule "kernel/flanterm"]
+	path = kernel/flanterm
+	url = https://github.com/mintsuki/flanterm.git

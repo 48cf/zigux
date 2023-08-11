@@ -1,0 +1,19 @@
+name=limine
+from_source=limine
+revision=1
+imagedeps="nasm gcc mtools"
+
+configure() {
+  ${source_dir}/configure \
+    --prefix=${prefix} \
+    --enable-bios-cd \
+    --enable-bios
+}
+
+build() {
+  make -j${parallelism}
+}
+
+install() {
+  make DESTDIR=${dest_dir} install-strip
+}

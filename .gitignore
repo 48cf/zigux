@@ -1,0 +1,14 @@
+.jinx-cache
+builds
+host-builds
+host-pkgs
+iso_root
+pkgs
+sources
+sysroot
+zig-cache
+zig-out
+
+initramfs.tar
+jinx
+zigux.iso

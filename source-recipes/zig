@@ -1,0 +1,8 @@
+name=zig
+version=0.12.0-dev.15+1c7798a3c
+tarball_url="https://ziglang.org/builds/zig-linux-x86_64-${version}.tar.xz"
+tarball_blake2b="bd043e108d6ec704914c07b432901adb68bbc53199d6fe4c443df9e98ab7da1758a1465228ba8df783aa1eacf508b9ca5cab084b302e6f0290a41f2cb6a25e3d"
+
+regenerate() {
+  true
+}
