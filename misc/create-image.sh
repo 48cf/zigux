@@ -16,13 +16,13 @@ mkdir -p iso_root
 cp pkgs/kernel/usr/bin/kernel iso_root/
 cp initramfs.tar iso_root/
 cp misc/limine.cfg iso_root/
-cp host-pkgs/limine/usr/local/share/limine/limine.sys iso_root/
-cp host-pkgs/limine/usr/local/share/limine/limine-cd.bin iso_root/
+cp host-pkgs/limine/usr/local/share/limine/limine-bios.sys iso_root/
+cp host-pkgs/limine/usr/local/share/limine/limine-bios-cd.bin iso_root/
 
 # Create the ISO.
-xorriso -as mkisofs -b limine-cd.bin \
+xorriso -as mkisofs -b limine-bios-cd.bin \
   -no-emul-boot -boot-load-size 4 -boot-info-table \
   --protective-msdos-label iso_root -o zigux.iso
 
 # Install Limine.
-host-pkgs/limine/usr/local/bin/limine-deploy zigux.iso
+host-pkgs/limine/usr/local/bin/limine bios-install zigux.iso
