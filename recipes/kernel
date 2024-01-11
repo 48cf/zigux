@@ -1,21 +1,14 @@
 name=kernel
-from_source=kernel
+source_dir=kernel
 revision=1
 hostdeps="zig"
 deps="mlibc-headers"
+allow_network=yes
 
-configure() {
-  true
-}
-
-build() {
-  true
-}
-
-install() {
-  zig build \
-    --cache-dir $(realpath .) \
-    --global-cache-dir $(realpath .) \
-    --prefix ${dest_dir}/${prefix} \
-    --build-file ${source_dir}/build.zig
+package() {
+    zig build \
+        --cache-dir $(realpath .) \
+        --global-cache-dir $(realpath .) \
+        --prefix "${dest_dir}/${prefix}" \
+        --build-file "${source_dir}/build.zig"
 }

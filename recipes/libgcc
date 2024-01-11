@@ -1,33 +1,34 @@
 name=libgcc
-from_source=gcc-host
 revision=1
-hostdeps="gcc autoconf automake libtool pkg-config"
+hostdeps="gcc autoconf-2.69 automake libtool pkg-config"
 imagedeps="gcc"
 deps="mlibc"
 
-configure() {
-  true
-}
-
 build() {
-  make -C ${base_dir}/host-builds/gcc/build -j${parallelism} all-target-libgcc
+    cd "${base_dir}/host-builds/gcc/build"
+    make -j${parallelism} all-target-libgcc
 }
 
-install() {
-  mkdir -p tmp_libgcc_dir
-  make -C ${base_dir}/host-builds/gcc/build DESTDIR=$(realpath tmp_libgcc_dir) install-strip-target-libgcc
+package() {
+    cd "${base_dir}/host-builds/gcc/build"
 
-  mkdir -p ${dest_dir}${prefix}
-  cp -r tmp_libgcc_dir/usr/local/lib ${dest_dir}${prefix}/
-  cp -r tmp_libgcc_dir/usr/local/${common_target}/* ${dest_dir}${prefix}/
+    rm -rf tmp_libgcc_dir
+    mkdir tmp_libgcc_dir
 
-  rm ${dest_dir}${prefix}/lib/gcc/${common_target}/13.1.0/crti.o
-  rm ${dest_dir}${prefix}/lib/gcc/${common_target}/13.1.0/crtn.o
+    DESTDIR="$(realpath tmp_libgcc_dir)" make install-target-libgcc
 
-  # Copy libgcc into GCC's tree else it will complain.
-  mkdir -p ${base_dir}/host-pkgs/gcc/usr/local/lib
-  cp -r tmp_libgcc_dir/usr/local/lib/* ${base_dir}/host-pkgs/gcc/usr/local/lib/
+    mkdir -p "${dest_dir}${prefix}"
 
-  rm ${base_dir}/host-pkgs/gcc/usr/local/lib/gcc/${common_target}/13.1.0/crti.o
-  rm ${base_dir}/host-pkgs/gcc/usr/local/lib/gcc/${common_target}/13.1.0/crtn.o
+    cp -r tmp_libgcc_dir/usr/local/lib "${dest_dir}${prefix}/"
+    cp -r "tmp_libgcc_dir/usr/local/${OS_TRIPLET}"/* "${dest_dir}${prefix}/"
+
+    rm "${dest_dir}${prefix}"/lib/gcc/${OS_TRIPLET}/13.2.0/crti.o
+    rm "${dest_dir}${prefix}"/lib/gcc/${OS_TRIPLET}/13.2.0/crtn.o
+
+    # Copy libgcc into GCC's tree else it will complain.
+    mkdir -p "${base_dir}/host-pkgs/gcc/usr/local/lib"
+    cp -r tmp_libgcc_dir/usr/local/lib/* "${base_dir}/host-pkgs/gcc/usr/local/lib/"
+
+    rm "${base_dir}/host-pkgs/gcc/usr/local/lib/gcc/${OS_TRIPLET}/13.2.0/crti.o"
+    rm "${base_dir}/host-pkgs/gcc/usr/local/lib/gcc/${OS_TRIPLET}/13.2.0/crtn.o"
 }

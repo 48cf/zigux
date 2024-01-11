@@ -2,22 +2,23 @@ name=binutils
 from_source=binutils
 revision=1
 imagedeps="gcc"
-hostdeps="autoconf automake libtool pkg-config"
-
-configure() {
-  ${source_dir}/configure \
-    --prefix=${prefix} \
-    --target=${common_target} \
-    --with-sysroot=${sysroot_dir} \
-    --disable-nls \
-    --disable-werror \
-    --disable-dependency-tracking
-}
+hostdeps="autoconf-2.69 automake libtool pkg-config"
 
 build() {
-  make -j${parallelism}
+    "${source_dir}/configure" \
+        --prefix="${prefix}" \
+        --target=${OS_TRIPLET} \
+        --with-sysroot="${sysroot_dir}" \
+        --disable-nls \
+        --disable-werror \
+        --disable-dependency-tracking
+
+    make -j${parallelism} all
 }
 
-install() {
-  make DESTDIR=${dest_dir} install-strip
+package() {
+    DESTDIR="${dest_dir}" make install
+
+        strip_command=strip \
+    post_package_strip
 }

@@ -1,7 +1,65 @@
-common_target_arch="x86_64"
-common_target="${common_target_arch}-zigux"
-common_cflags="-pipe -O2 -mtune=native"
-common_cxxflags="${common_cflags}"
+JINX_MAJOR_VER=0.2
 
-export CFLAGS="$CFLAGS ${common_cflags}"
-export CXXFLAGS="$CXXFLAGS ${common_cxxflags}"
+export CFLAGS="-O2 -pipe -march=x86-64 -mtune=generic"
+export CXXFLAGS="${CFLAGS}"
+
+OS_TRIPLET="x86_64-zigux"
+
+autotools_recursive_regen() {
+    for f in $(find . -name configure.ac); do
+        echo "* autotools regen in '$(dirname $f)'..."
+        ( cd "$(dirname "$f")" && autoreconf -fvi "$@" )
+    done
+}
+
+post_package_strip() {
+    if [ -z "$strip_command" ]; then
+        strip_command="${OS_TRIPLET}-strip"
+    fi
+
+    for f in $(find "${dest_dir}"); do
+        if file "$f" | grep 'not stripped' >/dev/null; then
+            echo "* stripping '$f'..."
+            stripped_file="$(mktemp)"
+            ${strip_command} "$f" -o "$stripped_file"
+            chmod --reference="$f" "$stripped_file"
+            mv -f "$stripped_file" "$f"
+        fi
+    done
+}
+
+autotools_configure() {
+    if [ -z "${configure_script_path}" ]; then
+        configure_script_path="${source_dir}/configure"
+    fi
+
+    ${configure_script_path} \
+        --host=${OS_TRIPLET} \
+        --with-sysroot=${sysroot_dir} \
+        --prefix=${prefix} \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --bindir=${prefix}/bin \
+        --sbindir=${prefix}/bin \
+        --libdir=${prefix}/lib \
+        --disable-static \
+        --enable-shared \
+        --disable-malloc0returnsnull \
+        "$@"
+}
+
+meson_configure() {
+    if [ -z "${meson_source_dir}" ]; then
+        meson_source_dir="${source_dir}"
+    fi
+
+    meson setup "${meson_source_dir}" \
+        --cross-file "${base_dir}/misc/cross_file.txt" \
+        --prefix=${prefix} \
+        --sysconfdir=/etc \
+        --libdir=lib \
+        --sbindir=bin \
+        --buildtype=release \
+        -Ddefault_library=shared \
+        "$@"
+}

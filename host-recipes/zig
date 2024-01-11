@@ -2,16 +2,8 @@ name=zig
 from_source=zig
 revision=1
 
-configure() {
-  true
-}
-
-build() {
-  true
-}
-
-install() {
-  mkdir -p ${dest_dir}/${prefix}/{bin,zig}
-  cp -r ${source_dir}/* ${dest_dir}/${prefix}/zig/
-  ln -s ../zig/zig ${dest_dir}/${prefix}/bin/zig
+package() {
+    mkdir -pv "${dest_dir}${prefix}"/{bin,zig}
+    cp -rpv "${source_dir}"/* "${dest_dir}${prefix}/zig/"
+    ln -sv ../zig/zig "${dest_dir}${prefix}/bin/zig"
 }

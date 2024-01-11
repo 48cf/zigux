@@ -1,30 +1,31 @@
 name=libstdc++
-from_source=gcc-host
 revision=1
-hostdeps="gcc autoconf automake libtool pkg-config"
+hostdeps="gcc autoconf-2.69 automake libtool pkg-config"
 imagedeps="gcc"
 deps="mlibc libgcc"
 
-configure() {
-  true
-}
-
 build() {
-  make -C ${base_dir}/host-builds/gcc/build -j${parallelism} all-target-libstdc++-v3
+    cd "${base_dir}/host-builds/gcc/build"
+    make -j${parallelism} all-target-libstdc++-v3
 }
 
-install() {
-  mkdir -p tmp_libstdcxx_dir
-  make -C ${base_dir}/host-builds/gcc/build DESTDIR=$(realpath tmp_libstdcxx_dir) install-strip-target-libstdc++-v3
+package() {
+    cd "${base_dir}/host-builds/gcc/build"
 
-  mkdir -p ${dest_dir}${prefix}
-  cp -r tmp_libstdcxx_dir/usr/local/share ${dest_dir}${prefix}/
-  cp -r tmp_libstdcxx_dir/usr/local/${common_target}/* ${dest_dir}${prefix}/
+    rm -rf tmp_libstdc++_dir
+    mkdir tmp_libstdc++_dir
 
-  # Remove static libraries
-  rm -rf ${dest_dir}${prefix}/lib/*.a
+    DESTDIR="$(realpath tmp_libstdc++_dir)" make install-target-libstdc++-v3
 
-  # Copy libstdc++ and headers into GCC's tree else it will complain.
-  mkdir -p ${base_dir}/host-pkgs/gcc/usr/local/${common_target}
-  cp -r tmp_libstdcxx_dir/usr/local/${common_target}/* ${base_dir}/host-pkgs/gcc/usr/local/${common_target}/
+    # For some reason this also installs libgcc even though it shouldn't...
+    rm -fv "tmp_libstdc++_dir/usr/local/${OS_TRIPLET}/lib"/libgcc*
+
+    mkdir -p "${dest_dir}${prefix}"
+
+    cp -r tmp_libstdc++_dir/usr/local/share "${dest_dir}${prefix}/"
+    cp -r "tmp_libstdc++_dir/usr/local/${OS_TRIPLET}"/* "${dest_dir}${prefix}/"
+
+    # Copy libstdc++ and headers into GCC's tree else it will complain.
+    mkdir -p "${base_dir}/host-pkgs/gcc/usr/local/${OS_TRIPLET}"
+    cp -r "tmp_libstdc++_dir/usr/local/${OS_TRIPLET}"/* "${base_dir}/host-pkgs/gcc/usr/local/${OS_TRIPLET}/"
 }

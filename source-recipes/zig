@@ -1,13 +1,4 @@
 name=zig
-version=0.11.0-dev.3050+05ceac52c
+version=0.12.0-dev.2139+e025ad7b4
 tarball_url="https://ziglang.org/builds/zig-linux-x86_64-${version}.tar.xz"
-tarball_blake2b="2a047a415c7fb38c89b320e98f4bee7143671def16091a93212fcc4847591f980f20d7826db3d16be1d2fe0333259a5c79f1291ed66ca57520e48020e61ef892"
-
-# TODO: Build zig from source
-# version=716d6a026f468cdb6b84a3e7f1004904b9ac6ecc
-# tarball_url="https://github.com/ziglang/zig/archive/${version}.tar.gz"
-# tarball_blake2b="aaa"
-
-regenerate() {
-  true
-}
+tarball_blake2b="aeab120e82ce2fd6fbfccbdeb33b8a31969fdc0cf428b734f8c2b64809e9ac6704c935e4ec73b1542194b45866fc53651be642f3671bf1b483b08fe3d3f207d1"

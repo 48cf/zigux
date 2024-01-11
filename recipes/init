@@ -1,22 +1,18 @@
 name=init
-from_source=init
+source_dir=init
 revision=1
 imagedeps="meson ninja"
 hostdeps="gcc"
 deps="core-libs"
 
-configure() {
-  meson \
-    --cross-file ${base_dir}/misc/cross_file.txt \
-    --prefix=${prefix} \
-    --buildtype=debugoptimized \
-    ${source_dir}
-}
-
 build() {
-  ninja
+    meson_configure
+
+    ninja -j${parallelism}
 }
 
-install() {
-  DESTDIR=${dest_dir} ninja install
+package() {
+    DESTDIR="${dest_dir}" ninja install
+
+    post_package_strip
 }

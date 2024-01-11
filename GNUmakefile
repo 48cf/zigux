@@ -26,6 +26,6 @@ jinx:
 	chmod +x $@
 
 zigux.iso: jinx
-	rm -f builds/kernel.installed
+	rm -f builds/kernel.packaged
 	$(MAKE) distro-base
 	./misc/create-image.sh

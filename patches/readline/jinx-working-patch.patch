@@ -14,7 +14,7 @@ index 661355d..cd7d659 100755
 @@ -146,7 +146,7 @@ bsdi4*|*gnu*|darwin*|macosx*|netbsd*|mirbsd*)
  	fi
  	;;
- 
+
 -solaris2*|aix4.[2-9]*|aix[5-9]*|osf*|irix[56]*|sysv[45]*|dgux*|interix*)
 +solaris2*|aix4.[2-9]*|aix[5-9]*|osf*|irix[56]*|sysv[45]*|dgux*|interix*|zigux*)
  	# libname.so -> libname.so.M
