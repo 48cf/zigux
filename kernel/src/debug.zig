@@ -32,7 +32,7 @@ pub fn printStackTrace(stack_trace: *std.builtin.StackTrace) void {
     logger.err("Stack backtrace:", .{});
 
     var frame_index: usize = 0;
-    var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
+    var frames_left: usize = @min(stack_trace.index, stack_trace.instruction_addresses.len);
 
     while (frames_left != 0) : ({
         frames_left -= 1;
@@ -48,7 +48,7 @@ pub fn print(string: []const u8) void {
     const previous_vm = virt.kernel_address_space.switchTo();
 
     if (root.term_req.response) |term_res| {
-        term_res.write(null, @ptrCast([*:0]const u8, string)[0..string.len]);
+        term_res.write(null, @as([*:0]const u8, @ptrCast(string))[0..string.len]);
     }
 
     _ = previous_vm.switchTo();
@@ -70,20 +70,17 @@ fn init() !void {
     if (root.kernel_file_req.response) |kernel_file_res| {
         const kernel_file = kernel_file_res.kernel_file;
 
+        var sections = std.dwarf.DwarfInfo.null_section_array;
+        sections[@intFromEnum(std.dwarf.DwarfSection.debug_info)] = try getSectionSlice(kernel_file.address, ".debug_info");
+        sections[@intFromEnum(std.dwarf.DwarfSection.debug_abbrev)] = try getSectionSlice(kernel_file.address, ".debug_abbrev");
+        sections[@intFromEnum(std.dwarf.DwarfSection.debug_str)] = try getSectionSlice(kernel_file.address, ".debug_str");
+        sections[@intFromEnum(std.dwarf.DwarfSection.debug_line)] = try getSectionSlice(kernel_file.address, ".debug_line");
+        sections[@intFromEnum(std.dwarf.DwarfSection.debug_ranges)] = try getSectionSlice(kernel_file.address, ".debug_ranges");
+
         debug_info = .{
-            .endian = .Little,
-            .debug_info = try getSectionSlice(kernel_file.address, ".debug_info"),
-            .debug_abbrev = try getSectionSlice(kernel_file.address, ".debug_abbrev"),
-            .debug_str = try getSectionSlice(kernel_file.address, ".debug_str"),
-            .debug_line = try getSectionSlice(kernel_file.address, ".debug_line"),
-            .debug_ranges = try getSectionSlice(kernel_file.address, ".debug_ranges"),
-            .debug_line_str = null,
-            .debug_str_offsets = null,
-            .debug_loclists = null,
-            .debug_rnglists = null,
-            .debug_addr = null,
-            .debug_names = null,
-            .debug_frame = null,
+            .endian = .little,
+            .is_macho = false,
+            .sections = sections,
         };
 
         try std.dwarf.openDwarfDebugInfo(&debug_info.?, debug_allocator.allocator());
@@ -114,30 +111,30 @@ fn printSymbol(address: u64) void {
 }
 
 fn getSectionData(elf: [*]const u8, shdr: []const u8) []const u8 {
-    const offset = @intCast(usize, std.mem.readIntLittle(u64, shdr[24..][0..8]));
-    const size = @intCast(usize, std.mem.readIntLittle(u64, shdr[32..][0..8]));
+    const offset = @as(usize, @intCast(std.mem.readInt(u64, shdr[24..][0..8], .little)));
+    const size = @as(usize, @intCast(std.mem.readInt(u64, shdr[32..][0..8], .little)));
 
     return elf[offset .. offset + size];
 }
 
 fn getSectionName(names: []const u8, shdr: []const u8) ?[]const u8 {
-    const offset = @intCast(usize, std.mem.readIntLittle(u32, shdr[0..][0..4]));
+    const offset = @as(usize, @intCast(std.mem.readInt(u32, shdr[0..][0..4], .little)));
     const len = std.mem.indexOf(u8, names[offset..], "\x00") orelse return null;
 
     return names[offset .. offset + len];
 }
 
 fn getShdr(elf: [*]const u8, idx: u16) []const u8 {
-    const sh_offset = std.mem.readIntLittle(u64, elf[40 .. 40 + 8]);
-    const sh_entsize = std.mem.readIntLittle(u16, elf[58 .. 58 + 2]);
-    const off = sh_offset + sh_entsize * @intCast(usize, idx);
+    const sh_offset = std.mem.readInt(u64, elf[40 .. 40 + 8], .little);
+    const sh_entsize = std.mem.readInt(u16, elf[58 .. 58 + 2], .little);
+    const off = sh_offset + sh_entsize * @as(usize, @intCast(idx));
 
     return elf[off .. off + sh_entsize];
 }
 
-fn getSectionSlice(elf: [*]const u8, section_name: []const u8) ![]const u8 {
-    const sh_strndx = std.mem.readIntLittle(u16, elf[62 .. 62 + 2]);
-    const sh_num = std.mem.readIntLittle(u16, elf[60 .. 60 + 2]);
+fn getSectionSlice(elf: [*]const u8, section_name: []const u8) !std.dwarf.DwarfInfo.Section {
+    const sh_strndx = std.mem.readInt(u16, elf[62 .. 62 + 2], .little);
+    const sh_num = std.mem.readInt(u16, elf[60 .. 60 + 2], .little);
 
     if (sh_strndx > sh_num) {
         return error.ShstrndxOutOfRange;
@@ -151,7 +148,8 @@ fn getSectionSlice(elf: [*]const u8, section_name: []const u8) ![]const u8 {
         const header = getShdr(elf, i);
 
         if (std.mem.eql(u8, getSectionName(section_names, header) orelse continue, section_name)) {
-            return getSectionData(elf, header);
+            const data = getSectionData(elf, header);
+            return .{ .data = data, .owned = false };
         }
     }
 

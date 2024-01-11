@@ -56,7 +56,7 @@ const BlockDevice = struct {
         }
 
         var first_sector = utils.alignDown(usize, disk_offset_in, self.sector_size) / self.sector_size;
-        var last_sector = utils.alignDown(usize, disk_offset_in + buffer_in.len - 1, self.sector_size) / self.sector_size;
+        const last_sector = utils.alignDown(usize, disk_offset_in + buffer_in.len - 1, self.sector_size) / self.sector_size;
 
         if (first_sector == last_sector) {
             return small_callback(self, buffer_in, first_sector, disk_offset_in % self.sector_size);
@@ -103,7 +103,7 @@ const BlockDevice = struct {
 
         try self.vtable.read_block(self, sector, &temp_buffer);
 
-        std.mem.copy(u8, buffer, temp_buffer[offset..][0..buffer.len]);
+        @memcpy(buffer, temp_buffer[offset..][0..buffer.len]);
     }
 
     fn doSmallWrite(self: *BlockDevice, buffer: []const u8, sector: usize, offset: usize) !void {
@@ -111,14 +111,14 @@ const BlockDevice = struct {
 
         try self.vtable.read_block(self, sector, &temp_buffer);
 
-        std.mem.copy(u8, temp_buffer[offset..][0..buffer.len], buffer);
+        @memcpy(temp_buffer[offset..][0..buffer.len], buffer);
 
         try self.vtable.write_block(self, sector, &temp_buffer);
     }
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
-        const max_read = std.math.min(buffer.len, self.sector_count * self.sector_size - offset);
+        const max_read = @min(buffer.len, self.sector_count * self.sector_size - offset);
 
         _ = flags;
 
@@ -129,7 +129,7 @@ const BlockDevice = struct {
 
     fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
         const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
-        const max_write = std.math.min(buffer.len, self.sector_count * self.sector_size - offset);
+        const max_write = @min(buffer.len, self.sector_count * self.sector_size - offset);
 
         _ = flags;
 
@@ -143,9 +143,9 @@ const BlockDevice = struct {
 
         buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_mode = 0o777 | abi.C.S_IFBLK;
-        buffer.st_size = @intCast(c_long, self.sector_count * self.sector_size);
-        buffer.st_blksize = @intCast(c_long, self.sector_size);
-        buffer.st_blocks = @intCast(c_long, self.sector_count);
+        buffer.st_size = @as(c_long, @intCast(self.sector_count * self.sector_size));
+        buffer.st_blksize = @as(c_long, @intCast(self.sector_size));
+        buffer.st_blocks = @as(c_long, @intCast(self.sector_count));
     }
 };
 
@@ -291,9 +291,9 @@ const TtyVNode = struct {
                 else => continue,
             };
 
-            const max_read = std.math.min(buffer.len, result.len);
+            const max_read = @min(buffer.len, result.len);
 
-            std.mem.copy(u8, buffer, result[0..max_read]);
+            @memcpy(buffer, result[0..max_read]);
 
             for (result[max_read..]) |byte| {
                 _ = tty_buffer.push(byte);
@@ -308,9 +308,9 @@ const TtyVNode = struct {
         _ = offset;
         _ = flags;
 
-        const written = std.math.min(buffer.len, term_buffer.len);
+        const written = @min(buffer.len, term_buffer.len);
 
-        std.mem.copy(u8, &term_buffer, buffer[0..written]);
+        @memcpy(&term_buffer, buffer[0..written]);
         debug.print(term_buffer[0..written]);
 
         return written;
@@ -341,14 +341,14 @@ const TtyVNode = struct {
                 const result = process.validatePointer(abi.C.winsize, arg) catch return .{ .err = abi.C.EINVAL };
 
                 result.* = .{
-                    .ws_row = @intCast(c_ushort, terminal.rows),
-                    .ws_col = @intCast(c_ushort, terminal.columns),
+                    .ws_row = @as(c_ushort, @intCast(terminal.rows)),
+                    .ws_col = @as(c_ushort, @intCast(terminal.columns)),
                     .ws_xpixel = 0,
                     .ws_ypixel = 0,
                 };
 
-                result.ws_xpixel = @intCast(c_ushort, terminal.framebuffer.width);
-                result.ws_ypixel = @intCast(c_ushort, terminal.framebuffer.height);
+                result.ws_xpixel = @as(c_ushort, @intCast(terminal.framebuffer.width));
+                result.ws_ypixel = @as(c_ushort, @intCast(terminal.framebuffer.height));
 
                 return 0;
             },
@@ -378,6 +378,7 @@ pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
         .vnode = .{
             .vtable = &tty_vtable,
             .filesystem = ramfs.filesystem,
+            .kind = .CharacterDevice,
             .name = "tty",
         },
     };
@@ -451,8 +452,8 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
     _ = try device.vnode.read(buffer, 0, 0);
 
     const dev = try vfs.resolve(null, "/dev", 0);
-    const mbr_header = @ptrCast(*align(1) const MbrHeader, buffer);
-    const gpt_header = @ptrCast(*align(1) const GptHeader, buffer[512..]);
+    const mbr_header = @as(*align(1) const MbrHeader, @ptrCast(buffer));
+    const gpt_header = @as(*align(1) const GptHeader, @ptrCast(buffer[512..]));
 
     if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
         var entry: GptPartitionEntry = undefined;

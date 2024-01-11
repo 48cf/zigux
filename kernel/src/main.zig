@@ -29,8 +29,8 @@ const PageAllocator = struct {
         _ = ptr_align;
         _ = ret_addr;
 
-        const pages = std.mem.alignForward(len, std.mem.page_size) / std.mem.page_size;
-        const self = @ptrCast(*PageAllocator, @alignCast(8, ctx));
+        const pages = std.mem.alignForward(usize, len, std.mem.page_size) / std.mem.page_size;
+        const self = @as(*PageAllocator, @ptrCast(@alignCast(ctx)));
         const base = self.bump;
 
         if (phys.freePages() < pages) {
@@ -51,7 +51,7 @@ const PageAllocator = struct {
 
         self.bump += pages * std.mem.page_size;
 
-        return @ptrCast([*]u8, @intToPtr(*u8, base));
+        return @as([*]u8, @ptrCast(@as(*u8, @ptrFromInt(base))));
     }
 
     fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
@@ -78,6 +78,8 @@ var print_lock: IrqSpinlock = .{};
 pub const log_level = std.log.Level.debug;
 
 pub const os = struct {
+    pub const system = struct {};
+
     pub const heap = struct {
         pub const page_allocator = std.mem.Allocator{
             .ptr = &page_heap_allocator,
@@ -106,7 +108,7 @@ pub export var kernel_file_req: limine.KernelFileRequest = .{};
 pub export var rsdp_req: limine.RsdpRequest = .{};
 pub export var kernel_addr_req: limine.KernelAddressRequest = .{};
 
-export fn platformMain() noreturn {
+export fn _start() callconv(.C) noreturn {
     main() catch |err| {
         logger.err("Failed to initialize: {any}", .{err});
 
@@ -191,7 +193,8 @@ pub fn log(
 
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
-    var tid = if (per_cpu.tryGet()) |cpu_info| blk: {
+
+    const tid = if (per_cpu.tryGet()) |cpu_info| blk: {
         break :blk if (cpu_info.thread) |thread| thread.tid else 0;
     } else 0;
 

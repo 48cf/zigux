@@ -41,7 +41,7 @@ pub const VNodeKind = enum {
     File,
     Directory,
     Symlink,
-    CharaterDevice,
+    CharacterDevice,
     BlockDevice,
     Fifo,
     Socket,
@@ -51,7 +51,7 @@ pub const VNode = struct {
     vtable: *const VNodeVTable,
     filesystem: *FileSystem,
     mounted_vnode: ?*VNode = null,
-    kind: VNodeKind = undefined,
+    kind: VNodeKind,
     parent: ?*VNode = null,
     name: ?[]const u8 = null,
     symlink_target: ?[]const u8 = null,
@@ -90,9 +90,9 @@ pub const VNode = struct {
         if (vnode.vtable.read) |fun| {
             return fun(vnode, buffer, offset, flags);
         } else if (vnode.kind == .Symlink) {
-            const read_length = std.math.min(buffer.len, vnode.symlink_target.?.len);
+            const read_length = @min(buffer.len, vnode.symlink_target.?.len);
 
-            std.mem.copy(u8, buffer[0..read_length], vnode.symlink_target.?);
+            @memcpy(buffer[0..read_length], vnode.symlink_target.?);
 
             return read_length;
         } else {
@@ -195,9 +195,9 @@ pub const VNode = struct {
 
             buffer.* = std.mem.zeroes(abi.C.stat);
             buffer.st_mode |= 0o777 | abi.C.S_IFLNK;
-            buffer.st_size = @intCast(c_long, target.len);
+            buffer.st_size = @as(c_long, @intCast(target.len));
             buffer.st_blksize = std.mem.page_size;
-            buffer.st_blocks = @intCast(c_long, std.mem.alignForward(target.len, std.mem.page_size) / std.mem.page_size);
+            buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, target.len, std.mem.page_size) / std.mem.page_size));
         } else {
             return error.NotImplemented;
         }
@@ -276,7 +276,7 @@ pub const VNodeStream = struct {
     }
 
     fn seekBy(self: *VNodeStream, offset: i64) SeekError!void {
-        self.offset +%= @bitCast(u64, offset);
+        self.offset +%= @as(u64, @bitCast(offset));
     }
 
     fn getPosFn(self: *VNodeStream) GetSeekPosError!u64 {
@@ -391,9 +391,9 @@ const SliceBackedFile = struct {
             return 0;
         }
 
-        const bytes_read = std.math.min(buffer.len, self.data.len - offset);
+        const bytes_read = @min(buffer.len, self.data.len - offset);
 
-        std.mem.copy(u8, buffer[0..bytes_read], self.data[offset .. offset + bytes_read]);
+        @memcpy(buffer[0..bytes_read], self.data[offset .. offset + bytes_read]);
 
         return bytes_read;
     }
@@ -412,9 +412,9 @@ const SliceBackedFile = struct {
 
         buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_mode = 0o777 | abi.C.S_IFREG;
-        buffer.st_size = @intCast(c_long, self.data.len);
+        buffer.st_size = @as(c_long, @intCast(self.data.len));
         buffer.st_blksize = std.mem.page_size;
-        buffer.st_blocks = @intCast(c_long, std.mem.alignForward(self.data.len, std.mem.page_size) / std.mem.page_size);
+        buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, self.data.len, std.mem.page_size) / std.mem.page_size));
     }
 };
 
@@ -485,6 +485,7 @@ fn createSliceBackedFile(name: []const u8, data: []const u8) !*VNode {
         .vnode = .{
             .vtable = &SliceBackedFile.slice_backed_file_vtable,
             .filesystem = undefined,
+            .kind = .File,
             .name = name,
         },
         .data = data,
@@ -571,15 +572,11 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
                             if (flags & abi.C.O_CREAT != 0) {
                                 if (flags & abi.C.O_DIRECTORY != 0 or iter.rest().len > 0) {
                                     const node = try fs.createDir(component);
-
                                     try next.insert(node);
-
                                     break :blk node;
                                 } else {
                                     const node = try fs.createFile(component);
-
                                     try next.insert(node);
-
                                     break :blk node;
                                 }
                             } else {

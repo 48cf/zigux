@@ -30,8 +30,8 @@ fn read_u64(mmio: anytype) u64 {
 }
 
 fn write_u64(mmio: anytype, value: u64) void {
-    mmio[0] = @truncate(u32, value);
-    mmio[1] = @truncate(u32, value >> 32);
+    mmio[0] = @as(u32, @truncate(value));
+    mmio[1] = @as(u32, @truncate(value >> 32));
 }
 
 const Prd = packed struct {
@@ -153,7 +153,7 @@ const Port = extern struct {
     vendor_0x70: [0x80 - 0x70]u8,
 
     fn startCommandEngine(self: *volatile Port) void {
-        logger.debug("0x{X}: Starting command engine", .{@ptrToInt(self)});
+        logger.debug("0x{X}: Starting command engine", .{@intFromPtr(self)});
 
         self.waitReady();
         self.command_status.start.write(false);
@@ -170,7 +170,7 @@ const Port = extern struct {
     }
 
     fn stopCommandEngine(self: *volatile Port) void {
-        logger.debug("0x{X}: Stopping command engine", .{@ptrToInt(self)});
+        logger.debug("0x{X}: Stopping command engine", .{@intFromPtr(self)});
 
         self.command_status.start.write(false);
 
@@ -233,7 +233,7 @@ const Port = extern struct {
     }
 
     fn issueCommands(self: *volatile Port, slot_bits: u32) void {
-        logger.debug("0x{X}: Sending {d} command(s)", .{ @ptrToInt(self), @popCount(slot_bits) });
+        logger.debug("0x{X}: Sending {d} command(s)", .{ @intFromPtr(self), @popCount(slot_bits) });
 
         self.waitReady();
         self.command_issue |= slot_bits;
@@ -367,13 +367,13 @@ const PortState = struct {
 
         while (buffer.len > 0) {
             const blocks = utils.alignUp(usize, buffer.len, self.sector_size) / self.sector_size;
-            const sector_count = std.math.min(blocks, std.mem.page_size / self.sector_size);
-            const copy_length = std.math.min(sector_count * self.sector_size, buffer.len);
+            const sector_count = @min(blocks, std.mem.page_size / self.sector_size);
+            const copy_length = @min(sector_count * self.sector_size, buffer.len);
             const mmio_buffer = self.mmio.getBuffer(0, 0);
 
-            self.finalizeIo(0, @intCast(u48, block), @intCast(u16, sector_count), .Read);
+            self.finalizeIo(0, @as(u48, @intCast(block)), @as(u16, @intCast(sector_count)), .Read);
 
-            std.mem.copy(u8, buffer, mmio_buffer[0..copy_length]);
+            @memcpy(buffer, mmio_buffer[0..copy_length]);
 
             block += sector_count;
             buffer = buffer[copy_length..];
@@ -386,13 +386,13 @@ const PortState = struct {
 
         while (buffer.len > 0) {
             const blocks = utils.alignUp(usize, buffer.len, self.sector_size) / self.sector_size;
-            const sector_count = std.math.min(blocks, std.mem.page_size / self.sector_size);
-            const copy_length = std.math.min(sector_count * self.sector_size, buffer.len);
+            const sector_count = @min(blocks, std.mem.page_size / self.sector_size);
+            const copy_length = @min(sector_count * self.sector_size, buffer.len);
             const mmio_buffer = self.mmio.getBuffer(0, 0);
 
-            std.mem.copy(u8, mmio_buffer[0..copy_length], buffer);
+            @memcpy(mmio_buffer[0..copy_length], buffer);
 
-            self.finalizeIo(0, @intCast(u48, block), @intCast(u16, sector_count), .Write);
+            self.finalizeIo(0, @as(u48, @intCast(block)), @as(u16, @intCast(sector_count)), .Write);
 
             block += sector_count;
             buffer = buffer[copy_length..];
@@ -401,7 +401,7 @@ const PortState = struct {
 
     fn setupCommandHeaders(self: *PortState) !void {
         const port_io_size = @sizeOf(CommandList) + @sizeOf(RecvFis);
-        const page_count = std.mem.alignForwardGeneric(u64, port_io_size, std.mem.page_size) / std.mem.page_size;
+        const page_count = std.mem.alignForward(u64, port_io_size, std.mem.page_size) / std.mem.page_size;
         const commands_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
         const fis_phys = commands_phys + @sizeOf(CommandList);
 
@@ -433,7 +433,7 @@ const PortState = struct {
 
             write_u64(&prd.data_base_addr, buf);
 
-            prd.sizem1 = @intCast(u22, std.mem.page_size - 1);
+            prd.sizem1 = @as(u22, @intCast(std.mem.page_size - 1));
         }
     }
 
@@ -480,10 +480,10 @@ const PortState = struct {
         const serial_str = std.mem.trimRight(u8, buffer[20..40], " ");
         const model_str = std.mem.trimRight(u8, buffer[54..94], " ");
 
-        logger.info("0x{X}: Identified as {s} with serial {s}", .{ @ptrToInt(self.mmio), model_str, serial_str });
+        logger.info("0x{X}: Identified as {s} with serial {s}", .{ @intFromPtr(self.mmio), model_str, serial_str });
         logger.info(
             "0x{X}: Disk has 0x{X} sectors of size {d} ({} in total)",
-            .{ @ptrToInt(self.mmio), self.sector_count, self.sector_size, utils.BinarySize.init(disk_size) },
+            .{ @intFromPtr(self.mmio), self.sector_count, self.sector_size, utils.BinarySize.init(disk_size) },
         );
 
         try dev_fs.addDiskBlockDevice("sata", self);
@@ -503,8 +503,8 @@ const PortState = struct {
         fis.device = 0xA0 | (1 << 6);
         fis.control = 0x08;
 
-        fis.lba_low = @truncate(u24, lba);
-        fis.lba_high = @truncate(u24, lba >> 24);
+        fis.lba_low = @as(u24, @truncate(lba));
+        fis.lba_high = @as(u24, @truncate(lba >> 24));
         fis.count = sector_count;
 
         self.issueCommandOnSlot(command_slot);
@@ -582,7 +582,7 @@ fn controllerThread(abar: *volatile Abar) !void {
     const ports_implemented = abar.ports_implemented;
 
     for (abar.ports, 0..) |*port, i| {
-        if ((ports_implemented >> @intCast(u5, i)) & 1 == 0) {
+        if ((ports_implemented >> @as(u5, @intCast(i))) & 1 == 0) {
             continue;
         }
 

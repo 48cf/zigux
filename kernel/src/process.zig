@@ -63,7 +63,7 @@ const FileTable = struct {
             .offset = 0,
         };
 
-        self.fd_counter = std.math.max(fd + 1, self.fd_counter);
+        self.fd_counter = @max(fd + 1, self.fd_counter);
 
         try self.files.put(root.allocator, fd, desc);
     }
@@ -126,19 +126,19 @@ pub const Process = struct {
     pub fn validateSentinel(self: *Process, comptime T: type, comptime sentinel: T, ptr: u64) ![:sentinel]const T {
         _ = self;
 
-        return std.mem.span(@intToPtr([*:sentinel]const T, ptr));
+        return std.mem.span(@as([*:sentinel]const T, @ptrFromInt(ptr)));
     }
 
     pub fn validateBuffer(self: *Process, comptime T: type, ptr: u64, len: u64) !T {
         _ = self;
 
-        return @intToPtr(sliceToMany(T), ptr)[0..len];
+        return @as(sliceToMany(T), @ptrFromInt(ptr))[0..len];
     }
 
     pub fn validatePointer(self: *Process, comptime T: type, ptr: u64) !*T {
         _ = self;
 
-        return @intToPtr(*T, ptr);
+        return @as(*T, @ptrFromInt(ptr));
     }
 };
 
@@ -227,7 +227,7 @@ pub fn syscallHandler(frame: *interrupts.InterruptFrame) void {
 
         const errno = errorToErrno(err);
 
-        frame.rax = @bitCast(u64, @as(i64, -@bitCast(i16, errno)));
+        frame.rax = @as(u64, @bitCast(@as(i64, -@as(i16, @bitCast(errno)))));
 
         return;
     } orelse return;
@@ -246,7 +246,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             return 0;
         },
         abi.C.SYS_exit => {
-            scheduler.exitProcess(process, @truncate(u8, frame.rdi));
+            scheduler.exitProcess(process, @as(u8, @truncate(frame.rdi)));
             scheduler.reschedule(frame);
 
             return null;
@@ -286,12 +286,12 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         //     var envp_copy = std.ArrayList([]u8).init(root.allocator);
 
         //     for (argv) |arg_opt| {
-        //         const arg = try process.validateSentinel(u8, 0, @ptrToInt(arg_opt.?));
+        //         const arg = try process.validateSentinel(u8, 0, @intFromPtr(arg_opt.?));
         //         try argv_copy.append(try root.allocator.dupe(u8, arg));
         //     }
 
         //     for (envp) |env_opt| {
-        //         const env = try process.validateSentinel(u8, 0, @ptrToInt(env_opt.?));
+        //         const env = try process.validateSentinel(u8, 0, @intFromPtr(env_opt.?));
         //         try envp_copy.append(try root.allocator.dupe(u8, env));
         //     }
 

@@ -74,8 +74,8 @@ pub const Msi = struct {
         const msi_addr: u64 = 0xFEE00000 | (lapic_id << 12);
 
         self.pci_cap.write(u16, 12, msi_data);
-        self.pci_cap.write(u32, 4, @truncate(u32, msi_addr));
-        self.pci_cap.write(u32, 8, @intCast(u32, msi_addr >> 32));
+        self.pci_cap.write(u32, 4, @as(u32, @truncate(msi_addr)));
+        self.pci_cap.write(u32, 8, @as(u32, @intCast(msi_addr >> 32)));
         self.pci_cap.write(u16, 2, self.pci_cap.read(u16, 2) | 1);
         self.pci_cap.write(u32, 16, 0);
 
@@ -112,8 +112,8 @@ pub const Device = struct {
     }
 
     fn selectField(self: Device, offset: u8) void {
-        const slot = @intCast(u8, self.slot << 3) | self.function;
-        const address = @intCast(u32, 1 << 31) | @intCast(u32, self.bus) << 16 | @intCast(u32, slot) << 8;
+        const slot = @as(u8, @intCast(self.slot << 3)) | self.function;
+        const address = @as(u32, @intCast(1 << 31)) | @as(u32, @intCast(self.bus)) << 16 | @as(u32, @intCast(slot)) << 8;
 
         arch.out(u32, 0xCF8, address | offset);
     }
@@ -136,7 +136,7 @@ pub const Device = struct {
         if (is_mmio) {
             self.write(u32, 0x10 + index * 4, 0xFFFFFFFF);
 
-            const base = @intCast(u64, pci_out & 0xFFFFFFF0);
+            const base = @as(u64, @intCast(pci_out & 0xFFFFFFF0));
             const ones_out = self.read(u32, 0x10 + index * 4) & 0xFFFFFFF0;
             const size = ~ones_out +% 1;
 
@@ -148,7 +148,7 @@ pub const Device = struct {
 
             if (is_64bit) {
                 const pci_out_high = self.read(u32, 0x14 + index * 4);
-                const base_high = @intCast(u64, pci_out_high) << 32;
+                const base_high = @as(u64, @intCast(pci_out_high)) << 32;
 
                 return BarInfo{
                     .base = base | base_high << 32,
@@ -163,7 +163,7 @@ pub const Device = struct {
                 .kind = .Mmio,
             };
         } else {
-            const base = @intCast(u64, pci_out & 0xFFFFFFFC);
+            const base = @as(u64, @intCast(pci_out & 0xFFFFFFFC));
             const ones_out = self.read(u32, 0x10 + index * 4) & 0xFFFFFFFC;
             const size = ~ones_out +% 1;
 

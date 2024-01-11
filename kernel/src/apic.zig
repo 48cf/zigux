@@ -38,11 +38,11 @@ const IoApic = struct {
     }
 
     fn route(self: *const IoApic, gsi: u32, lapic_id: u32, vector: u8, flags: u16) void {
-        const value = @intCast(u64, vector) | @intCast(u64, flags & 0b1010) << 12 | @intCast(u64, lapic_id);
+        const value = @as(u64, @intCast(vector)) | @as(u64, @intCast(flags & 0b1010)) << 12 | @as(u64, @intCast(lapic_id));
         const offset = 0x10 + (gsi - self.base_gsi) * 2;
 
-        self.write(offset + 0, @truncate(u32, value));
-        self.write(offset + 1, @truncate(u32, value >> 32));
+        self.write(offset + 0, @as(u32, @truncate(value)));
+        self.write(offset + 1, @as(u32, @truncate(value >> 32)));
     }
 };
 
@@ -146,7 +146,7 @@ fn mapGsiToIoApic(gsi: u32) u8 {
             const gsi_count = ioa.gsi_count();
 
             if (gsi >= ioa.base_gsi and gsi < ioa.base_gsi + gsi_count)
-                return @intCast(u8, i);
+                return @as(u8, @intCast(i));
         }
     }
 
@@ -162,15 +162,15 @@ fn mapIrqToGsi(irq: u8) SourceOverride {
 }
 
 fn readRegister(reg: ApicRegister) u32 {
-    const address = per_cpu.get().lapic_base + @enumToInt(reg);
-    const pointer = @intToPtr(*align(4) volatile u32, address);
+    const address = per_cpu.get().lapic_base + @intFromEnum(reg);
+    const pointer = @as(*align(4) volatile u32, @ptrFromInt(address));
 
     return pointer.*;
 }
 
 fn writeRegister(reg: ApicRegister, value: u32) void {
-    const address = per_cpu.get().lapic_base + @enumToInt(reg);
-    const pointer = @intToPtr(*align(4) volatile u32, address);
+    const address = per_cpu.get().lapic_base + @intFromEnum(reg);
+    const pointer = @as(*align(4) volatile u32, @ptrFromInt(address));
 
     pointer.* = value;
 }

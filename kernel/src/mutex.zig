@@ -41,7 +41,7 @@ pub const AtomicMutex = struct {
                 .Waiting => break,
             }
 
-            var iter = std.math.min(32, spin + 1);
+            var iter = @min(32, spin + 1);
 
             while (iter > 0) : (iter -= 1) {
                 std.atomic.spinLoopHint();

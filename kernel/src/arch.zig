@@ -105,14 +105,14 @@ pub const Idt = struct {
     pub fn load(self: *Idt) void {
         const idtr = DescriptorTableRegister{
             .limit = @sizeOf(Idt) - 1,
-            .base = @ptrToInt(self),
+            .base = @intFromPtr(self),
         };
 
         for (interrupts.makeHandlers(), 0..) |handler, i| {
-            const ist: u8 = if (i == interrupts.sched_call_vector) 1 else 0;
             const flags: u8 = if (i == interrupts.syscall_vector) 0xee else 0x8e;
+            const ist: u8 = if (i == interrupts.sched_call_vector) 2 else 1;
 
-            self.entries[i] = IdtEntry.init(@ptrToInt(handler), ist, flags);
+            self.entries[i] = IdtEntry.init(@intFromPtr(handler), ist, flags);
         }
 
         asm volatile ("lidt (%[idtr])"
@@ -138,25 +138,25 @@ pub const Gdt = struct {
     },
 
     pub fn load(self: *Gdt, tss: *Tss) void {
-        const tss_entry = @ptrCast(*GdtEntryExtended, &self.entries[9]);
-        const tss_address = @ptrToInt(tss);
+        const tss_entry = @as(*GdtEntryExtended, @ptrCast(&self.entries[9]));
+        const tss_address = @intFromPtr(tss);
 
         tss_entry.* = .{
             .lower = .{
                 .limit = @sizeOf(Tss) - 1,
-                .base_low = @truncate(u16, tss_address),
-                .base_mid = @truncate(u8, tss_address >> 16),
+                .base_low = @as(u16, @truncate(tss_address)),
+                .base_mid = @as(u8, @truncate(tss_address >> 16)),
                 .flags = 0b10001001,
                 .granularity = 0,
-                .base_high = @truncate(u8, tss_address >> 24),
+                .base_high = @as(u8, @truncate(tss_address >> 24)),
             },
-            .base_high_ex = @truncate(u32, tss_address >> 32),
+            .base_high_ex = @as(u32, @truncate(tss_address >> 32)),
             .reserved = 0,
         };
 
         const gdtr = DescriptorTableRegister{
             .limit = @sizeOf(Gdt) - 1,
-            .base = @ptrToInt(self),
+            .base = @intFromPtr(self),
         };
 
         asm volatile (
@@ -180,12 +180,12 @@ const IdtEntry = extern struct {
 
     pub fn init(offset: u64, ist: u8, flags: u8) IdtEntry {
         return .{
-            .offset_low = @truncate(u16, offset),
+            .offset_low = @as(u16, @truncate(offset)),
             .selector = 0x28,
             .ist = ist,
             .flags = flags,
-            .offset_mid = @truncate(u16, offset >> 16),
-            .offset_high = @truncate(u32, offset >> 32),
+            .offset_mid = @as(u16, @truncate(offset >> 16)),
+            .offset_high = @as(u32, @truncate(offset >> 32)),
             .reserved = 0,
         };
     }

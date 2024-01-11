@@ -100,7 +100,7 @@ const TarIterator = struct {
             return null;
         }
 
-        const header = @ptrCast(*const TarHeader, header_buf);
+        const header = @as(*const TarHeader, @ptrCast(header_buf));
 
         if (!header.validate()) {
             return error.InvalidHeader;
@@ -124,7 +124,7 @@ const TarIterator = struct {
 
         return .{
             .name = name,
-            .kind = @intToEnum(FileType, header.link_indicator),
+            .kind = @as(FileType, @enumFromInt(header.link_indicator)),
             .data = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size],
             .link = header.linkedName(),
         };

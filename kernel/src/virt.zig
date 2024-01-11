@@ -323,7 +323,6 @@ pub const AddressSpace = struct {
         var header = try std.elf.Header.read(&stream);
         var ph_iter = header.program_header_iterator(&stream);
         var ld_path: ?[]u8 = null;
-        var entry: u64 = header.entry + base;
         var phdr: u64 = 0;
 
         logger.debug("Trying to load executable {} at 0x{X}", .{ file.getFullPath(), base });
@@ -342,7 +341,7 @@ pub const AddressSpace = struct {
                     );
 
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
-                    const page_count = std.mem.alignForwardGeneric(u64, misalign + ph.p_memsz, std.mem.page_size) / std.mem.page_size;
+                    const page_count = std.mem.alignForward(u64, misalign + ph.p_memsz, std.mem.page_size) / std.mem.page_size;
                     const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
                     const page_hh = asHigherHalf([*]u8, page_phys + misalign);
 
@@ -357,7 +356,7 @@ pub const AddressSpace = struct {
                     if (ph.p_flags & std.elf.PF_X != 0)
                         prot |= abi.C.PROT_EXEC;
 
-                    const virt_addr = std.mem.alignBackwardGeneric(u64, ph.p_vaddr, std.mem.page_size) + base;
+                    const virt_addr = std.mem.alignBackward(u64, ph.p_vaddr, std.mem.page_size) + base;
                     const mapping = try root.allocator.create(Mapping);
 
                     try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, protToFlags(prot, true));
@@ -377,14 +376,14 @@ pub const AddressSpace = struct {
         }
 
         return LoadedExecutable{
-            .entry = entry,
+            .entry = header.entry + base,
             .ld_path = if (ld_path) |path| blk: {
-                const null_term = @ptrCast([*:0]const u8, path);
+                const null_term = @as([*:0]const u8, @ptrCast(path));
 
                 break :blk null_term[0..std.mem.len(null_term)];
             } else null,
             .aux_vals = .{
-                .at_entry = entry,
+                .at_entry = header.entry + base,
                 .at_phdr = phdr,
                 .at_phent = header.phentsize,
                 .at_phnum = header.phnum,
@@ -406,7 +405,7 @@ pub const AddressSpace = struct {
             const mapping = @fieldParentPtr(Mapping, "node", node);
 
             if (address >= mapping.base and address < mapping.base + mapping.length) {
-                const base = std.mem.alignBackwardGeneric(u64, address, std.mem.page_size);
+                const base = std.mem.alignBackward(u64, address, std.mem.page_size);
                 const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
                 const flags = protToFlags(mapping.prot, true);
 
@@ -435,8 +434,8 @@ pub const AddressSpace = struct {
             return error.InvalidArgument;
         }
 
-        var address = std.mem.alignBackwardGeneric(u64, hint, std.mem.page_size);
-        var size = std.mem.alignForwardGeneric(u64, length, std.mem.page_size);
+        var address = std.mem.alignBackward(u64, hint, std.mem.page_size);
+        const size = std.mem.alignForward(u64, length, std.mem.page_size);
 
         if (address == 0) {
             self.alloc_base -= size;
@@ -483,8 +482,7 @@ pub const AddressSpace = struct {
                 const original_page = self.page_table.translate(mapping.base + page_index * std.mem.page_size) orelse continue;
                 const new_page = phys.allocate(1, true) orelse return error.OutOfMemory;
 
-                std.mem.copy(
-                    u8,
+                @memcpy(
                     asHigherHalf([*]u8, new_page)[0..std.mem.page_size],
                     asHigherHalf([*]u8, original_page)[0..std.mem.page_size],
                 );
@@ -534,8 +532,8 @@ fn map_section(
     const begin = @extern(*u8, .{ .name = section_name ++ "_begin" });
     const end = @extern(*u8, .{ .name = section_name ++ "_end" });
 
-    const start_addr = std.mem.alignBackward(@ptrToInt(begin), std.mem.page_size);
-    const end_addr = std.mem.alignForward(@ptrToInt(end), std.mem.page_size);
+    const start_addr = std.mem.alignBackward(usize, @intFromPtr(begin), std.mem.page_size);
+    const end_addr = std.mem.alignForward(usize, @intFromPtr(end), std.mem.page_size);
 
     try page_table.map(start_addr, start_addr - kernel_addr_res.virtual_base + kernel_addr_res.physical_base, end_addr - start_addr, flags);
 }
@@ -569,12 +567,10 @@ pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
 }
 
 pub fn createAddressSpace() !AddressSpace {
-    var page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
     var address_space = AddressSpace.init(page_table_phys);
 
-    var i: usize = 256;
-
-    while (i < 512) : (i += 1) {
+    for (256..512) |i| {
         address_space.page_table.entries[i] = kernel_address_space.page_table.entries[i];
     }
 
@@ -582,7 +578,7 @@ pub fn createAddressSpace() !AddressSpace {
 }
 
 pub fn handlePageFault(address: u64, reason: u64) !bool {
-    const page = std.mem.alignBackwardGeneric(u64, address, std.mem.page_size);
+    const page = std.mem.alignBackward(u64, address, std.mem.page_size);
 
     // TODO: Map all of the memory map entries too
     if (address >= hhdm_uc and address < hhdm_uc + utils.gib(16)) {
@@ -604,7 +600,7 @@ pub fn asHigherHalf(comptime T: type, addr: u64) T {
     const result = addr + hhdm;
 
     if (@typeInfo(T) == .Pointer) {
-        return @intToPtr(T, result);
+        return @as(T, @ptrFromInt(result));
     } else {
         return @as(T, result);
     }
@@ -614,7 +610,7 @@ pub fn asHigherHalfUncached(comptime T: type, addr: u64) T {
     const result = addr + hhdm_uc;
 
     if (@typeInfo(T) == .Pointer) {
-        return @intToPtr(T, result);
+        return @as(T, @ptrFromInt(result));
     } else {
         return @as(T, result);
     }

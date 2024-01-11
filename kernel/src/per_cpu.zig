@@ -48,14 +48,16 @@ pub fn init() !void {
 
     const intr_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
     const ist_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const sched_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
 
     instance.tss.rsp[0] = virt.asHigherHalf(u64, intr_stack + std.mem.page_size);
     instance.tss.ist[0] = virt.asHigherHalf(u64, ist_stack + std.mem.page_size);
+    instance.tss.ist[1] = virt.asHigherHalf(u64, sched_stack + std.mem.page_size);
 
     instance.gdt.load(&instance.tss);
     instance.idt.load();
 
-    arch.Msr.gs_base.write(@ptrToInt(instance));
+    arch.Msr.gs_base.write(@intFromPtr(instance));
     arch.Msr.gs_kernel_base.write(0);
 }
 

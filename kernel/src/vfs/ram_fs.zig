@@ -42,10 +42,9 @@ const RamFSFile = struct {
             return 0;
         }
 
-        const bytes_read = std.math.min(buffer.len, self.data.items.len - offset);
+        const bytes_read = @min(buffer.len, self.data.items.len - offset);
 
-        std.mem.copy(
-            u8,
+        @memcpy(
             buffer[0..bytes_read],
             self.data.items[offset .. offset + bytes_read],
         );
@@ -64,7 +63,7 @@ const RamFSFile = struct {
             // TODO: Zero out the newly allocated content
         }
 
-        std.mem.copy(u8, self.data.items[offset..], buffer);
+        @memcpy(self.data.items[offset..], buffer);
 
         return buffer.len;
     }
@@ -73,11 +72,11 @@ const RamFSFile = struct {
         const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
 
         buffer.* = std.mem.zeroes(abi.C.stat);
-        buffer.st_ino = @intCast(c_ulong, vnode.inode);
+        buffer.st_ino = @as(c_ulong, @intCast(vnode.inode));
         buffer.st_mode = 0o777 | abi.C.S_IFREG;
-        buffer.st_size = @intCast(c_long, self.data.items.len);
+        buffer.st_size = @as(c_long, @intCast(self.data.items.len));
         buffer.st_blksize = std.mem.page_size;
-        buffer.st_blocks = @intCast(c_long, std.mem.alignForward(self.data.items.len, std.mem.page_size) / std.mem.page_size);
+        buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, self.data.items.len, std.mem.page_size) / std.mem.page_size));
     }
 };
 
@@ -102,7 +101,7 @@ const RamFSDirectory = struct {
     fn readDir(vnode: *vfs.VNode, buffer: []u8, offset: *usize) vfs.ReadDirError!usize {
         const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
 
-        var dir_ent = @ptrCast(*abi.C.dirent, @alignCast(8, buffer));
+        var dir_ent = @as(*abi.C.dirent, @ptrCast(@alignCast(buffer)));
         var buffer_offset: usize = 0;
 
         while (offset.* < self.children.items.len) : (offset.* += 1) {
@@ -115,23 +114,23 @@ const RamFSDirectory = struct {
             }
 
             dir_ent.d_off = 0;
-            dir_ent.d_ino = @intCast(c_ulong, vnode.inode);
-            dir_ent.d_reclen = @truncate(c_ushort, real_size);
+            dir_ent.d_ino = @as(c_ulong, @intCast(vnode.inode));
+            dir_ent.d_reclen = @as(c_ushort, @truncate(real_size));
             dir_ent.d_type = switch (child.kind) {
                 .File => abi.C.DT_REG,
                 .Directory => abi.C.DT_DIR,
                 .Symlink => abi.C.DT_LNK,
-                .CharaterDevice => abi.C.DT_CHR,
+                .CharacterDevice => abi.C.DT_CHR,
                 .BlockDevice => abi.C.DT_BLK,
                 .Fifo => abi.C.DT_FIFO,
                 .Socket => abi.C.DT_SOCK,
             };
 
-            std.mem.copy(u8, dir_ent.d_name[0..name.len], name);
+            @memcpy(dir_ent.d_name[0..name.len], name);
 
             dir_ent.d_name[name.len] = 0;
             buffer_offset += real_size;
-            dir_ent = @ptrCast(*abi.C.dirent, @alignCast(8, buffer[buffer_offset..]));
+            dir_ent = @as(*abi.C.dirent, @ptrCast(@alignCast(buffer[buffer_offset..])));
         }
 
         return buffer_offset;
@@ -151,7 +150,7 @@ const RamFSDirectory = struct {
 
     fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
         buffer.* = std.mem.zeroes(abi.C.stat);
-        buffer.st_ino = @intCast(c_ulong, vnode.inode);
+        buffer.st_ino = @as(c_ulong, @intCast(vnode.inode));
         buffer.st_mode = 0o777 | abi.C.S_IFDIR;
     }
 };
@@ -168,6 +167,7 @@ const RamFS = struct {
             .vnode = .{
                 .vtable = &ram_fs_file_vtable,
                 .filesystem = fs,
+                .kind = .File,
             },
         };
 
@@ -181,6 +181,7 @@ const RamFS = struct {
             .vnode = .{
                 .vtable = &ram_fs_directory_vtable,
                 .filesystem = fs,
+                .kind = .Directory,
             },
         };
 
@@ -193,6 +194,7 @@ const RamFS = struct {
         node.* = .{
             .vtable = &.{},
             .filesystem = fs,
+            .kind = .Symlink,
             .symlink_target = try root.allocator.dupe(u8, target),
         };
 

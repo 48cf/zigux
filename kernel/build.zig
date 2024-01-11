@@ -9,32 +9,33 @@ const target = blk: {
 
     const Features = std.Target.x86.Feature;
 
-    tgt.cpu_features_sub.addFeature(@enumToInt(Features.mmx));
-    tgt.cpu_features_sub.addFeature(@enumToInt(Features.sse));
-    tgt.cpu_features_sub.addFeature(@enumToInt(Features.sse2));
-    tgt.cpu_features_sub.addFeature(@enumToInt(Features.avx));
-    tgt.cpu_features_sub.addFeature(@enumToInt(Features.avx2));
-    tgt.cpu_features_add.addFeature(@enumToInt(Features.soft_float));
+    tgt.cpu_features_sub.addFeature(@intFromEnum(Features.mmx));
+    tgt.cpu_features_sub.addFeature(@intFromEnum(Features.sse));
+    tgt.cpu_features_sub.addFeature(@intFromEnum(Features.sse2));
+    tgt.cpu_features_sub.addFeature(@intFromEnum(Features.avx));
+    tgt.cpu_features_sub.addFeature(@intFromEnum(Features.avx2));
+    tgt.cpu_features_add.addFeature(@intFromEnum(Features.soft_float));
 
     break :blk tgt;
 };
 
-pub fn build(b: *std.build.Builder) !void {
+pub fn build(b: *std.Build) !void {
+    const optimize = b.standardOptimizeOption(.{});
+    const limine = b.dependency("limine", .{});
     const kernel = b.addExecutable(.{
         .name = "kernel",
+        .code_model = .kernel,
+        .pic = true,
         .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = .Debug,
+        .target = b.resolveTargetQuery(target),
+        .optimize = optimize,
     });
 
-    kernel.code_model = .large;
+    kernel.root_module.addImport("limine", limine.module("limine"));
 
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
-    kernel.addAnonymousModule("limine", .{ .source_file = .{ .path = "limine-zig/limine.zig" } });
-    kernel.addIncludePath("../pkgs/mlibc-headers/usr/include");
-    kernel.addIncludePath("../pkgs/linux-headers/usr/include");
+    kernel.addIncludePath(.{ .path = "../pkgs/mlibc-headers/usr/include" });
+    kernel.addIncludePath(.{ .path = "../pkgs/linux-headers/usr/include" });
 
-    const kernel_install = b.addInstallArtifact(kernel);
-
-    b.default_step.dependOn(&kernel_install.step);
+    b.installArtifact(kernel);
 }

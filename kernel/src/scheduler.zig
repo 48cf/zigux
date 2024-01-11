@@ -28,9 +28,9 @@ const StackHelper = struct {
     }
 
     fn write(self: *StackHelper, bytes: []const u8) void {
-        const stack = @intToPtr([*]u8, self.rsp - bytes.len)[0..bytes.len];
+        const stack = @as([*]u8, @ptrFromInt(self.rsp - bytes.len))[0..bytes.len];
 
-        std.mem.copy(u8, stack, bytes);
+        @memcpy(stack, bytes);
         self.rsp -= bytes.len;
     }
 
@@ -56,14 +56,14 @@ fn parseShebang(file: *vfs.VNode) !Shebang {
     var offset: usize = 2;
     var char: u8 = 0;
 
-    _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset, 0);
+    _ = try file.read(@as([*]u8, @ptrCast(&char))[0..1], offset, 0);
 
     if (char == ' ') {
         offset += 1;
     }
 
     while (true) {
-        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset, 0);
+        _ = try file.read(@as([*]u8, @ptrCast(&char))[0..1], offset, 0);
 
         offset += 1;
 
@@ -75,7 +75,7 @@ fn parseShebang(file: *vfs.VNode) !Shebang {
     }
 
     while (true) {
-        _ = try file.read(@ptrCast([*]u8, &char)[0..1], offset, 0);
+        _ = try file.read(@as([*]u8, @ptrCast(&char))[0..1], offset, 0);
 
         offset += 1;
 
@@ -109,7 +109,7 @@ pub const Thread = struct {
         var final_argv = argv;
 
         if (std.mem.eql(u8, &shebang_sig, "#!")) {
-            var shebang = try parseShebang(file);
+            const shebang = try parseShebang(file);
             var argv_list = std.ArrayListUnmanaged([]const u8){};
 
             try argv_list.append(root.allocator, shebang.path);
@@ -125,7 +125,7 @@ pub const Thread = struct {
         }
 
         var old_vm = self.parent.address_space.switchTo();
-        var executable = try self.parent.address_space.loadExecutable(file_to_load, 0);
+        const executable = try self.parent.address_space.loadExecutable(file_to_load, 0);
         var entry = executable.entry;
 
         self.parent.executable = file_to_load;
@@ -163,7 +163,7 @@ pub const Thread = struct {
             .{ std.elf.AT_PHNUM, executable.aux_vals.at_phnum },
         };
 
-        stack.rsp = std.mem.alignBackwardGeneric(u64, stack.rsp, 16);
+        stack.rsp = std.mem.alignBackward(u64, stack.rsp, 16);
 
         // Calculate the amount of stuff we will write to the stack and misalign
         // it on purpose so it's 16 byte aligned at the process entry after all the pushes
@@ -319,15 +319,12 @@ pub fn init() !void {
     kernel_process.address_space = virt.kernel_address_space;
     kernel_process.cwd = root_dir;
 
-    const stack = phys.allocate(1, true) orelse return error.OutOfMemory;
-
     idle_thread = .{
         .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
         .parent = &kernel_process,
     };
 
-    idle_thread.regs.rsp = virt.asHigherHalf(u64, stack + std.mem.page_size);
-    idle_thread.regs.rip = @ptrToInt(&idleThread);
+    idle_thread.regs.rip = @intFromPtr(&idleThread);
     idle_thread.regs.rflags = 0x202;
     idle_thread.regs.cs = 0x28;
     idle_thread.regs.ss = 0x30;
@@ -435,7 +432,7 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
         fn handler(arg: u64) callconv(.C) noreturn {
             const entry_type = @typeInfo(@TypeOf(entry)).Fn;
             const result = switch (@typeInfo(entry_type.args[0].arg_type.?)) {
-                .Pointer => @call(.{ .modifier = .always_inline }, entry, .{@intToPtr(entry_type.args[0].arg_type.?, arg)}),
+                .Pointer => @call(.{ .modifier = .always_inline }, entry, .{@as(entry_type.args[0].arg_type.?, @ptrFromInt(arg))}),
                 else => @call(.{ .modifier = .always_inline }, entry, .{@as(entry_type.args[0].arg_type.?, arg)}),
             };
 
@@ -450,10 +447,10 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
         }
     };
 
-    thread.regs.rip = @ptrToInt(wrapper.handler);
+    thread.regs.rip = @intFromPtr(wrapper.handler);
     thread.regs.rsp = virt.asHigherHalf(u64, stack + 4 * std.mem.page_size - 0x10);
     thread.regs.rdi = switch (@typeInfo(@TypeOf(context))) {
-        .Pointer => @ptrToInt(context),
+        .Pointer => @intFromPtr(context),
         else => @as(u64, context),
     };
     thread.regs.rflags = 0x202;
@@ -562,7 +559,7 @@ pub fn yield() void {
 pub fn ungrabAndReschedule(lock: *IrqSpinlock) void {
     const callback = struct {
         fn func(frame: *interrupts.InterruptFrame, arg: usize) void {
-            const spinlock = @intToPtr(*IrqSpinlock, arg);
+            const spinlock = @as(*IrqSpinlock, @ptrFromInt(arg));
             const cpu_info = per_cpu.get();
             const thread = cpu_info.thread.?;
 
@@ -574,25 +571,25 @@ pub fn ungrabAndReschedule(lock: *IrqSpinlock) void {
         }
     }.func;
 
-    schedCall(callback, @ptrToInt(lock));
+    schedCall(callback, @intFromPtr(lock));
 }
 
 pub fn schedCall(func: *const fn (*interrupts.InterruptFrame, usize) void, arg: usize) void {
     asm volatile ("int %[vec]"
         :
         : [vec] "i" (interrupts.sched_call_vector),
-          [_] "{rax}" (@ptrToInt(func)),
+          [_] "{rax}" (@intFromPtr(func)),
           [_] "{rcx}" (arg),
     );
 }
 
 fn schedCallHandler(frame: *interrupts.InterruptFrame) void {
-    const func = @intToPtr(*const fn (*interrupts.InterruptFrame, usize) void, frame.rax);
+    const func = @as(*const fn (*interrupts.InterruptFrame, usize) void, @ptrFromInt(frame.rax));
 
     func(frame, frame.rcx);
 }
 
-fn idleThread() noreturn {
+fn idleThread() callconv(.Naked) noreturn {
     while (true) {
         arch.halt();
     }

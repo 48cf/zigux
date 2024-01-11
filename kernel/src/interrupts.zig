@@ -58,13 +58,13 @@ pub fn makeHandlers() [256]InterruptStub {
 }
 
 pub fn allocateVector() u8 {
-    var result = @atomicRmw(usize, &next_vector, .Add, 1, .AcqRel);
+    const result = @atomicRmw(usize, &next_vector, .Add, 1, .AcqRel);
 
     if (result >= 256 - 16) {
         @panic("No more interrupt vectors left to allocate");
     }
 
-    return @truncate(u8, result);
+    return @as(u8, @truncate(result));
 }
 
 pub fn registerHandler(vector: u8, handler: InterruptHandler) void {
@@ -96,7 +96,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
     const cpu_info = per_cpu.get();
 
     if (frame.vector == 0x6) {
-        const code = @intToPtr([*]const u8, frame.rip);
+        const code = @as([*]const u8, @ptrFromInt(frame.rip));
 
         if (std.mem.eql(u8, code[0..2], &.{ 0x0f, 0x05 })) {
             frame.rip += 2;
@@ -155,19 +155,19 @@ fn unhandledInterruptHandler(frame: *InterruptFrame) void {
 }
 
 fn makeHandler(comptime vector: usize) InterruptStub {
+    // https://wiki.osdev.org/Exceptions
+    const has_error_code = switch (vector) {
+        0x8 => true,
+        0xA...0xE => true,
+        0x11 => true,
+        0x15 => true,
+        0x1D...0x1E => true,
+        else => false,
+    };
+
     return struct {
         fn handler() callconv(.Naked) void {
-            // https://wiki.osdev.org/Exceptions
-            const has_error_code = switch (vector) {
-                0x8 => true,
-                0xA...0xE => true,
-                0x11 => true,
-                0x15 => true,
-                0x1D...0x1E => true,
-                else => false,
-            };
-
-            if (comptime (has_error_code)) {
+            if (has_error_code) {
                 asm volatile (
                     \\pushq %[vector]
                     \\jmp interruptCommonHandler

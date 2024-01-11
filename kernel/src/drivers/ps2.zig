@@ -75,7 +75,7 @@ const KeyboardState = struct {
     },
 
     pub fn isPressed(self: *KeyboardState, location: KeyLocation) bool {
-        return self.is_pressed.get(@enumToInt(location));
+        return self.is_pressed.get(@intFromEnum(location));
     }
 
     pub fn isCtrlPressed(self: *KeyboardState) bool {
@@ -95,7 +95,7 @@ const KeyboardState = struct {
     }
 
     fn processEvent(self: *KeyboardState, event: KeyboardEvent) void {
-        self.is_pressed.set(@enumToInt(event.location), event.pressed);
+        self.is_pressed.set(@intFromEnum(event.location), event.pressed);
     }
 };
 
