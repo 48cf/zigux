@@ -3,5 +3,5 @@ source_dir=base-files
 revision=1
 
 package() {
-    cp -rpv "${source_dir}/." "${dest_dir}/"
+    cp -rpv "${source_dir}"/. "${dest_dir}"/
 }

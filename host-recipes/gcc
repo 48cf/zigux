@@ -7,7 +7,7 @@ hostrundeps="binutils"
 deps="mlibc-headers"
 
 build() {
-    cp -rp "${source_dir}/." ./
+    cp -rp "${source_dir}"/. ./
     mkdir build && cd build
 
         CXXFLAGS_FOR_TARGET="$CFLAGS" \

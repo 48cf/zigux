@@ -24,7 +24,7 @@ regenerate() {
 }
 
 build() {
-    cp -rp "${source_dir}/." ./
+    cp -rp "${source_dir}"/. ./
 
         configure_script_path=./configure \
         CFLAGS="-DSLOW_BUT_NO_HACKS $CFLAGS" \
