@@ -27,7 +27,7 @@ run-kvm: zigux.iso
 	qemu-system-x86_64 -cdrom $< -enable-kvm -cpu host $(QEMUFLAGS)
 
 jinx:
-	curl -o $@ https://raw.githubusercontent.com/mintsuki/jinx/ce37c30acbf59aa79d9b26e05f93ced3d5920b00/jinx
+	curl -o $@ https://raw.githubusercontent.com/mintsuki/jinx/802082d0389d0b73afed5f52875a204e9134a3fe/jinx
 	chmod +x $@
 
 zigux.iso: jinx
