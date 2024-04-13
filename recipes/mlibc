@@ -6,7 +6,7 @@ tarball_blake2b="c98c20c03647f0f5828bc95d82217ece8e5d0eee1bbb293dc809d1b39bd8219
 imagedeps="meson ninja"
 hostdeps="gcc pkg-config libgcc-binaries"
 builddeps="cxxshim frigg"
-deps="mlibc-headers"
+deps="mlibc-headers linux-headers"
 
 build() {
         LDFLAGS="-Wl,/usr/local/libgcc-binaries/libgcc-x86_64.a" \
@@ -17,7 +17,8 @@ build() {
         -Ddisable_crypt_option=true \
         -Ddisable_iconv_option=true \
         -Ddisable_intl_option=true \
-        -Ddisable_libgcc_dependency=true
+        -Ddisable_libgcc_dependency=true \
+        -Dlinux_kernel_headers="${sysroot_dir}${prefix}/include"
 
     ninja -j${parallelism}
 }

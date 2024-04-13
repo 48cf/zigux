@@ -1,0 +1,21 @@
+name=linux-headers
+version=6.8.5
+revision=1
+tarball_url="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${version}.tar.xz"
+tarball_blake2b="795c67356a7992cc73a85a733471d0379156f7ba68eedd68d4aa099eb07b4eea4626239ae15cdcc409819c833beb1ec2dc4032b203363db52ab1cb8bc31ac4ea"
+imagedeps="gcc rsync"
+
+build() {
+    cp -rp "${source_dir}"/. ./
+
+    make ARCH=x86_64 headers_install
+    find usr/include -type f ! -name *.h -delete
+
+    # remove this file, as mlibc will override this file with one suited to mlibc
+    rm usr/include/linux/libc-compat.h
+}
+
+package() {
+    mkdir -pv "${dest_dir}${prefix}"
+    cp -rv usr/include "${dest_dir}${prefix}"/
+}

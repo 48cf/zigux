@@ -3,14 +3,15 @@ revision=1
 from_source=mlibc
 imagedeps="meson ninja"
 hostdeps="pkg-config"
-builddeps="cxxshim frigg"
+builddeps="cxxshim frigg linux-headers"
 
 build() {
     meson_configure \
         -Dheaders_only=true \
         -Ddisable_crypt_option=true \
         -Ddisable_iconv_option=true \
-        -Ddisable_intl_option=true
+        -Ddisable_intl_option=true \
+        -Dlinux_kernel_headers="${sysroot_dir}${prefix}/include"
 
     ninja -j${parallelism}
 }
