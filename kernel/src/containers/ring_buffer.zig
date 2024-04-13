@@ -93,7 +93,7 @@ pub fn RingWaitQueue(comptime T: type, comptime max_size: usize) type {
                 self.semaphore.release(1);
                 return true;
             } else {
-                _ = @atomicRmw(usize, &self.num_dropped, .Add, 1, .AcqRel);
+                _ = @atomicRmw(usize, &self.num_dropped, .Add, 1, .acq_rel);
                 return false;
             }
         }
@@ -110,7 +110,7 @@ pub fn RingWaitQueue(comptime T: type, comptime max_size: usize) type {
 
         // Set the number of dropped elements to 0 and return old value
         pub fn dropped(self: *@This()) usize {
-            return @atomicRmw(usize, &self.num_dropped, .Xchg, 0, .AcqRel);
+            return @atomicRmw(usize, &self.num_dropped, .Xchg, 0, .acq_rel);
         }
     };
 }

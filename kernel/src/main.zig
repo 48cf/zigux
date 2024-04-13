@@ -92,9 +92,7 @@ pub const os = struct {
     };
 };
 
-pub const std_options = struct {
-    pub const logFn = log;
-};
+pub const std_options = .{ .logFn = log };
 
 pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = IrqSpinlock }){};
 pub var allocator = gp_allocator.allocator();

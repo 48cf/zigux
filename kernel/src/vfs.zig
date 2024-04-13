@@ -17,14 +17,14 @@ pub const OomError = error{OutOfMemory};
 pub const NotDirError = error{NotDir};
 pub const FaultError = error{AddressInaccessible};
 
-pub const OpenError = std.os.OpenError || OomError;
-pub const ReadError = std.os.PReadError || OomError;
+pub const OpenError = std.posix.OpenError || OomError;
+pub const ReadError = std.posix.PReadError || OomError;
 pub const ReadDirError = ReadError || NotDirError;
-pub const WriteError = std.os.PWriteError || OomError;
-pub const InsertError = std.os.MakeDirError || OomError;
-pub const SymlinkError = std.os.SymLinkError || OomError;
+pub const WriteError = std.posix.PWriteError || OomError;
+pub const InsertError = std.posix.MakeDirError || OomError;
+pub const SymlinkError = std.posix.SymLinkError || OomError;
 pub const IoctlError = error{ InvalidArgument, NoDevice } || FaultError;
-pub const StatError = std.os.FStatAtError || OomError;
+pub const StatError = std.posix.FStatAtError || OomError;
 
 pub const VNodeVTable = struct {
     open: ?*const fn (self: *VNode, name: []const u8, flags: usize) OpenError!*VNode = null,
@@ -315,7 +315,7 @@ const Pipe = struct {
     };
 
     fn close(vnode: *VNode) void {
-        const self = @fieldParentPtr(Pipe, "vnode", vnode);
+        const self = @as(*Pipe, @fieldParentPtr("vnode", vnode));
 
         self.closed = true;
         self.buffer.semaphore.release(1);
@@ -325,7 +325,7 @@ const Pipe = struct {
         _ = offset;
         _ = flags;
 
-        const self = @fieldParentPtr(Pipe, "vnode", vnode);
+        const self = @as(*Pipe, @fieldParentPtr("vnode", vnode));
 
         if (!self.closed) {
             while (true) {
@@ -356,7 +356,7 @@ const Pipe = struct {
         _ = offset;
         _ = flags;
 
-        const self = @fieldParentPtr(Pipe, "vnode", vnode);
+        const self = @as(*Pipe, @fieldParentPtr("vnode", vnode));
 
         if (self.closed) {
             return error.BrokenPipe;
@@ -383,7 +383,7 @@ const SliceBackedFile = struct {
     };
 
     fn read(vnode: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize {
-        const self = @fieldParentPtr(SliceBackedFile, "vnode", vnode);
+        const self = @as(*SliceBackedFile, @fieldParentPtr("vnode", vnode));
 
         _ = flags;
 
@@ -408,7 +408,7 @@ const SliceBackedFile = struct {
     }
 
     fn stat(vnode: *VNode, buffer: *abi.C.stat) StatError!void {
-        const self = @fieldParentPtr(SliceBackedFile, "vnode", vnode);
+        const self = @as(*SliceBackedFile, @fieldParentPtr("vnode", vnode));
 
         buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_mode = 0o777 | abi.C.S_IFREG;

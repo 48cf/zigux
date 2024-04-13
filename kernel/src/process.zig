@@ -337,7 +337,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         //         process.waitpid_child_semaphore.acquire(1);
 
         //         const node = process.zombie_children.pop().?;
-        //         const child = @fieldParentPtr(Process, "scheduler_node", node);
+        //         const child = @as(*Process, @fieldParentPtr("scheduler_node", node));
 
         //         status.* = child.exit_code.?;
 

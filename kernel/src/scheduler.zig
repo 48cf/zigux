@@ -271,7 +271,7 @@ pub const Semaphore = struct {
         self.available += count;
 
         while (self.queue.first) |node| {
-            const waiter = @fieldParentPtr(Waiter, "node", node);
+            const waiter = @as(*Waiter, @fieldParentPtr("node", node));
             const resources_needed = waiter.count;
 
             if (self.available >= resources_needed) {
@@ -320,7 +320,7 @@ pub fn init() !void {
     kernel_process.cwd = root_dir;
 
     idle_thread = .{
-        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
+        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .acq_rel),
         .parent = &kernel_process,
     };
 
@@ -357,7 +357,7 @@ pub fn spawnThreadWithoutStack(parent: *process.Process) !*Thread {
     errdefer root.allocator.destroy(thread);
 
     thread.* = .{
-        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
+        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .acq_rel),
         .parent = parent,
     };
 
@@ -379,7 +379,7 @@ pub fn spawnProcess(parent: ?*process.Process) !*process.Process {
     errdefer root.allocator.destroy(new_process);
 
     new_process.* = .{
-        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel),
+        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .acq_rel),
         .parent = 0,
         .address_space = try virt.createAddressSpace(),
         .exit_code = null,
@@ -407,7 +407,7 @@ pub fn getProcessByPid(pid: u64) ?*process.Process {
     var iter = processes.first;
 
     while (iter) |node| : (iter = node.next) {
-        const proc = @fieldParentPtr(process.Process, "scheduler_node", node);
+        const proc = @as(*process.Process, @fieldParentPtr("scheduler_node", node));
 
         if (proc.pid == pid) {
             return proc;
@@ -424,7 +424,7 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     errdefer root.allocator.destroy(thread);
 
     thread.* = .{
-        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .AcqRel),
+        .tid = @atomicRmw(u64, &tid_counter, .Add, 1, .acq_rel),
         .parent = &kernel_process,
     };
 
@@ -470,7 +470,7 @@ pub fn forkProcess(parent: *process.Process) !*process.Process {
     errdefer root.allocator.destroy(new_process);
 
     new_process.* = .{
-        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .AcqRel),
+        .pid = @atomicRmw(u64, &pid_counter, .Add, 1, .acq_rel),
         .parent = parent.pid,
         .cwd = parent.cwd,
         .files = try parent.files.fork(),
@@ -525,7 +525,7 @@ pub fn dequeueOrNull() ?*Thread {
     defer scheduler_lock.unlock();
 
     if (scheduler_queue.popFirst()) |thread| {
-        return @fieldParentPtr(Thread, "node", thread);
+        return @as(*Thread, @fieldParentPtr("node", thread));
     }
 
     return null;

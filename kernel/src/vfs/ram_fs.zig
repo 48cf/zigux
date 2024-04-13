@@ -34,7 +34,7 @@ const RamFSFile = struct {
     data: std.ArrayListAlignedUnmanaged(u8, std.mem.page_size) = .{},
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
-        const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
+        const self = @as(*RamFSFile, @fieldParentPtr("vnode", vnode));
 
         _ = flags;
 
@@ -53,7 +53,7 @@ const RamFSFile = struct {
     }
 
     fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
-        const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
+        const self = @as(*RamFSFile, @fieldParentPtr("vnode", vnode));
 
         _ = flags;
 
@@ -69,7 +69,7 @@ const RamFSFile = struct {
     }
 
     fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
-        const self = @fieldParentPtr(RamFSFile, "vnode", vnode);
+        const self = @as(*RamFSFile, @fieldParentPtr("vnode", vnode));
 
         buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_ino = @as(c_ulong, @intCast(vnode.inode));
@@ -87,7 +87,7 @@ const RamFSDirectory = struct {
     fn open(vnode: *vfs.VNode, name: []const u8, flags: usize) vfs.OpenError!*vfs.VNode {
         _ = flags;
 
-        const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
+        const self = @as(*RamFSDirectory, @fieldParentPtr("vnode", vnode));
 
         for (self.children.items) |child| {
             if (std.mem.eql(u8, child.name.?, name)) {
@@ -99,7 +99,7 @@ const RamFSDirectory = struct {
     }
 
     fn readDir(vnode: *vfs.VNode, buffer: []u8, offset: *usize) vfs.ReadDirError!usize {
-        const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
+        const self = @as(*RamFSDirectory, @fieldParentPtr("vnode", vnode));
 
         var dir_ent = @as(*abi.C.dirent, @ptrCast(@alignCast(buffer)));
         var buffer_offset: usize = 0;
@@ -137,7 +137,7 @@ const RamFSDirectory = struct {
     }
 
     fn insert(vnode: *vfs.VNode, child: *vfs.VNode) vfs.InsertError!void {
-        const self = @fieldParentPtr(RamFSDirectory, "vnode", vnode);
+        const self = @as(*RamFSDirectory, @fieldParentPtr("vnode", vnode));
 
         for (self.children.items) |it| {
             if (std.mem.eql(u8, it.name.?, child.name.?)) {
@@ -202,9 +202,9 @@ const RamFS = struct {
     }
 
     fn allocateInode(self: *vfs.FileSystem) vfs.OomError!u64 {
-        const fs = @fieldParentPtr(RamFS, "filesystem", self);
+        const fs = @as(*RamFS, @fieldParentPtr("filesystem", self));
 
-        return @atomicRmw(usize, &fs.inode_counter, .Add, 1, .AcqRel);
+        return @atomicRmw(usize, &fs.inode_counter, .Add, 1, .acq_rel);
     }
 };
 

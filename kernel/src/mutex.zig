@@ -10,18 +10,18 @@ pub const AtomicMutex = struct {
     state: State = .Unlocked,
 
     pub fn tryLock(self: *AtomicMutex) bool {
-        return @cmpxchgStrong(State, &self.state, .Unlocked, .Locked, .Acquire, .Monotonic) == null;
+        return @cmpxchgStrong(State, &self.state, .Unlocked, .Locked, .acquire, .monotonic) == null;
     }
 
     pub fn lock(self: *AtomicMutex) void {
-        switch (@atomicRmw(State, &self.state, .Xchg, .Locked, .Acquire)) {
+        switch (@atomicRmw(State, &self.state, .Xchg, .Locked, .acquire)) {
             .Unlocked => {},
             else => |state| self.lockSlow(state),
         }
     }
 
     pub fn unlock(self: *AtomicMutex) void {
-        switch (@atomicRmw(State, &self.state, .Xchg, .Unlocked, .Release)) {
+        switch (@atomicRmw(State, &self.state, .Xchg, .Unlocked, .release)) {
             .Unlocked => unreachable,
             .Waiting => unreachable,
             .Locked => {},
@@ -33,7 +33,7 @@ pub const AtomicMutex = struct {
         var spin: u8 = 0;
 
         while (spin < 100) : (spin += 1) {
-            const state = @cmpxchgWeak(State, &self.state, .Unlocked, new_state, .Acquire, .Monotonic) orelse return;
+            const state = @cmpxchgWeak(State, &self.state, .Unlocked, new_state, .acquire, .monotonic) orelse return;
 
             switch (state) {
                 .Unlocked => {},
@@ -51,7 +51,7 @@ pub const AtomicMutex = struct {
         new_state = .Waiting;
 
         while (true) {
-            switch (@atomicRmw(State, &self.state, .Xchg, new_state, .Acquire)) {
+            switch (@atomicRmw(State, &self.state, .Xchg, new_state, .acquire)) {
                 .Unlocked => return,
                 else => {},
             }

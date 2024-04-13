@@ -117,7 +117,7 @@ const BlockDevice = struct {
     }
 
     fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
-        const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+        const self = @as(*BlockDevice, @fieldParentPtr("vnode", vnode));
         const max_read = @min(buffer.len, self.sector_count * self.sector_size - offset);
 
         _ = flags;
@@ -128,7 +128,7 @@ const BlockDevice = struct {
     }
 
     fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
-        const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+        const self = @as(*BlockDevice, @fieldParentPtr("vnode", vnode));
         const max_write = @min(buffer.len, self.sector_count * self.sector_size - offset);
 
         _ = flags;
@@ -139,7 +139,7 @@ const BlockDevice = struct {
     }
 
     fn stat(vnode: *vfs.VNode, buffer: *abi.C.stat) vfs.StatError!void {
-        const self = @fieldParentPtr(BlockDevice, "vnode", vnode);
+        const self = @as(*BlockDevice, @fieldParentPtr("vnode", vnode));
 
         buffer.* = std.mem.zeroes(abi.C.stat);
         buffer.st_mode = 0o777 | abi.C.S_IFBLK;
@@ -160,13 +160,13 @@ fn BlockDeviceWrapper(comptime T: type) type {
         };
 
         fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
-            const self = @fieldParentPtr(@This(), "block", block_dev);
+            const self = @as(*@This(), @fieldParentPtr("block", block_dev));
 
             try self.device.readBlock(block, buffer);
         }
 
         fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
-            const self = @fieldParentPtr(@This(), "block", block_dev);
+            const self = @as(*@This(), @fieldParentPtr("block", block_dev));
 
             try self.device.writeBlock(block, buffer);
         }
@@ -185,7 +185,7 @@ const PartitionBlockDeviceWrapper = struct {
     };
 
     fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
-        const self = @fieldParentPtr(@This(), "block", block_dev);
+        const self = @as(*@This(), @fieldParentPtr("block", block_dev));
 
         std.debug.assert(self.start_block + block < self.end_block);
 
@@ -193,7 +193,7 @@ const PartitionBlockDeviceWrapper = struct {
     }
 
     fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
-        const self = @fieldParentPtr(@This(), "block", block_dev);
+        const self = @as(*@This(), @fieldParentPtr("block", block_dev));
 
         std.debug.assert(self.start_block + block < self.end_block);
 
@@ -317,7 +317,7 @@ const TtyVNode = struct {
     }
 
     fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlError!u64 {
-        const self = @fieldParentPtr(TtyVNode, "vnode", vnode);
+        const self = @as(*TtyVNode, @fieldParentPtr("vnode", vnode));
         const process = per_cpu.get().currentProcess().?;
 
         switch (request) {
@@ -393,7 +393,7 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
 
     const dev = try vfs.resolve(null, "/dev", 0);
     const node = try root.allocator.create(WrappedDevice);
-    const disk_id = @atomicRmw(usize, &disk_number, .Add, 1, .AcqRel);
+    const disk_id = @atomicRmw(usize, &disk_number, .Add, 1, .acq_rel);
 
     node.* = .{
         .block = .{

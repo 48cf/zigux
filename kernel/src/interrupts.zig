@@ -58,7 +58,7 @@ pub fn makeHandlers() [256]InterruptStub {
 }
 
 pub fn allocateVector() u8 {
-    const result = @atomicRmw(usize, &next_vector, .Add, 1, .AcqRel);
+    const result = @atomicRmw(usize, &next_vector, .Add, 1, .acq_rel);
 
     if (result >= 256 - 16) {
         @panic("No more interrupt vectors left to allocate");

@@ -402,7 +402,7 @@ pub const AddressSpace = struct {
         var iter = self.mappings.first;
 
         while (iter) |node| : (iter = node.next) {
-            const mapping = @fieldParentPtr(Mapping, "node", node);
+            const mapping = @as(*Mapping, @fieldParentPtr("node", node));
 
             if (address >= mapping.base and address < mapping.base + mapping.length) {
                 const base = std.mem.alignBackward(u64, address, std.mem.page_size);
@@ -471,7 +471,7 @@ pub const AddressSpace = struct {
         var iter = self.mappings.first;
 
         while (iter) |node| : (iter = node.next) {
-            const mapping = @fieldParentPtr(Mapping, "node", node);
+            const mapping = @as(*Mapping, @fieldParentPtr("node", node));
             const new_mapping = try root.allocator.create(Mapping);
 
             new_mapping.* = mapping.*;
@@ -502,7 +502,7 @@ pub const AddressSpace = struct {
         var iter = self.mappings.first;
 
         while (iter) |node| : (iter = node.next) {
-            const mapping = @fieldParentPtr(Mapping, "node", node);
+            const mapping = @as(*Mapping, @fieldParentPtr("node", node));
 
             if (new_mapping.base < mapping.base) {
                 std.debug.assert(new_mapping.base + new_mapping.length <= mapping.base);
