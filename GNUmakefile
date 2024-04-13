@@ -5,6 +5,11 @@ all:
 	rm -f zigux.iso
 	$(MAKE) zigux.iso
 
+.PHONY: kernel
+kernel: jinx
+	rm -f builds/kernel.built builds/kernel.packaged
+	./jinx build kernel
+
 .PHONY: distro-full
 distro-full: jinx
 	./jinx build-all
@@ -26,6 +31,5 @@ jinx:
 	chmod +x $@
 
 zigux.iso: jinx
-	rm -f builds/kernel.packaged
-	$(MAKE) distro-base
+	$(MAKE) distro-base kernel
 	./misc/create-image.sh
