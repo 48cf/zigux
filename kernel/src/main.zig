@@ -178,17 +178,13 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     }
 }
 
-var bytes: [16 * 4096]u8 = undefined;
-
 pub fn log(
     comptime level: std.log.Level,
     comptime scope: anytype,
     comptime fmt: []const u8,
     args: anytype,
 ) void {
-    print_lock.lock();
-    defer print_lock.unlock();
-
+    var bytes: [512]u8 = undefined;
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
 
@@ -196,8 +192,20 @@ pub fn log(
         break :blk if (cpu_info.thread) |thread| thread.tid else 0;
     } else 0;
 
-    writer.print("[{d:>3}] ({s}) {s}: ", .{ tid, @tagName(scope), @tagName(level) }) catch unreachable;
-    writer.print(fmt ++ "\n", args) catch unreachable;
+    writer.print("[{d:>3}] ({s}) {s}: ", .{ tid, @tagName(scope), @tagName(level) }) catch {};
+    writer.print(fmt ++ "\n", args) catch {};
 
-    debug.debugPrint(buffer.getWritten());
+    const written = buffer.getWritten();
+    if (written.len == bytes.len) {
+        written[written.len - 1] = '\n';
+    }
+
+    print_lock.lock();
+    defer print_lock.unlock();
+    debug.debugPrint(written);
+}
+
+export fn putchar_(ch: u8) callconv(.C) void {
+    _ = ch;
+    @panic("This function should never be called!");
 }

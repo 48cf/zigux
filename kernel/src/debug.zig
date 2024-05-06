@@ -2,6 +2,7 @@ const logger = std.log.scoped(.debug);
 
 const root = @import("root");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const arch = @import("arch.zig");
 const virt = @import("virt.zig");
@@ -89,7 +90,16 @@ fn init() !void {
     }
 }
 
-fn printInfo(address: u64, symbol_name: []const u8, file_name: []const u8, line: usize) void {
+fn printInfo(address: u64, symbol_name: []const u8, file_name_: []const u8, line: usize) void {
+    var file_name = file_name_;
+
+    if (std.mem.startsWith(u8, file_name, "/base_dir")) {
+        while (!std.mem.startsWith(u8, file_name, "kernel/")) {
+            const idx = std.mem.indexOf(u8, file_name, "/") orelse break;
+            file_name = file_name[idx + 1 ..];
+        }
+    }
+
     logger.err("  0x{X:0>16}: {s} at {s}:{d}", .{ address, symbol_name, file_name, line });
 }
 

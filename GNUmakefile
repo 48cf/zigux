@@ -1,4 +1,4 @@
-override QEMUFLAGS += -M q35,smm=off -m 2G -debugcon stdio -smp 1
+override QEMUFLAGS += -M q35 -m 2G -debugcon stdio -smp 1
 
 .PHONY: all
 all:

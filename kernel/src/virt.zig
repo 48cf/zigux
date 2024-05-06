@@ -596,6 +596,14 @@ pub fn handlePageFault(address: u64, reason: u64) !bool {
     return false;
 }
 
+pub fn higherHalfToPhysical(addr: anytype) u64 {
+    if (@typeInfo(@TypeOf(addr)) == .Pointer) {
+        return @intFromPtr(addr) - hhdm;
+    }
+
+    return @as(u64, addr) - hhdm;
+}
+
 pub fn asHigherHalf(comptime T: type, addr: u64) T {
     const result = addr + hhdm;
 
