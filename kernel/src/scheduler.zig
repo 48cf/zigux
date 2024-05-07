@@ -419,7 +419,7 @@ pub fn getProcessByPid(pid: u64) ?*process.Process {
 
 pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     const thread = try root.allocator.create(Thread);
-    const stack = phys.allocate(4, true) orelse return error.OutOfMemory;
+    const stack = phys.allocate(16, true) orelse return error.OutOfMemory;
 
     errdefer root.allocator.destroy(thread);
 
@@ -431,14 +431,14 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     const wrapper = struct {
         fn handler(arg: u64) callconv(.C) noreturn {
             const entry_type = @typeInfo(@TypeOf(entry)).Fn;
-            const result = switch (@typeInfo(entry_type.args[0].arg_type.?)) {
-                .Pointer => @call(.{ .modifier = .always_inline }, entry, .{@as(entry_type.args[0].arg_type.?, @ptrFromInt(arg))}),
-                else => @call(.{ .modifier = .always_inline }, entry, .{@as(entry_type.args[0].arg_type.?, arg)}),
+            const result = switch (@typeInfo(entry_type.params[0].type.?)) {
+                .Pointer => @call(.always_inline, entry, .{@as(entry_type.params[0].type.?, @ptrFromInt(arg))}),
+                else => @call(.always_inline, entry, .{@as(entry_type.params[0].type.?, @truncate(arg))}),
             };
 
             switch (@typeInfo(@TypeOf(result))) {
                 .ErrorUnion => result catch |err| {
-                    std.debug.panicExtra(@errorReturnTrace(), "Unhandled error occurred: {err}", .{err});
+                    std.debug.panicExtra(@errorReturnTrace(), null, "Unhandled error occurred: {}", .{err});
                 },
                 else => {},
             }
@@ -447,8 +447,8 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
         }
     };
 
-    thread.regs.rip = @intFromPtr(wrapper.handler);
-    thread.regs.rsp = virt.asHigherHalf(u64, stack + 4 * std.mem.page_size - 0x10);
+    thread.regs.rip = @intFromPtr(&wrapper.handler);
+    thread.regs.rsp = virt.asHigherHalf(u64, stack + 16 * std.mem.page_size - 0x10);
     thread.regs.rdi = switch (@typeInfo(@TypeOf(context))) {
         .Pointer => @intFromPtr(context),
         else => @as(u64, context),

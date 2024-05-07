@@ -27,7 +27,6 @@ pub const Flags = struct {
     pub const User = 1 << 2;
     pub const WriteThrough = 1 << 3;
     pub const NoCache = 1 << 4;
-    pub const LargePage = 1 << 7;
     pub const NoExecute = 1 << 63;
 };
 
@@ -126,12 +125,8 @@ const PageTable = extern struct {
         const indices = virtToIndices(virt_addr);
         const pml3 = getPageTable(self, indices.pml4, true) orelse return error.OutOfMemory;
         const pml2 = getPageTable(pml3, indices.pml3, true) orelse return error.OutOfMemory;
-        const entry = if (flags & Flags.LargePage != 0)
-            &pml2.entries[indices.pml2]
-        else blk: {
-            const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
-            break :blk &pml1.entries[indices.pml1];
-        };
+        const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
+        const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
             return error.AlreadyMapped;
@@ -145,14 +140,8 @@ const PageTable = extern struct {
         const indices = virtToIndices(virt_addr);
         const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
         const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const entry = if (flags & Flags.LargePage != 0)
-            &pml2.entries[indices.pml2]
-        else blk: {
-            const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
-            break :blk &pml1.entries[indices.pml1];
-        };
-
-        std.debug.assert((entry.getFlags() & Flags.LargePage) == (flags & Flags.LargePage));
+        const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
+        const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
             entry.setAddress(phys_addr);
@@ -167,25 +156,12 @@ const PageTable = extern struct {
         }
     }
 
-    pub fn unmapPage(self: *PageTable, virt_addr: u64, large_page: bool) !void {
+    pub fn unmapPage(self: *PageTable, virt_addr: u64) !void {
         const indices = virtToIndices(virt_addr);
         const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
         const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml2_entry = &pml2.entries[indices.pml2];
-        const entry = if (pml2_entry.getFlags() & Flags.Present == 0) {
-            return error.NotMapped;
-        } else if (pml2_entry.getFlags() & Flags.LargePage != 0) blk: {
-            if (large_page) {
-                break :blk &pml2.entries[indices.pml2];
-            } else {
-                return error.LargePage;
-            }
-        } else blk: {
-            std.debug.assert(!large_page);
-
-            const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
-            break :blk &pml1.entries[indices.pml1];
-        };
+        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return error.OutOfMemory;
+        const entry = &pml1.entries[indices.pml1];
 
         if (entry.getFlags() & Flags.Present != 0) {
             entry.setAddress(0);
@@ -210,14 +186,8 @@ const PageTable = extern struct {
         while (i < size) {
             const new_virt_addr = virt_addr + i;
             const new_phys_addr = phys_addr + i;
-
-            if (std.mem.isAlignedGeneric(u64, new_virt_addr, two_mib) and std.mem.isAlignedGeneric(u64, new_phys_addr, two_mib) and size - i >= two_mib) {
-                try self.mapPage(new_virt_addr, new_phys_addr, flags | Flags.LargePage);
-                i += two_mib;
-            } else {
-                try self.mapPage(new_virt_addr, new_phys_addr, flags);
-                i += std.mem.page_size;
-            }
+            try self.mapPage(new_virt_addr, new_phys_addr, flags);
+            i += std.mem.page_size;
         }
     }
 
@@ -231,14 +201,8 @@ const PageTable = extern struct {
         while (i < size) {
             const new_virt_addr = virt_addr + i;
             const new_phys_addr = phys_addr + i;
-
-            if (std.mem.isAlignedGeneric(u64, new_virt_addr, two_mib) and std.mem.isAlignedGeneric(u64, new_phys_addr, two_mib) and size - i >= two_mib) {
-                try self.remapPage(new_virt_addr, new_phys_addr, flags | Flags.LargePage);
-                i += two_mib;
-            } else {
-                try self.remapPage(new_virt_addr, new_phys_addr, flags);
-                i += std.mem.page_size;
-            }
+            try self.remapPage(new_virt_addr, new_phys_addr, flags);
+            i += std.mem.page_size;
         }
     }
 
@@ -250,14 +214,8 @@ const PageTable = extern struct {
 
         while (i < size) {
             const new_virt_addr = virt_addr + i;
-
-            if (std.mem.isAlignedGeneric(u64, new_virt_addr, two_mib) and size - i >= two_mib) {
-                try self.unmapPage(new_virt_addr, true);
-                i += two_mib;
-            } else {
-                try self.unmapPage(new_virt_addr, false);
-                i += std.mem.page_size;
-            }
+            try self.unmapPage(new_virt_addr);
+            i += std.mem.page_size;
         }
     }
 };
@@ -552,6 +510,7 @@ pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
     // TODO: Map all of the memory map entries too
     try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(16) - std.mem.page_size, Flags.Present | Flags.Writable);
     try page_table.map(hhdm, 0, utils.gib(16), Flags.Present | Flags.Writable | Flags.NoExecute);
+    try page_table.map(hhdm_uc, 0, utils.gib(16), Flags.Present | Flags.Writable | Flags.NoCache | Flags.NoExecute);
 
     try map_section("text", page_table, kernel_addr_res, Flags.Present);
     try map_section("rodata", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
@@ -578,18 +537,7 @@ pub fn createAddressSpace() !AddressSpace {
 }
 
 pub fn handlePageFault(address: u64, reason: u64) !bool {
-    const page = std.mem.alignBackward(u64, address, std.mem.page_size);
-
-    // TODO: Map all of the memory map entries too
-    if (address >= hhdm_uc and address < hhdm_uc + utils.gib(16)) {
-        try kernel_address_space.page_table.mapPage(
-            page,
-            page - hhdm_uc,
-            Flags.Present | Flags.Writable | Flags.NoCache | Flags.NoExecute,
-        );
-
-        return true;
-    } else if (address < 0x8000_0000_0000_0000) {
+    if (address < 0x8000_0000_0000_0000) {
         return current_address_space.handlePageFault(address, reason);
     }
 
@@ -602,6 +550,14 @@ pub fn higherHalfToPhysical(addr: anytype) u64 {
     }
 
     return @as(u64, addr) - hhdm;
+}
+
+pub fn higherHalfUncachedToPhysical(addr: anytype) u64 {
+    if (@typeInfo(@TypeOf(addr)) == .Pointer) {
+        return @intFromPtr(addr) - hhdm_uc;
+    }
+
+    return @as(u64, addr) - hhdm_uc;
 }
 
 pub fn asHigherHalf(comptime T: type, addr: u64) T {

@@ -80,12 +80,10 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
 
     for (memory_map_res.entries()) |entry| {
         if (entry.kind == .usable) {
-            const base = std.mem.alignBackward(u64, entry.base, std.mem.page_size) / std.mem.page_size;
-            const length = std.mem.alignForward(u64, entry.length, std.mem.page_size) / std.mem.page_size;
+            const base = entry.base / std.mem.page_size;
+            const length = entry.length / std.mem.page_size;
 
-            var i: usize = 0;
-
-            while (i < length) : (i += 1) {
+            for (0..length) |i| {
                 bitmap.clearBit(base + i);
             }
 
