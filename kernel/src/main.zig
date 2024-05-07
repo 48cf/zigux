@@ -120,9 +120,22 @@ export fn _start() callconv(.C) noreturn {
     }
 }
 
+fn mainThread(_: u8) !void {
+    try pci.init();
+
+    ps2.init();
+
+    const process = try scheduler.spawnProcess(null);
+    const thread = try scheduler.spawnThread(process);
+    const init = try vfs.resolve(null, "/usr/bin/init", 0);
+
+    try thread.exec(init, &.{"/usr/bin/init"}, &.{});
+
+    scheduler.enqueue(thread);
+}
+
 fn main() !void {
     asm volatile ("cli");
-    defer asm volatile ("sti");
 
     const boot_info_res = boot_info_req.response.?;
     const hhdm_res = hhdm_req.response.?;
@@ -142,21 +155,14 @@ fn main() !void {
     try per_cpu.init();
     try vfs.init(modules_res);
     try acpi.init(rsdp_res);
-    try pci.init();
     try scheduler.init();
 
     apic.init();
     apic.initTimer();
 
-    ps2.init();
+    asm volatile ("sti");
 
-    const process = try scheduler.spawnProcess(null);
-    const thread = try scheduler.spawnThread(process);
-    const init = try vfs.resolve(null, "/usr/bin/init", 0);
-
-    try thread.exec(init, &.{"/usr/bin/init"}, &.{});
-
-    scheduler.enqueue(thread);
+    _ = try scheduler.startKernelThread(mainThread, 0);
 }
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
