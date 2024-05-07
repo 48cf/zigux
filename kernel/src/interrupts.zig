@@ -173,6 +173,7 @@ fn makeHandler(comptime vector: usize) InterruptStub {
                     \\jmp interruptCommonHandler
                     :
                     : [vector] "i" (vector),
+                      [_] "i" (interruptCommonHandler),
                 );
             } else {
                 asm volatile (
@@ -181,6 +182,7 @@ fn makeHandler(comptime vector: usize) InterruptStub {
                     \\jmp interruptCommonHandler
                     :
                     : [vector] "i" (vector),
+                      [_] "i" (interruptCommonHandler),
                 );
             }
         }
@@ -251,5 +253,8 @@ export fn interruptCommonHandler() callconv(.Naked) void {
         \\
         \\add $16, %%rsp
         \\iretq
+        :
+        : [_] "i" (interruptHandler),
+          [_] "i" (swapGsIfNeeded),
     );
 }
