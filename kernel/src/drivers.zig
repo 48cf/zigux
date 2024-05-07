@@ -2,6 +2,7 @@ const pci = @import("pci.zig");
 
 pub const pci_drivers = .{
     // @import("drivers/ahci.zig").pci_driver,
+    @import("drivers/xhci.zig").pci_driver,
 };
 
 pub const PciDriverDiscovery = union(enum) {
