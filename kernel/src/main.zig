@@ -131,12 +131,8 @@ fn main() !void {
     const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
 
+    per_cpu.initBsp();
     per_cpu.initFeatures();
-
-    asm volatile ("wrgsbase %[base]"
-        :
-        : [base] "r" (@as(u64, 0)),
-    );
 
     std.debug.assert(hhdm_res.offset == virt.asHigherHalf(u64, 0));
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
@@ -188,9 +184,7 @@ pub fn log(
     var buffer = std.io.fixedBufferStream(&bytes);
     var writer = buffer.writer();
 
-    const tid = if (per_cpu.tryGet()) |cpu_info| blk: {
-        break :blk if (cpu_info.thread) |thread| thread.tid else 0;
-    } else 0;
+    const tid = if (per_cpu.get().thread) |thread| thread.tid else 0;
 
     writer.print("[{d:>3}] ({s}) {s}: ", .{ tid, @tagName(scope), @tagName(level) }) catch {};
     writer.print(fmt ++ "\n", args) catch {};

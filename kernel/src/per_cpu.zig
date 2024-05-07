@@ -12,7 +12,7 @@ pub const PerCpu = struct {
     gdt: arch.Gdt = .{},
     tss: arch.Tss = .{},
     idt: arch.Idt = .{},
-    lapic_base: u64,
+    lapic_base: u64 = 0,
     thread: ?*scheduler.Thread = null,
 
     pub fn currentProcess(self: *PerCpu) ?*process.Process {
@@ -23,6 +23,18 @@ pub const PerCpu = struct {
         }
     }
 };
+
+var bsp_percpu: PerCpu = .{ .self = undefined };
+
+pub fn initBsp() void {
+    bsp_percpu = .{
+        .self = &bsp_percpu,
+        .lapic_base = virt.asHigherHalf(u64, arch.Msr.apic.read() & ~@as(u64, 0xFFF)),
+    };
+
+    arch.Msr.gs_base.write(@intFromPtr(&bsp_percpu));
+    arch.Msr.gs_kernel_base.write(@intFromPtr(&bsp_percpu));
+}
 
 pub fn initFeatures() void {
     var cr4 = asm volatile ("mov %%cr4, %[result]"
@@ -49,10 +61,12 @@ pub fn init() !void {
     const intr_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
     const ist_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
     const sched_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const pf_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
 
     instance.tss.rsp[0] = virt.asHigherHalf(u64, intr_stack + std.mem.page_size);
     instance.tss.ist[0] = virt.asHigherHalf(u64, ist_stack + std.mem.page_size);
     instance.tss.ist[1] = virt.asHigherHalf(u64, sched_stack + std.mem.page_size);
+    instance.tss.ist[2] = virt.asHigherHalf(u64, pf_stack + std.mem.page_size);
 
     instance.gdt.load(&instance.tss);
     instance.idt.load();
@@ -62,11 +76,7 @@ pub fn init() !void {
 }
 
 pub inline fn get() *PerCpu {
-    return tryGet().?;
-}
-
-pub inline fn tryGet() ?*PerCpu {
-    return asm volatile ("rdgsbase %[result]"
+    return asm volatile ("mov %%gs:0, %[result]"
         : [result] "=r" (-> *PerCpu),
     );
 }

@@ -110,7 +110,11 @@ pub const Idt = struct {
 
         for (interrupts.makeHandlers(), 0..) |handler, i| {
             const flags: u8 = if (i == interrupts.syscall_vector) 0xee else 0x8e;
-            const ist: u8 = if (i == interrupts.sched_call_vector) 2 else 1;
+            const ist: u8 = switch (i) {
+                0xe => 3,
+                interrupts.sched_call_vector => 2,
+                else => 1,
+            };
 
             self.entries[i] = IdtEntry.init(@intFromPtr(handler), ist, flags);
         }
