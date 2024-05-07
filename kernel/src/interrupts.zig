@@ -10,6 +10,7 @@ const virt = @import("virt.zig");
 
 var next_vector: usize = 32;
 var handlers = [1]InterruptHandler{exceptionHandler} ** 32 ++ [1]InterruptHandler{unhandledInterruptHandler} ** 224;
+var handler_contexts: [256]u64 = undefined;
 
 pub const syscall_vector: u8 = 0xFD;
 pub const sched_call_vector: u8 = 0xFE;
@@ -17,6 +18,7 @@ pub const spurious_vector: u8 = 0xFF;
 
 pub const InterruptStub = *const fn () callconv(.Naked) void;
 pub const InterruptHandler = *const fn (*InterruptFrame) void;
+pub const InterruptHandlerWithContext = *const fn (u64) void;
 
 pub const InterruptFrame = extern struct {
     es: u64,
@@ -69,6 +71,25 @@ pub fn allocateVector() u8 {
 
 pub fn registerHandler(vector: u8, handler: InterruptHandler) void {
     handlers[vector] = handler;
+}
+
+pub fn registerHandlerWithContext(
+    vector: u8,
+    comptime handler_: InterruptHandlerWithContext,
+    context: u64,
+) void {
+    handler_contexts[vector] = context;
+    handlers[vector] = struct {
+        fn handler(frame: *InterruptFrame) void {
+            const handler_context = handler_contexts[frame.vector & 0xFF];
+            @call(.always_inline, handler_, .{handler_context});
+        }
+    }.handler;
+}
+
+fn interruptHandlerWithContext(frame: *InterruptFrame, context: u64) void {
+    const handler = handlers[frame.vector & 0xFF];
+    handler(frame, context);
 }
 
 fn printRegisters(frame: *InterruptFrame) void {

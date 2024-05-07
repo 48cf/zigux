@@ -548,6 +548,10 @@ pub fn reschedule(frame: *interrupts.InterruptFrame) void {
 }
 
 pub fn yield() void {
+    if (arch.readEflags() & 0x200 == 0) {
+        @panic("Trying to yield with interrupts disabled is usually not a good idea...");
+    }
+
     schedCall(struct {
         fn handler(frame: *interrupts.InterruptFrame, arg: usize) void {
             _ = arg;
