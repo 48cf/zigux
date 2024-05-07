@@ -523,11 +523,15 @@ export fn strnlen(s: [*]const u8, maxlen: usize) callconv(.C) usize {
 export fn strncmp(s1: [*]const u8, s2: [*]const u8, n: usize) callconv(.C) i32 {
     for (0..n) |i| {
         if (s1[i] != s2[i]) {
-            return s1[i] - s2[i];
+            if (s1[i] > s2[i]) {
+                return 1;
+            } else {
+                return -1;
+            }
         }
 
         if (s1[i] == 0) {
-            return 0;
+            return -1;
         }
     }
 
