@@ -5,6 +5,7 @@ const std = @import("std");
 
 const arch = @import("arch.zig");
 const drivers = @import("drivers.zig");
+const virt = @import("virt.zig");
 
 fn ConfigSpaceField(comptime T: type, comptime offset: usize) type {
     return struct {
@@ -68,20 +69,45 @@ pub const Capability = struct {
 
 pub const Msi = struct {
     pci_cap: Capability,
+    is_msix: bool,
 
     pub fn enable(self: Msi, lapic_id: u32, vector: u8) void {
-        const msi_data = @as(u16, vector); // | 1 << 15); // Level trigger
         const msi_addr: u64 = 0xFEE00000 | (lapic_id << 12);
+        const msi_data = @as(u16, vector); // | 1 << 15); // Level trigger
 
-        self.pci_cap.write(u16, 12, msi_data);
-        self.pci_cap.write(u32, 4, @as(u32, @truncate(msi_addr)));
-        self.pci_cap.write(u32, 8, @as(u32, @intCast(msi_addr >> 32)));
-        self.pci_cap.write(u16, 2, self.pci_cap.read(u16, 2) | 1);
-        self.pci_cap.write(u32, 16, 0);
+        if (self.is_msix) {
+            logger.info("Enabling MSI-X for device, lapic_id: {}, vector: {}", .{ lapic_id, vector });
+            const msi_table_info = self.pci_cap.read(u32, 4);
+            const msi_table_bar = self.pci_cap.device.getBar(@truncate(msi_table_info & 0x7));
+            const msi_table = virt.asHigherHalfUncached([*]volatile u32, msi_table_bar.?.base + (msi_table_info & 0xFFFFFFF8));
+            msi_table[3] = 0;
+            msi_table[2] = msi_data;
+            msi_table[0] = @truncate(msi_addr);
+            msi_table[1] = @truncate(msi_addr >> 32);
 
-        const cmd = self.pci_cap.device.command();
+            // Set the enable bit in the message control register
+            self.pci_cap.write(u16, 2, self.pci_cap.read(u16, 2) | (1 << 15));
+        } else {
+            logger.info("Enabling MSI for device , lapic_id: {}, vector: {}", .{ lapic_id, vector });
 
-        cmd.write(cmd.read() & ~@as(u16, 1 << 10));
+            self.pci_cap.write(u32, 0x4, @as(u32, @truncate(msi_addr)));
+            const message_control = self.pci_cap.read(u16, 2);
+
+            // 64-bit
+            if (message_control & (1 << 7) != 0) {
+                self.pci_cap.write(u32, 0x8, @as(u32, @intCast(msi_addr >> 32)));
+                self.pci_cap.write(u16, 0xC, msi_data);
+            } else {
+                self.pci_cap.write(u16, 0x8, msi_data);
+            }
+
+            // Set the enable bit in the message control register
+            self.pci_cap.write(u16, 2, message_control | (1 << 0));
+        }
+
+        // Clear the interrupt disable bit in the command register
+        const command_register = self.pci_cap.device.command();
+        command_register.write(command_register.read() & ~@as(u16, 1 << 10));
     }
 };
 
@@ -193,21 +219,23 @@ pub const Device = struct {
 
     pub fn getMsi(self: Device) ?Msi {
         var caps = self.capabilities();
+        var msi: ?Msi = null;
 
         while (caps.next()) |cap| {
             switch (cap.vendor()) {
-                0x5 => return Msi{ .pci_cap = cap },
-                else => continue,
+                0x5 => if (msi == null) {
+                    msi = Msi{ .pci_cap = cap, .is_msix = false };
+                },
+                0x11 => return Msi{ .pci_cap = cap, .is_msix = true },
+                else => {},
             }
         }
 
-        return null;
+        return msi;
     }
 };
 
 fn checkFunction(device: Device) anyerror!void {
-    try devices.append(root.allocator, device);
-
     const vendor_id = device.vendor_id().read();
     const device_id = device.device_id().read();
     const class_id = device.class_id().read();
@@ -275,8 +303,6 @@ fn checkBus(bus: u8) !void {
         try checkSlot(bus, device);
     }
 }
-
-var devices: std.ArrayListUnmanaged(Device) = .{};
 
 pub fn init() !void {
     return checkBus(0);
