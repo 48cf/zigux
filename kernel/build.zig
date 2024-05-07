@@ -31,6 +31,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    kernel.root_module.red_zone = false;
+    kernel.root_module.stack_check = false;
+    kernel.root_module.omit_frame_pointer = false;
+    kernel.want_lto = false;
+
     kernel.root_module.addImport("limine", limine.module("limine"));
 
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
