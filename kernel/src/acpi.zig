@@ -274,17 +274,13 @@ export fn uacpi_kernel_io_map(
     len: C.uacpi_size,
     out_handle: *C.uacpi_handle,
 ) callconv(.C) C.uacpi_status {
-    _ = base;
     _ = len;
-    out_handle.* = null;
-    logger.warn("uacpi_kernel_io_map is a stub", .{});
+    out_handle.* = @ptrFromInt(base);
     return C.UACPI_STATUS_OK;
 }
 
-export fn uacpi_kernel_io_unmap(handle: C.uacpi_handle) callconv(.C) C.uacpi_status {
+export fn uacpi_kernel_io_unmap(handle: C.uacpi_handle) callconv(.C) void {
     _ = handle;
-    logger.warn("uacpi_kernel_io_unmap is a stub", .{});
-    return C.UACPI_STATUS_OK;
 }
 
 export fn uacpi_kernel_io_read(
@@ -293,16 +289,8 @@ export fn uacpi_kernel_io_read(
     byte_width: C.uacpi_u8,
     out_value: *C.uacpi_u64,
 ) callconv(.C) C.uacpi_status {
-    _ = handle;
-    _ = offset;
-    switch (byte_width) {
-        1 => out_value.* = 0xFF,
-        2 => out_value.* = 0xFFFF,
-        4 => out_value.* = 0xFFFFFFFF,
-        else => return C.UACPI_STATUS_INVALID_ARGUMENT,
-    }
-    logger.warn("uacpi_kernel_io_read is a stub", .{});
-    return C.UACPI_STATUS_OK;
+    const base: u64 = @intFromPtr(handle);
+    return uacpi_kernel_raw_io_read(base + offset, byte_width, out_value);
 }
 
 export fn uacpi_kernel_io_write(
@@ -311,12 +299,8 @@ export fn uacpi_kernel_io_write(
     byte_width: C.uacpi_u8,
     in_value: C.uacpi_u64,
 ) callconv(.C) C.uacpi_status {
-    _ = handle;
-    _ = offset;
-    _ = byte_width;
-    _ = in_value;
-    logger.warn("uacpi_kernel_io_write is a stub", .{});
-    return C.UACPI_STATUS_OK;
+    const base: u64 = @intFromPtr(handle);
+    return uacpi_kernel_raw_io_write(base + offset, byte_width, in_value);
 }
 
 export fn uacpi_kernel_map(addr: C.uacpi_phys_addr, len: C.uacpi_size) callconv(.C) *anyopaque {
