@@ -8,7 +8,7 @@ const debug = @import("../debug.zig");
 const vfs = @import("../vfs.zig");
 const utils = @import("../utils.zig");
 const per_cpu = @import("../per_cpu.zig");
-const ps2 = @import("../drivers/ps2.zig");
+const input = @import("../drivers/input.zig");
 const ext_fs = @import("ext_fs.zig");
 const ram_fs = @import("ram_fs.zig");
 
@@ -220,13 +220,13 @@ const TtyVNode = struct {
         }
 
         while (true) {
-            const event = ps2.getKeyboardEvent();
+            const event = input.dequeueKeyboardEvent();
 
             if (!event.pressed) {
                 continue;
             }
 
-            const shift = ps2.keyboard_state.isShiftPressed();
+            const shift = input.keyboard_state.isShiftPressed();
             const result = switch (event.location) {
                 .Number1 => if (shift) "!" else "1",
                 .Number2 => if (shift) "@" else "2",
@@ -254,6 +254,7 @@ const TtyVNode = struct {
                 .Line1n10 => if (shift) "P" else "p",
                 .Line1n11 => if (shift) "{" else "[",
                 .Line1n12 => if (shift) "}" else "]",
+                .Line1n13, .NonUsBackslash => if (shift) "|" else "\\",
                 .Line2n1 => if (shift) "A" else "a",
                 .Line2n2 => if (shift) "S" else "s",
                 .Line2n3 => if (shift) "D" else "d",
@@ -265,7 +266,6 @@ const TtyVNode = struct {
                 .Line2n9 => if (shift) "L" else "l",
                 .Line2n10 => if (shift) ":" else ";",
                 .Line2n11 => if (shift) "\"" else "'",
-                .Line2n12 => if (shift) "|" else "\\",
                 .Enter => "\n",
                 .Line3n1 => if (shift) "Z" else "z",
                 .Line3n2 => if (shift) "X" else "x",
@@ -293,7 +293,7 @@ const TtyVNode = struct {
 
             const max_read = @min(buffer.len, result.len);
 
-            @memcpy(buffer, result[0..max_read]);
+            @memcpy(buffer[0..max_read], result);
 
             for (result[max_read..]) |byte| {
                 _ = tty_buffer.push(byte);
