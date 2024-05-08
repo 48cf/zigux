@@ -1,0 +1,48 @@
+diff --git zig-clean/lib/std/bounded_array.zig zig-workdir/lib/std/bounded_array.zig
+index d418570..80bda17 100644
+--- zig-clean/lib/std/bounded_array.zig
++++ zig-workdir/lib/std/bounded_array.zig
+@@ -52,17 +52,13 @@ pub fn BoundedArrayAligned(
+         }
+ 
+         /// View the internal array as a slice whose size was previously set.
+-        pub fn slice(self: anytype) switch (@TypeOf(&self.buffer)) {
+-            *align(alignment) [buffer_capacity]T => []align(alignment) T,
+-            *align(alignment) const [buffer_capacity]T => []align(alignment) const T,
+-            else => unreachable,
+-        } {
++        pub fn slice(self: *Self) []align(alignment) T {
+             return self.buffer[0..self.len];
+         }
+ 
+         /// View the internal array as a constant slice whose size was previously set.
+         pub fn constSlice(self: *const Self) []align(alignment) const T {
+-            return self.slice();
++            return self.buffer[0..self.len];
+         }
+ 
+         /// Adjust the slice's length to `len`.
+@@ -80,7 +76,7 @@ pub fn BoundedArrayAligned(
+         }
+ 
+         /// Return the element at index `i` of the slice.
+-        pub fn get(self: Self, i: usize) T {
++        pub fn get(self: *const Self, i: usize) T {
+             return self.constSlice()[i];
+         }
+ 
+@@ -90,12 +86,12 @@ pub fn BoundedArrayAligned(
+         }
+ 
+         /// Return the maximum length of a slice.
+-        pub fn capacity(self: Self) usize {
++        pub fn capacity(self: *const Self) usize {
+             return self.buffer.len;
+         }
+ 
+         /// Check that the slice can hold at least `additional_count` items.
+-        pub fn ensureUnusedCapacity(self: Self, additional_count: usize) error{Overflow}!void {
++        pub fn ensureUnusedCapacity(self: *const Self, additional_count: usize) error{Overflow}!void {
+             if (self.len + additional_count > buffer_capacity) {
+                 return error.Overflow;
+             }
