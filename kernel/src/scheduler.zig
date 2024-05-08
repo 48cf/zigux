@@ -340,8 +340,8 @@ pub fn spawnThread(parent: *process.Process) !*Thread {
     const stack_base = try parent.address_space.mmap(
         0,
         thread_stack_pages * std.mem.page_size,
-        abi.C.PROT_READ | abi.C.PROT_WRITE,
-        abi.C.MAP_PRIVATE | abi.C.MAP_FIXED,
+        abi.PROT_READ | abi.PROT_WRITE,
+        abi.MAP_PRIVATE | abi.MAP_FIXED,
         null,
         0,
     );

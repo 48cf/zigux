@@ -1,4 +1,4 @@
-pub const C = @cImport({
+const C = @cImport({
     @cInclude("abi-bits/errno.h");
     @cInclude("abi-bits/seek-whence.h");
     @cInclude("abi-bits/stat.h");
@@ -9,3 +9,5 @@ pub const C = @cImport({
     @cInclude("fcntl.h");
     @cInclude("termios.h");
 });
+
+pub usingnamespace C;

@@ -75,10 +75,10 @@ inline fn protToFlags(prot: u64, user: bool) u64 {
     if (user)
         flags |= Flags.User;
 
-    if (prot & abi.C.PROT_WRITE != 0)
+    if (prot & abi.PROT_WRITE != 0)
         flags |= Flags.Writable;
 
-    if (prot & abi.C.PROT_EXEC == 0)
+    if (prot & abi.PROT_EXEC == 0)
         flags |= Flags.NoExecute;
 
     return flags;
@@ -306,13 +306,13 @@ pub const AddressSpace = struct {
                     var prot: u64 = 0;
 
                     if (ph.p_flags & std.elf.PF_R != 0)
-                        prot |= abi.C.PROT_READ;
+                        prot |= abi.PROT_READ;
 
                     if (ph.p_flags & std.elf.PF_W != 0)
-                        prot |= abi.C.PROT_WRITE;
+                        prot |= abi.PROT_WRITE;
 
                     if (ph.p_flags & std.elf.PF_X != 0)
-                        prot |= abi.C.PROT_EXEC;
+                        prot |= abi.PROT_EXEC;
 
                     const virt_addr = std.mem.alignBackward(u64, ph.p_vaddr, std.mem.page_size) + base;
                     const mapping = try root.allocator.create(Mapping);
@@ -324,7 +324,7 @@ pub const AddressSpace = struct {
                         .base = virt_addr,
                         .length = page_count * std.mem.page_size,
                         .prot = prot,
-                        .flags = abi.C.MAP_ANONYMOUS | abi.C.MAP_PRIVATE | abi.C.MAP_FIXED,
+                        .flags = abi.MAP_ANONYMOUS | abi.MAP_PRIVATE | abi.MAP_FIXED,
                     };
 
                     self.insertMapping(mapping);

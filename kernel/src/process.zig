@@ -11,8 +11,8 @@ const scheduler = @import("scheduler.zig");
 const per_cpu = @import("per_cpu.zig");
 const virt = @import("virt.zig");
 
-const all_prot: u64 = abi.C.PROT_READ | abi.C.PROT_WRITE | abi.C.PROT_EXEC;
-const all_flags: u64 = abi.C.MAP_SHARED | abi.C.MAP_PRIVATE | abi.C.MAP_FIXED | abi.C.MAP_ANON;
+const all_prot: u64 = abi.PROT_READ | abi.PROT_WRITE | abi.PROT_EXEC;
+const all_flags: u64 = abi.MAP_SHARED | abi.MAP_PRIVATE | abi.MAP_FIXED | abi.MAP_ANON;
 
 const FileDescriptor = struct {
     vnode: *vfs.VNode,
@@ -143,41 +143,41 @@ pub const Process = struct {
 };
 
 const errorTypeMap = .{
-    .{ error.AccessDenied, abi.C.EACCES },
-    .{ error.SymLinkLoop, abi.C.ELOOP },
-    .{ error.ProcessFdQuotaExceeded, abi.C.EDQUOT },
-    .{ error.SystemFdQuotaExceeded, abi.C.EDQUOT },
-    .{ error.NoDevice, abi.C.ENXIO },
-    .{ error.FileNotFound, abi.C.ENOENT },
-    .{ error.NameTooLong, abi.C.ENAMETOOLONG },
-    .{ error.SystemResources, abi.C.ENOMEM },
-    .{ error.FileTooBig, abi.C.EFBIG },
-    .{ error.IsDir, abi.C.EISDIR },
-    .{ error.NoSpaceLeft, abi.C.ENOSPC },
-    .{ error.NotDir, abi.C.ENOTDIR },
-    .{ error.PathAlreadyExists, abi.C.EEXIST },
-    .{ error.DeviceBusy, abi.C.EBUSY },
-    .{ error.FileLocksNotSupported, abi.C.ENOLCK },
-    .{ error.BadPathName, abi.C.EFAULT },
-    .{ error.InvalidUtf8, abi.C.EINVAL },
-    .{ error.FileBusy, abi.C.EBUSY },
-    .{ error.WouldBlock, abi.C.EAGAIN },
-    .{ error.OutOfMemory, abi.C.ENOMEM },
-    .{ error.NotImplemented, abi.C.ENOSYS },
-    .{ error.NotFound, abi.C.ENOENT },
-    .{ error.BadFileDescriptor, abi.C.EBADFD },
-    .{ error.InputOutput, abi.C.EIO },
-    .{ error.OperationAborted, abi.C.ECANCELED },
-    .{ error.BrokenPipe, abi.C.EPIPE },
-    .{ error.ConnectionResetByPeer, abi.C.ECONNRESET },
-    .{ error.ConnectionTimedOut, abi.C.ETIMEDOUT },
-    .{ error.NotOpenForReading, abi.C.EBADF },
-    .{ error.Unseekable, abi.C.ESPIPE },
-    .{ error.DiskQuota, abi.C.EDQUOT },
-    .{ error.NotOpenForWriting, abi.C.EROFS },
-    .{ error.InvalidArgument, abi.C.EINVAL },
-    .{ error.InvalidHandle, abi.C.EINVAL },
-    .{ error.NotExecutable, abi.C.ENOEXEC },
+    .{ error.AccessDenied, abi.EACCES },
+    .{ error.SymLinkLoop, abi.ELOOP },
+    .{ error.ProcessFdQuotaExceeded, abi.EDQUOT },
+    .{ error.SystemFdQuotaExceeded, abi.EDQUOT },
+    .{ error.NoDevice, abi.ENXIO },
+    .{ error.FileNotFound, abi.ENOENT },
+    .{ error.NameTooLong, abi.ENAMETOOLONG },
+    .{ error.SystemResources, abi.ENOMEM },
+    .{ error.FileTooBig, abi.EFBIG },
+    .{ error.IsDir, abi.EISDIR },
+    .{ error.NoSpaceLeft, abi.ENOSPC },
+    .{ error.NotDir, abi.ENOTDIR },
+    .{ error.PathAlreadyExists, abi.EEXIST },
+    .{ error.DeviceBusy, abi.EBUSY },
+    .{ error.FileLocksNotSupported, abi.ENOLCK },
+    .{ error.BadPathName, abi.EFAULT },
+    .{ error.InvalidUtf8, abi.EINVAL },
+    .{ error.FileBusy, abi.EBUSY },
+    .{ error.WouldBlock, abi.EAGAIN },
+    .{ error.OutOfMemory, abi.ENOMEM },
+    .{ error.NotImplemented, abi.ENOSYS },
+    .{ error.NotFound, abi.ENOENT },
+    .{ error.BadFileDescriptor, abi.EBADFD },
+    .{ error.InputOutput, abi.EIO },
+    .{ error.OperationAborted, abi.ECANCELED },
+    .{ error.BrokenPipe, abi.EPIPE },
+    .{ error.ConnectionResetByPeer, abi.ECONNRESET },
+    .{ error.ConnectionTimedOut, abi.ETIMEDOUT },
+    .{ error.NotOpenForReading, abi.EBADF },
+    .{ error.Unseekable, abi.ESPIPE },
+    .{ error.DiskQuota, abi.EDQUOT },
+    .{ error.NotOpenForWriting, abi.EROFS },
+    .{ error.InvalidArgument, abi.EINVAL },
+    .{ error.InvalidHandle, abi.EINVAL },
+    .{ error.NotExecutable, abi.ENOEXEC },
 };
 
 fn errnoToError(errno: u16) anyerror {
@@ -193,9 +193,9 @@ fn errnoToError(errno: u16) anyerror {
 fn syscallNumberToString(syscall_num: u64) ?[]const u8 {
     @setEvalBranchQuota(10000);
 
-    inline for (@typeInfo(abi.C).Struct.decls) |decl| {
+    inline for (@typeInfo(abi).Struct.decls) |decl| {
         if (comptime std.mem.startsWith(u8, decl.name, "SYS_")) {
-            if (@field(abi.C, decl.name) == syscall_num) {
+            if (@field(abi, decl.name) == syscall_num) {
                 return decl.name;
             }
         }
@@ -240,20 +240,20 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
     const process = cpu_info.currentProcess().?;
 
     return switch (frame.rax) {
-        abi.C.SYS_libc_log => {
+        abi.SYS_libc_log => {
             logger.info("{s}", .{try process.validateSentinel(u8, 0, frame.rdi)});
 
             return 0;
         },
-        abi.C.SYS_exit => {
+        abi.SYS_exit => {
             scheduler.exitProcess(process, @as(u8, @truncate(frame.rdi)));
             scheduler.reschedule(frame);
 
             return null;
         },
-        // abi.C.SYS_PROC_ARCH_CTL => {
+        // abi.SYS_PROC_ARCH_CTL => {
         //     switch (frame.rdi) {
-        //         abi.C.ARCH_SET_FS => {
+        //         abi.ARCH_SET_FS => {
         //             arch.Msr.fs_base.write(frame.rsi);
 
         //             return 0;
@@ -261,9 +261,9 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         //         else => return error.InvalidArgument,
         //     }
         // },
-        // abi.C.SYS_PROC_GET_PID => return process.pid,
-        // abi.C.SYS_PROC_GET_PPID => return process.parent,
-        // abi.C.SYS_PROC_FORK => {
+        // abi.SYS_PROC_GET_PID => return process.pid,
+        // abi.SYS_PROC_GET_PPID => return process.parent,
+        // abi.SYS_PROC_FORK => {
         //     const forked_process = try scheduler.forkProcess(process);
         //     const new_thread = try scheduler.spawnThreadWithoutStack(forked_process);
 
@@ -274,7 +274,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return forked_process.pid;
         // },
-        // abi.C.SYS_PROC_EXEC => {
+        // abi.SYS_PROC_EXEC => {
         //     const thread = cpu_info.thread.?;
         //     const path = try process.validateSentinel(u8, 0, frame.rdi);
         //     const file = try vfs.resolve(process.cwd, path, 0);
@@ -302,8 +302,8 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         //     const stack_base = try process.address_space.mmap(
         //         0,
         //         scheduler.thread_stack_pages * std.mem.page_size,
-        //         abi.C.PROT_READ | abi.C.PROT_WRITE,
-        //         abi.C.MAP_PRIVATE | abi.C.MAP_FIXED,
+        //         abi.PROT_READ | abi.PROT_WRITE,
+        //         abi.MAP_PRIVATE | abi.MAP_FIXED,
         //         null,
         //         0,
         //     );
@@ -322,7 +322,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return null;
         // },
-        // abi.C.SYS_PROC_WAIT => {
+        // abi.SYS_PROC_WAIT => {
         //     const status = try process.validatePointer(c_int, frame.rsi);
         //     const pid = @truncate(c_int, @bitCast(i64, frame.rdi));
 
@@ -348,20 +348,20 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         //         return error.InvalidArgument;
         //     }
         // },
-        // abi.C.SYS_FILE_OPEN => {
+        // abi.SYS_FILE_OPEN => {
         //     const path = try process.validateSentinel(u8, 0, frame.rdi);
         //     const vnode = try vfs.resolve(process.cwd, path, frame.rsi);
 
         //     return try process.files.insert(vnode);
         // },
-        // abi.C.SYS_FILE_CLOSE => {
+        // abi.SYS_FILE_CLOSE => {
         //     if (process.files.remove(frame.rdi)) {
         //         return 0;
         //     } else {
         //         return error.BadFileDescriptor;
         //     }
         // },
-        // abi.C.SYS_FILE_READ => {
+        // abi.SYS_FILE_READ => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
         //     const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
         //     const bytes_read = try file.vnode.read(buffer, file.offset, 0); // TODO: Pass read flags there
@@ -370,7 +370,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return bytes_read;
         // },
-        // abi.C.SYS_FILE_WRITE => {
+        // abi.SYS_FILE_WRITE => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
         //     const buffer = try process.validateBuffer([]const u8, frame.rsi, frame.rdx);
         //     const bytes_written = try file.vnode.write(buffer, file.offset, 0); // TODO: Pass write flags there
@@ -379,19 +379,19 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return bytes_written;
         // },
-        // abi.C.SYS_FILE_SEEK => {
+        // abi.SYS_FILE_SEEK => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
         //     switch (frame.rdx) {
-        //         abi.C.SEEK_SET => file.offset = frame.rsi,
-        //         abi.C.SEEK_CUR => file.offset +%= frame.rsi,
-        //         abi.C.SEEK_END => unreachable,
+        //         abi.SEEK_SET => file.offset = frame.rsi,
+        //         abi.SEEK_CUR => file.offset +%= frame.rsi,
+        //         abi.SEEK_END => unreachable,
         //         else => return error.InvalidArgument,
         //     }
 
         //     return file.offset;
         // },
-        // abi.C.SYS_FILE_GET_CWD => {
+        // abi.SYS_FILE_GET_CWD => {
         //     var string_buf = try process.validateBuffer([]u8, frame.rdi, frame.rsi);
         //     var buffer = std.io.fixedBufferStream(string_buf);
         //     var writer = buffer.writer();
@@ -401,14 +401,14 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return std.mem.len(@ptrCast([*:0]const u8, string_buf));
         // },
-        // abi.C.SYS_FILE_STAT_FD, abi.C.SYS_FILE_STAT_PATH => {
-        //     const buffer = try process.validatePointer(abi.C.stat, frame.rsi);
-        //     const file = if (frame.rax == abi.C.SYS_FILE_STAT_FD) blk: {
+        // abi.SYS_FILE_STAT_FD, abi.SYS_FILE_STAT_PATH => {
+        //     const buffer = try process.validatePointer(abi.stat, frame.rsi);
+        //     const file = if (frame.rax == abi.SYS_FILE_STAT_FD) blk: {
         //         const fd = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
         //         break :blk fd.vnode;
-        //     } else if (frame.rax == abi.C.SYS_FILE_STAT_PATH) blk: {
+        //     } else if (frame.rax == abi.SYS_FILE_STAT_PATH) blk: {
         //         const path = try process.validateSentinel(u8, 0, frame.rdi);
-        //         break :blk try vfs.resolve(process.cwd, path, frame.rdx | abi.C.O_NOFOLLOW);
+        //         break :blk try vfs.resolve(process.cwd, path, frame.rdx | abi.O_NOFOLLOW);
         //     } else {
         //         unreachable;
         //     };
@@ -417,19 +417,19 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return 0;
         // },
-        // abi.C.SYS_FILE_IO_CONTROL => {
+        // abi.SYS_FILE_IO_CONTROL => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
         //     return try file.vnode.ioctl(frame.rsi, frame.rdx);
         // },
-        // abi.C.SYS_FILE_READ_DIR => {
+        // abi.SYS_FILE_READ_DIR => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
         //     const buffer = try process.validateBuffer([]u8, frame.rsi, frame.rdx);
         //     const bytes_read = try file.vnode.readDir(buffer, &file.offset);
 
         //     return bytes_read;
         // },
-        // abi.C.SYS_FILE_CHDIR => {
+        // abi.SYS_FILE_CHDIR => {
         //     const path = try process.validateSentinel(u8, 0, frame.rdi);
         //     const vnode = try vfs.resolve(process.cwd, path, 0);
 
@@ -440,13 +440,13 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
         //     process.cwd = vnode;
         //     return 0;
         // },
-        // abi.C.SYS_FILE_DUP => {
+        // abi.SYS_FILE_DUP => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
         //     const new_fd = try process.files.duplicate(file, null);
 
         //     return new_fd;
         // },
-        // abi.C.SYS_FILE_DUP2 => {
+        // abi.SYS_FILE_DUP2 => {
         //     const file = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
         //     if (frame.rdi != frame.rdx) {
@@ -455,7 +455,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return frame.rdx;
         // },
-        // abi.C.SYS_FILE_FCNTL => {
+        // abi.SYS_FILE_FCNTL => {
         //     _ = process.files.get(frame.rdi) orelse return error.BadFileDescriptor;
 
         //     logger.debug(
@@ -465,7 +465,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return error.NotImplemented;
         // },
-        // abi.C.SYS_FILE_PIPE => {
+        // abi.SYS_FILE_PIPE => {
         //     const buffer = try process.validateBuffer([]i32, frame.rdi, 2);
         //     const file = try vfs.createPipe();
 
@@ -477,7 +477,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return 0;
         // },
-        // abi.C.SYS_MEM_MAP => {
+        // abi.SYS_MEM_MAP => {
         //     // All stuff that we don't support (currently) :/
         //     // I'm not sure whether PROT_NONE is used anywhere..?
         //     if (frame.rdx == 0 or frame.rdx & ~all_prot != 0 or frame.r10 & ~all_flags != 0) {
@@ -499,7 +499,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
 
         //     return address;
         // },
-        // abi.C.SYS_MEM_UNMAP => {
+        // abi.SYS_MEM_UNMAP => {
         //     logger.debug("Attempt to unmap {} byte(s) at 0x{X}", .{ frame.rdi, frame.rsi });
 
         //     return 0;

@@ -34,7 +34,7 @@ pub const VNodeVTable = struct {
     write: ?*const fn (self: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize = null,
     insert: ?*const fn (self: *VNode, child: *VNode) InsertError!void = null,
     ioctl: ?*const fn (self: *VNode, request: u64, arg: u64) IoctlError!u64 = null,
-    stat: ?*const fn (self: *VNode, buffer: *abi.C.stat) StatError!void = null,
+    stat: ?*const fn (self: *VNode, buffer: *abi.stat) StatError!void = null,
 };
 
 pub const VNodeKind = enum {
@@ -185,7 +185,7 @@ pub const VNode = struct {
         }
     }
 
-    pub fn stat(self: *VNode, buffer: *abi.C.stat) !void {
+    pub fn stat(self: *VNode, buffer: *abi.stat) !void {
         const vnode = self.getEffectiveVNode();
 
         if (vnode.vtable.stat) |fun| {
@@ -193,8 +193,8 @@ pub const VNode = struct {
         } else if (vnode.kind == .Symlink) {
             const target = self.symlink_target.?;
 
-            buffer.* = std.mem.zeroes(abi.C.stat);
-            buffer.st_mode |= 0o777 | abi.C.S_IFLNK;
+            buffer.* = std.mem.zeroes(abi.stat);
+            buffer.st_mode |= 0o777 | abi.S_IFLNK;
             buffer.st_size = @as(c_long, @intCast(target.len));
             buffer.st_blksize = std.mem.page_size;
             buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, target.len, std.mem.page_size) / std.mem.page_size));
@@ -407,11 +407,11 @@ const SliceBackedFile = struct {
         return error.NotOpenForWriting;
     }
 
-    fn stat(vnode: *VNode, buffer: *abi.C.stat) StatError!void {
+    fn stat(vnode: *VNode, buffer: *abi.stat) StatError!void {
         const self = @as(*SliceBackedFile, @fieldParentPtr("vnode", vnode));
 
-        buffer.* = std.mem.zeroes(abi.C.stat);
-        buffer.st_mode = 0o777 | abi.C.S_IFREG;
+        buffer.* = std.mem.zeroes(abi.stat);
+        buffer.st_mode = 0o777 | abi.S_IFREG;
         buffer.st_size = @as(c_long, @intCast(self.data.len));
         buffer.st_blksize = std.mem.page_size;
         buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, self.data.len, std.mem.page_size) / std.mem.page_size));
@@ -514,7 +514,7 @@ pub fn init(modules_res: *limine.ModuleResponse) !void {
                 switch (file.kind) {
                     .Normal => {
                         const parent_path = std.fs.path.dirname(file.name) orelse "/";
-                        const parent = try resolve(root_node, parent_path, abi.C.O_CREAT);
+                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
                         const file_node = try createSliceBackedFile(std.fs.path.basename(file.name), file.data);
 
                         try parent.insert(file_node);
@@ -523,13 +523,13 @@ pub fn init(modules_res: *limine.ModuleResponse) !void {
                     },
                     .SymbolicLink => {
                         const parent_path = std.fs.path.dirname(file.name) orelse "/";
-                        const parent = try resolve(root_node, parent_path, abi.C.O_CREAT);
+                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
                         const link_node = try parent.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
 
                         try parent.insert(link_node);
                     },
                     .Directory => {
-                        _ = try resolve(root_node, file.name, abi.C.O_CREAT | abi.C.O_DIRECTORY);
+                        _ = try resolve(root_node, file.name, abi.O_CREAT | abi.O_DIRECTORY);
                     },
                     else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
                 }
@@ -540,7 +540,7 @@ pub fn init(modules_res: *limine.ModuleResponse) !void {
     }
 
     // Initalize /dev
-    const dev_dir = try resolve(root_node, "dev", abi.C.O_CREAT | abi.C.O_DIRECTORY);
+    const dev_dir = try resolve(root_node, "dev", abi.O_CREAT | abi.O_DIRECTORY);
 
     dev_dir.mount(try dev_fs.init("dev", null));
 }
@@ -569,8 +569,8 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
                         error.FileNotFound => {
                             const fs = next.getEffectiveFs();
 
-                            if (flags & abi.C.O_CREAT != 0) {
-                                if (flags & abi.C.O_DIRECTORY != 0 or iter.rest().len > 0) {
+                            if (flags & abi.O_CREAT != 0) {
+                                if (flags & abi.O_DIRECTORY != 0 or iter.rest().len > 0) {
                                     const node = try fs.createDir(component);
                                     try next.insert(node);
                                     break :blk node;
@@ -588,7 +588,7 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
                 };
             }
 
-            if (flags & abi.C.O_NOFOLLOW == 0 and next_node.?.kind == .Symlink) {
+            if (flags & abi.O_NOFOLLOW == 0 and next_node.?.kind == .Symlink) {
                 const new_node = next_node.?;
                 const target = new_node.symlink_target.?;
 
