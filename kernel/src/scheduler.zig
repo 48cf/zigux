@@ -346,7 +346,7 @@ pub fn spawnThread(parent: *process.Process) !*Thread {
         0,
     );
 
-    thread.regs.rsp = stack_base + thread_stack_pages * std.mem.page_size;
+    thread.regs.rsp = stack_base + thread_stack_pages * std.mem.page_size - 0x10;
 
     return thread;
 }
@@ -419,7 +419,7 @@ pub fn getProcessByPid(pid: u64) ?*process.Process {
 
 pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     const thread = try root.allocator.create(Thread);
-    const stack = phys.allocate(16, true) orelse return error.OutOfMemory;
+    const stack = root.page_heap_allocator.allocate(16) orelse return error.OutOfMemory;
 
     errdefer root.allocator.destroy(thread);
 
@@ -448,7 +448,7 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     };
 
     thread.regs.rip = @intFromPtr(&wrapper.handler);
-    thread.regs.rsp = virt.asHigherHalf(u64, stack + 16 * std.mem.page_size - 0x10);
+    thread.regs.rsp = stack + std.mem.page_size * 16 - 0x10;
     thread.regs.rdi = switch (@typeInfo(@TypeOf(context))) {
         .Pointer => @intFromPtr(context),
         else => @as(u64, context),

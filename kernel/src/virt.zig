@@ -239,11 +239,11 @@ pub const FaultReason = struct {
 };
 
 pub const Mapping = struct {
+    node: std.TailQueue(void).Node = .{ .data = {} },
     base: u64,
     length: u64,
     prot: u64,
     flags: u64,
-    node: std.TailQueue(void).Node = undefined,
 };
 
 pub const AddressSpace = struct {

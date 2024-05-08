@@ -58,15 +58,15 @@ pub fn init() !void {
         .lapic_base = virt.asHigherHalf(u64, arch.Msr.apic.read() & ~@as(u64, 0xFFF)),
     };
 
-    const intr_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
-    const ist_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
-    const sched_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
-    const pf_stack = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const intr_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
+    const ist_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
+    const sched_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
+    const pf_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
 
-    instance.tss.rsp[0] = virt.asHigherHalf(u64, intr_stack + std.mem.page_size);
-    instance.tss.ist[0] = virt.asHigherHalf(u64, ist_stack + std.mem.page_size);
-    instance.tss.ist[1] = virt.asHigherHalf(u64, sched_stack + std.mem.page_size);
-    instance.tss.ist[2] = virt.asHigherHalf(u64, pf_stack + std.mem.page_size);
+    instance.tss.rsp[0] = intr_stack + std.mem.page_size * 4;
+    instance.tss.ist[0] = ist_stack + std.mem.page_size * 4;
+    instance.tss.ist[1] = sched_stack + std.mem.page_size * 4;
+    instance.tss.ist[2] = pf_stack + std.mem.page_size * 4;
 
     instance.gdt.load(&instance.tss);
     instance.idt.load();

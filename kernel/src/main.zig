@@ -21,37 +21,31 @@ const ps2 = @import("drivers/ps2.zig");
 const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const PageAllocator = struct {
-    bump: u64 = 0xFFFF_A000_0000_0000,
+    bump: std.atomic.Value(u64) = .{ .raw = 0xFFFF_A000_0000_0000 },
 
-    const heap_logger = std.log.scoped(.heap);
+    pub fn allocate(self: *@This(), pages: usize) ?u64 {
+        const base = self.bump.fetchAdd((pages + 1) * std.mem.page_size, .acq_rel);
 
-    fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
-        _ = ptr_align;
-        _ = ret_addr;
-
-        const pages = std.mem.alignForward(usize, len, std.mem.page_size) / std.mem.page_size;
-        const self = @as(*PageAllocator, @ptrCast(@alignCast(ctx)));
-        const base = self.bump;
-
-        if (phys.freePages() < pages) {
-            return null;
-        }
-
-        var i: usize = 0;
-
-        while (i < pages) : (i += 1) {
+        for (0..pages) |i| {
             const page = phys.allocate(1, true) orelse return null;
-
             virt.kernel_address_space.page_table.mapPage(
-                base + i * std.mem.page_size,
+                base + (i + 1) * std.mem.page_size,
                 page,
                 virt.Flags.Present | virt.Flags.Writable,
             ) catch return null;
         }
 
-        self.bump += pages * std.mem.page_size;
+        return base + std.mem.page_size;
+    }
 
-        return @as([*]u8, @ptrCast(@as(*u8, @ptrFromInt(base))));
+    fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+        _ = ptr_align;
+        _ = ret_addr;
+
+        const self = @as(*PageAllocator, @ptrCast(@alignCast(ctx)));
+        const pages = std.math.divCeil(usize, len, std.mem.page_size) catch unreachable;
+
+        return @ptrFromInt(self.allocate(pages) orelse return null);
     }
 
     fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
@@ -72,7 +66,6 @@ const PageAllocator = struct {
     }
 };
 
-var page_heap_allocator = PageAllocator{};
 var print_lock: IrqSpinlock = .{};
 
 pub const log_level = std.log.Level.debug;
@@ -94,6 +87,7 @@ pub const os = struct {
 
 pub const std_options = .{ .logFn = log };
 
+pub var page_heap_allocator = PageAllocator{};
 pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = IrqSpinlock }){};
 pub var allocator = gp_allocator.allocator();
 
@@ -125,13 +119,19 @@ fn mainThread(_: u8) !void {
 
     ps2.init();
 
-    const process = try scheduler.spawnProcess(null);
-    const thread = try scheduler.spawnThread(process);
-    const init = try vfs.resolve(null, "/usr/bin/init", 0);
+    // const process = try scheduler.spawnProcess(null);
+    // const thread = try scheduler.spawnThread(process);
+    // const init = try vfs.resolve(null, "/usr/bin/init", 0);
 
-    try thread.exec(init, &.{"/usr/bin/init"}, &.{});
+    // try thread.exec(init, &.{"/usr/bin/init"}, &.{});
 
-    scheduler.enqueue(thread);
+    // scheduler.enqueue(thread);
+
+    while (true) {
+        scheduler.yield();
+    }
+}
+
 }
 
 fn main() !void {
