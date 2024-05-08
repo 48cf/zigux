@@ -321,7 +321,10 @@ pub const Device = struct {
                     },
                 }
             },
-            else => {},
+            else => logger.warn(
+                "Unhandled USB descriptor type {d}: {any}",
+                .{ descriptor_type, std.fmt.fmtSliceHexUpper(descriptor) },
+            ),
         }
     }
 };
