@@ -488,8 +488,8 @@ fn processIrqs(controller: *Controller) void {
                                 6,
                                 (2 << 8) | @as(u16, @intCast(i)),
                                 0,
-                                4,
-                                first_config_buffer + i * 4,
+                                9,
+                                first_config_buffer + i * 9,
                                 i == num_configurations - 1,
                             );
                         }
@@ -503,7 +503,7 @@ fn processIrqs(controller: *Controller) void {
                         for (0..num_configurations) |i| {
                             const config_descriptor = virt.asHigherHalf(
                                 [*]u8,
-                                slot.descriptor_buffer + slot.descriptor_size + i * 4,
+                                slot.descriptor_buffer + slot.descriptor_size + i * 9,
                             )[0..4];
                             const total_length = std.mem.readInt(u16, config_descriptor[2..4], .little);
                             logger.debug("Fetching configuration descriptor {d} (size {d})", .{ i, total_length });
