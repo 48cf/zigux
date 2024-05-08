@@ -44,6 +44,17 @@ pub fn build(b: *std.Build) !void {
     kernel.addIncludePath(.{ .path = "../pkgs/mlibc-headers/usr/include" });
     kernel.addIncludePath(.{ .path = "../pkgs/linux-headers/usr/include" });
 
+    const c_flags: []const []const u8 = &.{
+        "-ffreestanding",
+        "-fno-sanitize=all",
+        "-march=x86-64",
+        "-mno-80387",
+        "-mno-mmx",
+        "-mno-sse",
+        "-mno-sse2",
+        "-mno-red-zone",
+    };
+
     // uacpi includes
     kernel.addIncludePath(.{ .path = "./uacpi/include" });
 
@@ -69,15 +80,7 @@ pub fn build(b: *std.Build) !void {
             "./uacpi/source/resources.c",
             "./uacpi/source/event.c",
         },
-        .flags = &.{
-            "-ffreestanding",
-            "-march=x86-64",
-            "-mno-80387",
-            "-mno-mmx",
-            "-mno-sse",
-            "-mno-sse2",
-            "-mno-red-zone",
-        },
+        .flags = c_flags,
     });
 
     // printf includes
@@ -90,15 +93,20 @@ pub fn build(b: *std.Build) !void {
     kernel.defineCMacro("PRINTF_SUPPORT_EXPONENTIAL_SPECIFIERS", "0");
     kernel.addCSourceFiles(.{
         .files = &.{"./printf/src/printf/printf.c"},
-        .flags = &.{
-            "-ffreestanding",
-            "-march=x86-64",
-            "-mno-80387",
-            "-mno-mmx",
-            "-mno-sse",
-            "-mno-sse2",
-            "-mno-red-zone",
+        .flags = c_flags,
+    });
+
+    // flanterm includes
+    kernel.addIncludePath(.{ .path = "./flanterm" });
+
+    // flanterm sources
+    kernel.defineCMacro("FLANTERM_FB_DISABLE_BUMP_ALLOC", "1");
+    kernel.addCSourceFiles(.{
+        .files = &.{
+            "./flanterm/flanterm.c",
+            "./flanterm/backends/fb.c",
         },
+        .flags = c_flags,
     });
 
     b.installArtifact(kernel);

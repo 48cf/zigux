@@ -1,5 +1,10 @@
 const logger = std.log.scoped(.main);
 
+const C = @cImport({
+    @cInclude("flanterm.h");
+    @cInclude("backends/fb.h");
+});
+
 const std = @import("std");
 const limine = @import("limine");
 
@@ -66,6 +71,7 @@ const PageAllocator = struct {
     }
 };
 
+var flanterm_ctx: ?*C.flanterm_context = null;
 var print_lock: IrqSpinlock = .{};
 
 pub const log_level = std.log.Level.debug;
@@ -99,6 +105,7 @@ pub export var modules_req: limine.ModuleRequest = .{};
 pub export var kernel_file_req: limine.KernelFileRequest = .{};
 pub export var rsdp_req: limine.RsdpRequest = .{};
 pub export var kernel_addr_req: limine.KernelAddressRequest = .{};
+pub export var framebuffer_req: limine.FramebufferRequest = .{};
 
 export fn _start() callconv(.C) noreturn {
     main() catch |err| {
@@ -132,6 +139,15 @@ fn mainThread(_: u8) !void {
     }
 }
 
+fn flantermAlloc(size: usize) callconv(.C) ?*anyopaque {
+    const result = allocator.alignedAlloc(u8, 8, size) catch return null;
+    return result.ptr;
+}
+
+fn flantermFree(addr: ?*anyopaque, size: usize) callconv(.C) void {
+    if (addr) |ptr| {
+        allocator.free(@as([*]u8, @ptrCast(ptr))[0..size]);
+    }
 }
 
 fn main() !void {
@@ -143,6 +159,7 @@ fn main() !void {
     const kernel_addr_res = kernel_addr_req.response.?;
     const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
+    const framebuffer_res = framebuffer_req.response.?;
 
     per_cpu.initBsp();
     per_cpu.initFeatures();
@@ -152,6 +169,14 @@ fn main() !void {
 
     try phys.init(memory_map_res);
     try virt.init(kernel_addr_res);
+
+    const framebuffer = framebuffer_res.framebuffers()[0];
+
+    flanterm_ctx = C.flanterm_fb_init(flantermAlloc, flantermFree, @ptrCast(@alignCast(framebuffer.address)), //
+        framebuffer.width, framebuffer.height, framebuffer.pitch, framebuffer.red_mask_size, framebuffer.red_mask_shift, //
+        framebuffer.green_mask_size, framebuffer.green_mask_shift, framebuffer.blue_mask_size, framebuffer.blue_mask_shift, //
+        null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
+
     try per_cpu.init();
     try vfs.init(modules_res);
     try acpi.init(rsdp_res);
@@ -203,6 +228,10 @@ pub fn log(
     print_lock.lock();
     defer print_lock.unlock();
     debug.debugPrint(written);
+
+    if (flanterm_ctx) |ctx| {
+        C.flanterm_write(ctx, written.ptr, written.len);
+    }
 }
 
 export fn putchar_(ch: u8) callconv(.C) void {
