@@ -124,39 +124,39 @@ pub const Controller = struct {
     // PORTSC.CSC | PORTSC.PRC
     const portsc_events = (1 << 17) | (1 << 21);
 
-    fn getInputContext(self: *@This(), comptime T: type, slot_id: usize, index: usize) *volatile T {
+    fn getInputContext(self: *@This(), comptime T: type, slot_id: u8, index: u8) *volatile T {
         std.debug.assert(index <= 32);
         const slot = self.slots.get(slot_id);
-        return @ptrFromInt(@intFromPtr(slot.input_context) + index * self.caps.contextStride());
+        return @ptrFromInt(@intFromPtr(slot.input_context) + @as(usize, index) * self.caps.contextStride());
     }
 
-    fn getDeviceContext(self: *@This(), comptime T: type, slot_id: usize, index: usize) *volatile T {
+    fn getDeviceContext(self: *@This(), comptime T: type, slot_id: u8, index: u8) *volatile T {
         std.debug.assert(index < 32);
         const slot = self.slots.get(slot_id);
-        return @ptrFromInt(@intFromPtr(slot.device_context) + index * self.caps.contextStride());
+        return @ptrFromInt(@intFromPtr(slot.device_context) + @as(usize, index) * self.caps.contextStride());
     }
 
-    fn getInputControlContext(self: *@This(), slot_id: usize) *volatile InputControlContext {
+    fn getInputControlContext(self: *@This(), slot_id: u8) *volatile InputControlContext {
         return self.getInputContext(InputControlContext, slot_id, 0);
     }
 
-    fn getInputSlotContext(self: *@This(), slot_id: usize) *volatile SlotContext {
+    fn getInputSlotContext(self: *@This(), slot_id: u8) *volatile SlotContext {
         return self.getInputContext(SlotContext, slot_id, 1);
     }
 
-    fn getInputEndpointContext(self: *@This(), slot_id: usize, endpoint_id: usize) *volatile EndpointContext {
+    fn getInputEndpointContext(self: *@This(), slot_id: u8, endpoint_id: u8) *volatile EndpointContext {
         return self.getInputContext(EndpointContext, slot_id, 2 + endpoint_id);
     }
 
-    fn getDeviceSlotContext(self: *@This(), slot_id: usize) *volatile SlotContext {
+    fn getDeviceSlotContext(self: *@This(), slot_id: u8) *volatile SlotContext {
         return self.getDeviceContext(SlotContext, slot_id, 0);
     }
 
-    fn getDeviceEndpointContext(self: *@This(), slot_id: usize, endpoint_id: usize) *volatile EndpointContext {
+    fn getDeviceEndpointContext(self: *@This(), slot_id: u8, endpoint_id: u8) *volatile EndpointContext {
         return self.getDeviceContext(EndpointContext, slot_id, 1 + endpoint_id);
     }
 
-    fn updateInputContext(self: *@This(), slot_id: usize) void {
+    fn updateInputContext(self: *@This(), slot_id: u8) void {
         const slot = self.slots.get(slot_id);
         const stride = self.caps.contextStride();
         const input_context: [*]u8 = @ptrCast(@volatileCast(slot.input_context));
@@ -219,7 +219,7 @@ pub const Controller = struct {
         );
     }
 
-    fn getEndpointIndex(endpoint_addr: u8) usize {
+    fn getEndpointIndex(endpoint_addr: u8) u8 {
         const endpoint_num = (endpoint_addr & 0xf);
         if (endpoint_num == 0) {
             return 0;
@@ -227,15 +227,14 @@ pub const Controller = struct {
         return ((endpoint_num << 1) | (endpoint_addr >> 7)) - 1;
     }
 
-    fn getEndpointAddr(endpoint_id: usize) u8 {
+    fn getEndpointAddr(endpoint_id: u8) u8 {
         if (endpoint_id == 0) {
             return 0;
         }
-        const temp: u8 = @intCast(endpoint_id + 1);
-        return (temp >> 1) | (temp << 7);
+        return ((endpoint_id + 1) >> 1) | ((endpoint_id + 1) << 7);
     }
 
-    pub fn enableEndpoint(self: *@This(), slot_id: usize, endpoint: usb.Endpoint) void {
+    pub fn enableEndpoint(self: *@This(), slot_id: u8, endpoint: usb.Endpoint) void {
         const endpoint_id = getEndpointIndex(endpoint.address);
         const slot = &self.slots.slice()[slot_id];
         const ep_queue = &slot.ep_queue[endpoint_id];

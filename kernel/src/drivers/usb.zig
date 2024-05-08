@@ -143,16 +143,16 @@ const HidKeyboardDevice = struct {
         break :blk KeyState.initAllTo(false);
     },
 
-    fn configure(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: usize) void {
-        controller.sendControlTransfer(@intCast(slot_id), 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
-        controller.sendControlTransfer(@intCast(slot_id), 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
+    fn configure(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: u8) void {
+        controller.sendControlTransfer(slot_id, 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
+        controller.sendControlTransfer(slot_id, 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
         controller.enableEndpoint(slot_id, self.poll_ep);
         self.report_buffer = phys.allocate(1, true).?;
     }
 
-    fn onConfigured(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: usize) void {
+    fn onConfigured(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: u8) void {
         _ = device;
-        controller.sendDataTransfer(@intCast(slot_id), self.poll_ep.address, 8, self.report_buffer, true);
+        controller.sendDataTransfer(slot_id, self.poll_ep.address, 8, self.report_buffer, true);
     }
 
     fn onDataTransferComplete(
@@ -160,12 +160,12 @@ const HidKeyboardDevice = struct {
         device: *Device,
         controller: *xhci.Controller,
         endpoint_addr: u8,
-        slot_id: usize,
+        slot_id: u8,
         data: []const u8,
     ) bool {
         _ = device;
         if (endpoint_addr == self.poll_ep.address) {
-            defer controller.sendDataTransfer(@intCast(slot_id), self.poll_ep.address, 8, self.report_buffer, true);
+            defer controller.sendDataTransfer(slot_id, self.poll_ep.address, 8, self.report_buffer, true);
             logger.debug("Keyboard report data: {any}", .{std.fmt.fmtSliceHexUpper(data)});
 
             const modifiers = data[0];
@@ -225,16 +225,16 @@ const HidMouseDevice = struct {
     poll_ep: Endpoint = undefined,
     report_buffer: u64 = 0,
 
-    fn configure(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: usize) void {
-        controller.sendControlTransfer(@intCast(slot_id), 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
-        controller.sendControlTransfer(@intCast(slot_id), 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
+    fn configure(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: u8) void {
+        controller.sendControlTransfer(slot_id, 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
+        controller.sendControlTransfer(slot_id, 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
         controller.enableEndpoint(slot_id, self.poll_ep);
         self.report_buffer = phys.allocate(1, true).?;
     }
 
-    fn onConfigured(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: usize) void {
+    fn onConfigured(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: u8) void {
         _ = device;
-        controller.sendDataTransfer(@intCast(slot_id), self.poll_ep.address, 32, self.report_buffer, true);
+        controller.sendDataTransfer(slot_id, self.poll_ep.address, 32, self.report_buffer, true);
     }
 
     fn onDataTransferComplete(
@@ -242,12 +242,12 @@ const HidMouseDevice = struct {
         device: *Device,
         controller: *xhci.Controller,
         endpoint_addr: u8,
-        slot_id: usize,
+        slot_id: u8,
         data: []const u8,
     ) bool {
         _ = device;
         if (endpoint_addr == self.poll_ep.address) {
-            defer controller.sendDataTransfer(@intCast(slot_id), self.poll_ep.address, 8, self.report_buffer, true);
+            defer controller.sendDataTransfer(slot_id, self.poll_ep.address, 8, self.report_buffer, true);
             logger.debug("Mouse report data: {any}", .{std.fmt.fmtSliceHexUpper(data)});
             return true;
         }
@@ -272,14 +272,14 @@ pub const Device = struct {
         hid_mouse: HidMouseDevice,
     },
 
-    pub fn configure(self: *@This(), controller: *xhci.Controller, slot_id: usize) void {
+    pub fn configure(self: *@This(), controller: *xhci.Controller, slot_id: u8) void {
         switch (self.impl) {
             .hid_keyboard => |*hid| hid.configure(self, controller, slot_id),
             .hid_mouse => |*hid| hid.configure(self, controller, slot_id),
         }
     }
 
-    pub fn onConfigured(self: *@This(), controller: *xhci.Controller, slot_id: usize) void {
+    pub fn onConfigured(self: *@This(), controller: *xhci.Controller, slot_id: u8) void {
         switch (self.impl) {
             .hid_keyboard => |*hid| hid.onConfigured(self, controller, slot_id),
             .hid_mouse => |*hid| hid.onConfigured(self, controller, slot_id),
@@ -290,7 +290,7 @@ pub const Device = struct {
         self: *@This(),
         controller: *xhci.Controller,
         endpoint_addr: u8,
-        slot_id: usize,
+        slot_id: u8,
         data: []const u8,
     ) bool {
         switch (self.impl) {
