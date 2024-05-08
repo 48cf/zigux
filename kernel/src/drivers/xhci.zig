@@ -54,6 +54,7 @@ const WriteQueue = struct {
             const data_phys = virt.higherHalfUncachedToPhysical(self.data);
             self.data[self.offset][0] = @truncate(data_phys);
             self.data[self.offset][1] = @truncate(data_phys >> 32);
+            self.data[self.offset][2] = 0;
             self.data[self.offset][3] = self.cycle_state | (1 << 1) | (6 << 10);
             self.cycle_state ^= 1;
             self.offset = 0;
@@ -73,22 +74,35 @@ const WriteQueue = struct {
 };
 
 const Port = struct {
-    connected: bool,
-    usb_version_major: u8,
-    usb_version_minor: u8,
-    port_speed: u8,
+    connected: bool = false,
+    usb_version_major: u8 = 0,
+    usb_version_minor: u8 = 0,
+    port_speed: u4 = 0,
 
-    slot_id: u8,
-    enable_slot_trb: ?*const TransferRequestBlock,
+    slot_id: u8 = 0,
+    enable_slot_trb: ?*const TransferRequestBlock = null,
+};
+
+const SlotState = enum {
+    unaddressed,
+    addressed,
+    fetch_configuration_descriptors,
+    fetch_full_configuration_descriptors,
+    identify,
+    configured,
 };
 
 const Slot = struct {
     input_context: *volatile anyopaque,
     device_context: *volatile anyopaque,
 
-    descriptor_buffer: u64,
+    state: SlotState,
+    devices: std.BoundedArray(Device, 8),
 
-    ep0_queue: WriteQueue,
+    descriptor_buffer: u64,
+    descriptor_size: u16 = 0,
+
+    ep_queue: [31]WriteQueue,
 };
 
 const Controller = struct {
@@ -99,9 +113,10 @@ const Controller = struct {
 
     event_queue: ReadQueue,
     command_queue: WriteQueue,
+    pending_irqs: scheduler.Semaphore = .{ .available = 0 },
 
-    ports: std.BoundedArray(Port, 256),
-    slots: std.BoundedArray(Slot, 256),
+    ports: std.BoundedArray(Port, 256) = .{},
+    slots: std.BoundedArray(Slot, 256) = .{},
 
     // ...
     const portsc_keep = 0xC3E0;
@@ -121,6 +136,35 @@ const Controller = struct {
         return @ptrFromInt(@intFromPtr(slot.device_context) + index * self.caps.contextStride());
     }
 
+    fn getInputControlContext(self: *@This(), slot_id: usize) *volatile InputControlContext {
+        return self.getInputContext(InputControlContext, slot_id, 0);
+    }
+
+    fn getInputSlotContext(self: *@This(), slot_id: usize) *volatile SlotContext {
+        return self.getInputContext(SlotContext, slot_id, 1);
+    }
+
+    fn getInputEndpointContext(self: *@This(), slot_id: usize, endpoint_id: usize) *volatile EndpointContext {
+        return self.getInputContext(EndpointContext, slot_id, 2 + endpoint_id);
+    }
+
+    fn getDeviceSlotContext(self: *@This(), slot_id: usize) *volatile SlotContext {
+        return self.getDeviceContext(SlotContext, slot_id, 0);
+    }
+
+    fn getDeviceEndpointContext(self: *@This(), slot_id: usize, endpoint_id: usize) *volatile EndpointContext {
+        return self.getDeviceContext(EndpointContext, slot_id, 1 + endpoint_id);
+    }
+
+    fn updateInputContext(self: *@This(), slot_id: usize) void {
+        const slot = self.slots.get(slot_id);
+        const stride = self.caps.contextStride();
+        const input_context: [*]u8 = @ptrCast(@volatileCast(slot.input_context));
+        const output_context: [*]u8 = @ptrCast(@volatileCast(slot.device_context));
+        @memcpy(input_context[stride .. stride * 33], output_context[0 .. stride * 32]);
+        @memset(input_context[0..8], 0);
+    }
+
     fn sendControlTransfer(
         self: *@This(),
         slot_id: u8,
@@ -131,27 +175,95 @@ const Controller = struct {
         index: u16,
         length: u16,
         buffer: u64,
+        interrupt_on_completion: bool,
     ) void {
         std.debug.assert(endpoint == 0);
         const slot = &self.slots.slice()[slot_id];
         const has_data_stage = length > 0;
         const trt: u32 = if (has_data_stage) (request_type >> 7) | 0x2 else 0;
-        _ = slot.ep0_queue.enqueue(
+        _ = slot.ep_queue[0].enqueue(
             @as(u32, request_type) | @as(u32, request) << 8 | @as(u32, value) << 16,
             @as(u32, index) | @as(u32, length) << 16,
             8,
             (1 << 6) | (2 << 10) | (trt << 16),
         );
         if (has_data_stage) {
-            _ = slot.ep0_queue.enqueue(
+            _ = slot.ep_queue[0].enqueue(
                 @truncate(buffer),
                 @intCast(buffer >> 32),
                 length,
-                (1 << 2) | (3 << 10) | @as(u32, request_type >> 7) << 16,
+                (@as(u32, @intFromBool(interrupt_on_completion)) << 5) |
+                    (1 << 2) | (3 << 10) | @as(u32, request_type >> 7) << 16,
             );
         }
-        const status_dir = (1 << 5) | (4 << 10) | @as(u32, (request_type >> 7) ^ 1 | @intFromBool(!has_data_stage)) << 16;
-        _ = slot.ep0_queue.enqueue(0, 0, 0, status_dir);
+        const status_dir = (@as(u32, @intFromBool(interrupt_on_completion and !has_data_stage)) << 5) |
+            (4 << 10) | @as(u32, (request_type >> 7) ^ 1 | @intFromBool(!has_data_stage)) << 16;
+        _ = slot.ep_queue[0].enqueue(0, 0, 0, status_dir);
+    }
+
+    fn sendDataTransfer(
+        self: *@This(),
+        slot_id: u8,
+        endpoint_addr: u8,
+        length: u16,
+        buffer: u64,
+        interrupt_on_completion: bool,
+    ) void {
+        const slot = &self.slots.slice()[slot_id];
+        const ep_queue = &slot.ep_queue[getEndpointIndex(endpoint_addr)];
+        _ = ep_queue.enqueue(
+            @truncate(buffer),
+            @intCast(buffer >> 32),
+            length,
+            (1 << 2) | @as(u32, @intFromBool(interrupt_on_completion)) << 5 | (1 << 10),
+        );
+    }
+
+    fn getEndpointIndex(endpoint_addr: u8) usize {
+        const endpoint_num = (endpoint_addr & 0xf);
+        if (endpoint_num == 0) {
+            return 0;
+        }
+        return ((endpoint_num << 1) | (endpoint_addr >> 7)) - 1;
+    }
+
+    fn getEndpointAddr(endpoint_id: usize) u8 {
+        if (endpoint_id == 0) {
+            return 0;
+        }
+        const temp: u8 = @intCast(endpoint_id + 1);
+        return (temp >> 1) | (temp << 7);
+    }
+
+    fn enableEndpoint(self: *@This(), slot_id: usize, endpoint: Endpoint) void {
+        const endpoint_id = getEndpointIndex(endpoint.address);
+        const slot = &self.slots.slice()[slot_id];
+        const ep_queue = &slot.ep_queue[endpoint_id];
+
+        const input_control_context = self.getInputControlContext(slot_id);
+        input_control_context.a |= @as(u32, 1) << @intCast(endpoint_id + 1);
+
+        const ep_type: u2 = @truncate(endpoint.attributes);
+        const ep_context = self.getInputEndpointContext(slot_id, endpoint_id);
+        ep_context.dw1.ep_type = ep_type;
+        ep_context.dw1.ep_type |= @intCast((endpoint.address & 0x80) >> 5);
+
+        switch (ep_type) {
+            0b00 => { // control
+                ep_context.dw1.ep_type = 4;
+            },
+            0b10 => {}, // bulk
+            0b01, 0b11 => { // interrupt
+                logger.debug("Enabling interrupt endpoint {d} for slot {d}", .{ endpoint_id, slot_id });
+                ep_context.dw1.max_packet_size = endpoint.packet_size & 0x7FF;
+                ep_context.dw1.max_burst_size = @truncate((endpoint.packet_size & 0x1800) >> 11);
+                ep_context.dw0.mult = 0;
+                ep_context.dw1.error_count = if (ep_type == 0b11) 3 else 0;
+                ep_context.tr_dequeue_ptr = virt.higherHalfUncachedToPhysical(ep_queue.data) | ep_queue.cycle_state;
+                ep_context.dw4.max_esit_payload = ep_context.dw1.max_packet_size;
+                ep_context.dw0.interval = 6; // @todo: not hardcode 8ms
+            },
+        }
     }
 
     fn resetPort(self: *@This(), port_id: u8) void {
@@ -168,7 +280,7 @@ const Controller = struct {
         const portsc_value = portsc.*;
 
         portsc.* = portsc_value & (portsc_keep | portsc_events);
-        port.port_speed = @truncate((portsc_value >> 10) & 0xf);
+        port.port_speed = @truncate(portsc_value >> 10);
 
         // Check for port connect status change without port reset
         if (portsc_value & portsc_events == (1 << 17)) {
@@ -311,12 +423,167 @@ const EventRingSegmentTableEntry = extern struct {
     reserved: [3]u16,
 };
 
+const Endpoint = extern struct {
+    length: u8,
+    descriptor_type: u8,
+    address: u8,
+    attributes: u8,
+    packet_size: u16 align(1),
+    interval: u8,
+};
+
+const Device = struct {
+    const HidDevice = struct {
+        poll_ep: Endpoint = undefined,
+        report_buffer: u64 = 0,
+
+        fn configure(self: *@This(), device: *Device, controller: *Controller, slot_id: usize) void {
+            controller.sendControlTransfer(@intCast(slot_id), 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
+            controller.sendControlTransfer(@intCast(slot_id), 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
+            controller.enableEndpoint(slot_id, self.poll_ep);
+            self.report_buffer = phys.allocate(1, true).?;
+        }
+
+        fn onConfigured(self: *@This(), device: *Device, controller: *Controller, slot_id: usize) void {
+            _ = device;
+            controller.sendDataTransfer(@intCast(slot_id), self.poll_ep.address, 8, self.report_buffer, true);
+        }
+
+        fn onDataTransferComplete(
+            self: *@This(),
+            device: *Device,
+            controller: *Controller,
+            endpoint_addr: u8,
+            slot_id: usize,
+            data: []const u8,
+        ) bool {
+            _ = device;
+            if (endpoint_addr == self.poll_ep.address) {
+                logger.debug("HID data transfer complete: {any}", .{std.fmt.fmtSliceHexUpper(data)});
+                controller.sendDataTransfer(@intCast(slot_id), self.poll_ep.address, 8, self.report_buffer, true);
+                return true;
+            }
+            return false;
+        }
+    };
+
+    interface_id: u8 = undefined,
+    impl: union(enum) {
+        hid_keyboard: HidDevice,
+        hid_mouse: HidDevice,
+        mass_storage: struct {
+            protocol: u8,
+        },
+    },
+
+    fn configure(self: *@This(), controller: *Controller, slot_id: usize) void {
+        switch (self.impl) {
+            .hid_keyboard, .hid_mouse => |*hid| hid.configure(self, controller, slot_id),
+            .mass_storage => logger.err("Mass storage device configuration not implemented", .{}),
+        }
+    }
+
+    fn onConfigured(self: *@This(), controller: *Controller, slot_id: usize) void {
+        switch (self.impl) {
+            .hid_keyboard, .hid_mouse => |*hid| hid.onConfigured(self, controller, slot_id),
+            .mass_storage => {},
+        }
+    }
+
+    fn onDataTransferComplete(
+        self: *@This(),
+        controller: *Controller,
+        endpoint_addr: u8,
+        slot_id: usize,
+        data: []const u8,
+    ) bool {
+        switch (self.impl) {
+            .hid_keyboard, .hid_mouse => |*hid| return hid.onDataTransferComplete(self, controller, endpoint_addr, slot_id, data),
+            .mass_storage => {},
+        }
+
+        return false;
+    }
+
+    fn handleDescriptor(self: *@This(), descriptor: []const u8) void {
+        const descriptor_type = descriptor[1];
+        logger.debug(
+            "{s}: Handling descriptor of type {d} {any}",
+            .{ @tagName(self.impl), descriptor_type, std.fmt.fmtSliceHexUpper(descriptor) },
+        );
+        switch (descriptor_type) {
+            5 => {
+                const endpoint = std.mem.bytesToValue(Endpoint, descriptor[0..7]);
+                switch (self.impl) {
+                    .hid_keyboard, .hid_mouse => |*hid| {
+                        if ((endpoint.attributes & 0b11) == 0b11 and (endpoint.address & 0x80) != 0) {
+                            logger.debug("Found HID polling endpoint {any} for {s}", .{ endpoint, @tagName(self.impl) });
+                            hid.poll_ep = endpoint;
+                        }
+                    },
+                    .mass_storage => {},
+                }
+            },
+            else => {},
+        }
+    }
+};
+
+fn identifyDevice(config_descriptor: []const u8) !std.BoundedArray(Device, 8) {
+    var devices = std.BoundedArray(Device, 8){};
+    var offset = @as(usize, config_descriptor[0]); // bLength
+    var current_device: ?*Device = null;
+    while (offset + 2 <= config_descriptor.len) {
+        const length = config_descriptor[offset];
+        const descriptor_type = config_descriptor[offset + 1];
+        switch (descriptor_type) {
+            4 => {
+                const interface_class = config_descriptor[offset + 5];
+                const interface_subclass = config_descriptor[offset + 6];
+                const interface_protocol = config_descriptor[offset + 7];
+
+                if (interface_class == 0x3) {
+                    switch (interface_subclass) {
+                        0x1 => switch (interface_protocol) {
+                            0x1 => {
+                                current_device = try devices.addOne();
+                                current_device.?.* = .{ .impl = .{ .hid_keyboard = .{} } };
+                            },
+                            0x2 => {
+                                current_device = try devices.addOne();
+                                current_device.?.* = .{ .impl = .{ .hid_mouse = .{} } };
+                            },
+                            else => logger.warn("Unhandled HID boot protocol {d}", .{interface_protocol}),
+                        },
+                        else => logger.warn("Unhandled HID subclass {d}", .{interface_subclass}),
+                    }
+                } else if (interface_class == 0x8 and interface_subclass == 0x50) {
+                    current_device = try devices.addOne();
+                    current_device.?.* = .{ .impl = .{
+                        .mass_storage = .{ .protocol = interface_protocol },
+                    } };
+                }
+
+                if (current_device) |device| {
+                    device.interface_id = config_descriptor[offset + 2];
+                }
+            },
+            else => if (current_device) |device| {
+                device.handleDescriptor(config_descriptor[offset..][0..length]);
+            },
+        }
+        offset += length;
+    }
+    return devices;
+}
+
 fn interruptHandler(context: u64) void {
-    defer apic.eoi();
-
     const controller: *Controller = @ptrFromInt(context);
-    logger.debug("XHCI interrupt received", .{});
+    controller.pending_irqs.release(1);
+    apic.eoi();
+}
 
+fn processIrqs(controller: *Controller) void {
     while (controller.event_queue.dequeue()) |trb| {
         const trb_id = (trb[3] >> 10) & 0x3f;
         switch (trb_id) {
@@ -333,16 +600,153 @@ fn interruptHandler(context: u64) void {
                     continue;
                 }
 
-                logger.debug("Got transfer event", .{});
-
+                const completed_trb_id: u6 = @truncate(completed_trb[3] >> 10);
                 const slot_id = @as(u8, @truncate(trb[3] >> 24)) - 1;
+                const endpoint_id: u5 = @truncate(trb[3] >> 16);
                 const slot = &controller.slots.slice()[slot_id];
+                const descriptor = virt.asHigherHalf([*]u8, slot.descriptor_buffer)[0..slot.descriptor_size];
+                switch (slot.state) {
+                    .addressed => {
+                        slot.descriptor_size = descriptor[0];
 
-                logger.debug(
-                    "Received decscriptor from slot {d}: {any}",
-                    .{ slot_id, std.fmt.fmtSliceHexUpper(virt.asHigherHalf([*]u8, slot.descriptor_buffer)[0..8]) },
-                );
-                phys.free(slot.descriptor_buffer, 1);
+                        const usb_major = descriptor[3];
+                        const max_packet_size: u16 = if (usb_major < 3)
+                            descriptor[7]
+                        else
+                            @as(u16, 1) << @intCast(descriptor[7]);
+
+                        const input_control_context = controller.getInputControlContext(slot_id);
+                        input_control_context.a = (1 << 1);
+
+                        const input_ep0_context = controller.getInputEndpointContext(slot_id, 0);
+                        input_ep0_context.dw1.max_packet_size = max_packet_size;
+
+                        const input_context_phys = virt.higherHalfUncachedToPhysical(slot.input_context);
+                        _ = controller.command_queue.enqueue(
+                            @truncate(input_context_phys),
+                            @intCast(input_context_phys >> 32),
+                            0,
+                            @as(u32, slot_id + 1) << 24 | (13 << 10),
+                        );
+                    },
+                    .fetch_configuration_descriptors => {
+                        const num_configurations = descriptor[17];
+                        const first_config_buffer = slot.descriptor_buffer + slot.descriptor_size;
+                        logger.debug("Device has {d} configuration descriptors", .{num_configurations});
+
+                        for (0..num_configurations) |i| {
+                            _ = controller.sendControlTransfer(
+                                slot_id,
+                                0,
+                                0x80,
+                                6,
+                                (2 << 8) | @as(u16, @intCast(i)),
+                                0,
+                                4,
+                                first_config_buffer + i * 4,
+                                i == num_configurations - 1,
+                            );
+                        }
+
+                        slot.state = .fetch_full_configuration_descriptors;
+                    },
+                    .fetch_full_configuration_descriptors => {
+                        const num_configurations = descriptor[17];
+
+                        var offset: usize = slot.descriptor_size;
+                        for (0..num_configurations) |i| {
+                            const config_descriptor = virt.asHigherHalf(
+                                [*]u8,
+                                slot.descriptor_buffer + slot.descriptor_size + i * 4,
+                            )[0..4];
+                            const total_length = std.mem.readInt(u16, config_descriptor[2..4], .little);
+                            logger.debug("Fetching configuration descriptor {d} (size {d})", .{ i, total_length });
+                            std.debug.assert(offset + total_length <= std.mem.page_size);
+                            _ = controller.sendControlTransfer(
+                                slot_id,
+                                0,
+                                0x80,
+                                6,
+                                (2 << 8) | @as(u16, @intCast(i)),
+                                0,
+                                total_length,
+                                slot.descriptor_buffer + offset,
+                                i == num_configurations - 1,
+                            );
+                            offset += total_length;
+                        }
+
+                        slot.state = .identify;
+                    },
+                    .identify => {
+                        const num_configurations = descriptor[17];
+                        logger.debug("Device descriptor for slot {d}: {any}", .{
+                            slot_id,
+                            std.fmt.fmtSliceHexUpper(descriptor),
+                        });
+                        var offset: usize = slot.descriptor_size;
+                        var config_value: ?u8 = null;
+                        var best_devices: ?std.BoundedArray(Device, 8) = null;
+                        for (0..num_configurations) |_| {
+                            const config_descriptor = virt.asHigherHalf([*]u8, slot.descriptor_buffer + offset);
+                            const total_length = std.mem.readInt(u16, config_descriptor[2..4], .little);
+                            offset += total_length;
+                            const devices = identifyDevice(config_descriptor[0..total_length]) catch continue;
+                            if (best_devices == null or devices.len > best_devices.?.len) {
+                                best_devices = devices;
+                                config_value = config_descriptor[5];
+                            }
+                        }
+
+                        if (best_devices) |devices| {
+                            slot.devices = devices;
+                            slot.state = .configured;
+
+                            const input_slot_context = controller.getInputSlotContext(slot_id);
+                            input_slot_context.dw0.context_entries = 31;
+
+                            const input_control_context = controller.getInputControlContext(slot_id);
+                            input_control_context.a |= (1 << 0);
+                            input_control_context.dw7.configuration_value = config_value.?;
+
+                            const input_context_phys = virt.higherHalfUncachedToPhysical(slot.input_context);
+                            _ = controller.sendControlTransfer(slot_id, 0, 0, 9, config_value.?, 0, 0, 0, true);
+
+                            for (slot.devices.slice()) |*device| {
+                                logger.info("Identified device {s} on interface {d}", .{ @tagName(device.impl), device.interface_id });
+                                device.configure(controller, slot_id);
+                            }
+
+                            _ = controller.command_queue.enqueue(
+                                @truncate(input_context_phys),
+                                @intCast(input_context_phys >> 32),
+                                0,
+                                @as(u32, slot_id + 1) << 24 | (12 << 10),
+                            );
+                        }
+                    },
+                    .configured => {
+                        var data: []const u8 = &.{};
+                        switch (completed_trb_id) {
+                            1, 2 => { // Data stage or normal TRB
+                                const buffer = virt.asHigherHalf([*]u8, @as(u64, completed_trb[0]) | @as(u64, completed_trb[1]) << 32);
+                                const buffer_length: u16 = @truncate(completed_trb[2]);
+                                const length_remaining: u24 = @truncate(trb[2]);
+                                data = buffer[0 .. buffer_length - length_remaining];
+                            },
+                            4 => {}, // Status stage, control TRB without data
+                            else => unreachable,
+                        }
+
+                        const endpoint_addr = Controller.getEndpointAddr(endpoint_id - 1);
+                        for (slot.devices.slice()) |*device| {
+                            if (device.onDataTransferComplete(controller, endpoint_addr, slot_id, data)) {
+                                break;
+                            }
+                        }
+                    },
+                    .unaddressed => unreachable,
+                }
             },
             // Command Completion Event
             33 => {
@@ -374,15 +778,16 @@ fn interruptHandler(context: u64) void {
                             logger.debug("Allocated slot {d} for port {d}", .{ slot_id, port_num });
 
                             const slot = &controller.slots.slice()[slot_id];
-                            const input_control_context = controller.getInputContext(InputControlContext, slot_id, 0);
+                            const input_control_context = controller.getInputControlContext(slot_id);
                             input_control_context.a = (1 << 0) | (1 << 1);
 
-                            const input_slot_context = controller.getInputContext(SlotContext, slot_id, 1);
+                            const input_slot_context = controller.getInputSlotContext(slot_id);
                             input_slot_context.dw1.root_hub_port_number = port_num + 1;
                             input_slot_context.dw0.route_string = 0;
+                            input_slot_context.dw0.speed = related_port.port_speed;
                             input_slot_context.dw0.context_entries = 1;
 
-                            const input_ep0_context = controller.getInputContext(EndpointContext, slot_id, 2);
+                            const input_ep0_context = controller.getInputEndpointContext(slot_id, 0);
                             input_ep0_context.dw1.ep_type = 4; // Control Endpoint
                             input_ep0_context.dw1.max_packet_size = switch (related_port.port_speed) {
                                 2 => 8, // Low Speed,
@@ -391,7 +796,7 @@ fn interruptHandler(context: u64) void {
                                 else => unreachable,
                             };
                             input_ep0_context.dw1.max_burst_size = 0;
-                            input_ep0_context.tr_dequeue_ptr = virt.higherHalfUncachedToPhysical(slot.ep0_queue.data) | slot.ep0_queue.cycle_state;
+                            input_ep0_context.tr_dequeue_ptr = virt.higherHalfUncachedToPhysical(slot.ep_queue[0].data) | slot.ep_queue[0].cycle_state;
                             input_ep0_context.dw0.interval = 0;
                             input_ep0_context.dw0.max_primary_streams = 0;
                             input_ep0_context.dw0.mult = 0;
@@ -411,13 +816,32 @@ fn interruptHandler(context: u64) void {
                     },
                     // Address Device Command
                     11 => {
-                        logger.debug("Addressed device", .{});
-
-                        // const slot_id = @as(u8, @truncate(trb[3] >> 24)) - 1;
-                        // const slot = &controller.slots.slice()[slot_id];
-
-                        // slot.descriptor_buffer = phys.allocate(1, false).?;
-                        // controller.sendControlTransfer(slot_id, 0, 0x80, 6, 1 << 8, 0, 8, slot.descriptor_buffer);
+                        const slot_id = @as(u8, @truncate(trb[3] >> 24)) - 1;
+                        const slot = &controller.slots.slice()[slot_id];
+                        std.debug.assert(slot.state == .unaddressed);
+                        slot.descriptor_size = 8;
+                        slot.state = .addressed;
+                        controller.updateInputContext(slot_id);
+                        controller.sendControlTransfer(slot_id, 0, 0x80, 6, (1 << 8), 0, slot.descriptor_size, slot.descriptor_buffer, true);
+                    },
+                    // Configure Endpoint Command
+                    12 => {
+                        const slot_id = @as(u8, @truncate(trb[3] >> 24)) - 1;
+                        const slot = &controller.slots.slice()[slot_id];
+                        std.debug.assert(slot.state == .configured);
+                        controller.updateInputContext(slot_id);
+                        for (slot.devices.slice()) |*device| {
+                            device.onConfigured(controller, slot_id);
+                        }
+                    },
+                    // Evaluate Context Command
+                    13 => {
+                        const slot_id = @as(u8, @truncate(trb[3] >> 24)) - 1;
+                        const slot = &controller.slots.slice()[slot_id];
+                        std.debug.assert(slot.state == .addressed);
+                        slot.state = .fetch_configuration_descriptors;
+                        controller.updateInputContext(slot_id);
+                        controller.sendControlTransfer(slot_id, 0, 0x80, 6, (1 << 8), 0, slot.descriptor_size, slot.descriptor_buffer, true);
                     },
                     else => {
                         logger.debug("Got completion event for unknown command {d}", .{completion_type});
@@ -430,7 +854,7 @@ fn interruptHandler(context: u64) void {
                 controller.checkPortStatus(port_id);
             },
             else => {
-                logger.debug("Got TRB {X} {X} {X} {X} {X}", .{ trb_id, trb[0], trb[1], trb[2], trb[3] });
+                logger.debug("Unhandled TRB {X} {X} {X} {X} {X}", .{ trb_id, trb[0], trb[1], trb[2], trb[3] });
             },
         }
     }
@@ -440,7 +864,7 @@ fn interruptHandler(context: u64) void {
     controller.runtime.ir[0].erdp = virt.higherHalfUncachedToPhysical(next_trb) | (1 << 3);
 
     // Clear the IMAN.IP flag
-    controller.runtime.ir[0].iman |= (1 << 0);
+    controller.runtime.ir[0].iman = (1 << 0) | (1 << 1);
 
     if (controller.command_queue.dirty) {
         controller.command_queue.dirty = false;
@@ -448,9 +872,11 @@ fn interruptHandler(context: u64) void {
     }
 
     for (controller.slots.slice(), 0..) |*slot, i| {
-        if (slot.ep0_queue.dirty) {
-            slot.ep0_queue.dirty = false;
-            controller.doorbells[i + 1] = 1;
+        for (&slot.ep_queue, 1..) |*ep_queue, j| {
+            if (ep_queue.dirty) {
+                ep_queue.dirty = false;
+                controller.doorbells[i + 1] = @intCast(j);
+            }
         }
     }
 }
@@ -463,7 +889,7 @@ fn controllerThread(param: u32) !void {
     const caps = virt.asHigherHalfUncached(*volatile CapabilityRegs, bar0.base);
 
     const controller = try root.allocator.create(Controller);
-    controller.* = Controller{
+    controller.* = .{
         .caps = caps,
         .ops = virt.asHigherHalfUncached(*volatile OperationalRegs, bar0.base + caps.caplength),
         .runtime = virt.asHigherHalfUncached(*volatile RuntimeRegs, bar0.base + caps.rtsoff),
@@ -471,10 +897,14 @@ fn controllerThread(param: u32) !void {
 
         .command_queue = .{ .data = undefined },
         .event_queue = .{ .data = undefined },
-
-        .ports = std.BoundedArray(Port, 256).init(@as(u8, @truncate(caps.hcsparams1 >> 24))) catch unreachable,
-        .slots = std.BoundedArray(Slot, 256).init(@as(u8, @truncate(caps.hcsparams1))) catch unreachable,
     };
+
+    try controller.ports.resize(@as(u8, @truncate(caps.hcsparams1 >> 24)));
+    try controller.slots.resize(@as(u8, @truncate(caps.hcsparams1)));
+
+    for (controller.ports.slice()) |*port| {
+        port.* = .{};
+    }
 
     // Make sure the controller supports 4KiB pages
     if (controller.ops.pagesize & (1 << 0) != 1) {
@@ -525,17 +955,25 @@ fn controllerThread(param: u32) !void {
             logger.err("Failed to allocate memory for device context", .{});
             return error.OutOfMemory;
         };
-        slot.input_context = virt.asHigherHalfUncached(*volatile anyopaque, input_context_phys);
-        slot.device_context = virt.asHigherHalfUncached(*volatile anyopaque, device_context_phys);
         dcbaap[i + 1] = device_context_phys;
-
-        const transfer_ring_phys = phys.allocate(1, true) orelse {
-            logger.err("Failed to allocate memory for transfer ring", .{});
-            return error.OutOfMemory;
+        slot.* = .{
+            .input_context = virt.asHigherHalfUncached(*volatile anyopaque, input_context_phys),
+            .device_context = virt.asHigherHalfUncached(*volatile anyopaque, device_context_phys),
+            .state = .unaddressed,
+            .devices = .{},
+            .descriptor_buffer = phys.allocate(1, false) orelse {
+                logger.err("Failed to allocate memory for descriptor buffer", .{});
+                return error.OutOfMemory;
+            },
+            .ep_queue = undefined,
         };
-        slot.ep0_queue = .{
-            .data = virt.asHigherHalfUncached([*]volatile TransferRequestBlock, transfer_ring_phys),
-        };
+        for (&slot.ep_queue) |*ep_queue| {
+            const transfer_ring_phys = phys.allocate(1, true) orelse {
+                logger.err("Failed to allocate memory for transfer ring", .{});
+                return error.OutOfMemory;
+            };
+            ep_queue.* = .{ .data = virt.asHigherHalfUncached([*]volatile TransferRequestBlock, transfer_ring_phys) };
+        }
     }
 
     controller.ops.dcbaap = dcbaap_phys;
@@ -600,6 +1038,29 @@ fn controllerThread(param: u32) !void {
     // the Interrupter Management register
     controller.runtime.ir[0].iman |= (1 << 1);
 
+    // Set up scratchpad buffers
+    const scratchpads_hi: u5 = @truncate(controller.caps.hcsparams2 >> 21);
+    const scratchpads_lo: u5 = @truncate(controller.caps.hcsparams2 >> 27);
+    const scratchpad_count = scratchpads_lo | @as(u10, scratchpads_hi) << 5;
+    if (scratchpad_count > 0) {
+        std.debug.assert(scratchpad_count <= 512);
+        logger.debug("Controller requested {d} scratchpad pages", .{scratchpad_count});
+
+        const scratchpad_array_phys = phys.allocate(1, true) orelse {
+            logger.err("Failed to allocate memory for scratchpad array", .{});
+            return error.OutOfMemory;
+        };
+        dcbaap[0] = scratchpad_array_phys;
+
+        const scratchpad_array = virt.asHigherHalf([*]u64, scratchpad_array_phys);
+        for (0..scratchpad_count) |i| {
+            scratchpad_array[i] = phys.allocate(1, true) orelse {
+                logger.err("Failed to allocate memory for scratchpad buffer", .{});
+                return error.OutOfMemory;
+            };
+        }
+    }
+
     // Turn the host controller ON via setting the USBCMD.RS bit to 1.
     controller.ops.usbcmd |= (1 << 0);
 
@@ -654,8 +1115,8 @@ fn controllerThread(param: u32) !void {
     controller.ops.usbcmd |= (1 << 2);
 
     while (true) {
-        // logger.debug("Controller thread is running", .{});
-        scheduler.yield();
+        controller.pending_irqs.acquire(1);
+        processIrqs(controller);
     }
 }
 

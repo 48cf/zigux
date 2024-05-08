@@ -1,8 +1,9 @@
 override QEMUFLAGS += -M q35,smm=off -m 2G -debugcon stdio -smp 1 \
 	-device qemu-xhci,id=xhci \
-	-device usb-kbd,bus=xhci.0,port=1,id=kbd,pcap=keyboard.pcap \
-	# -trace usb_xhci* \
-	# -device usb-tablet,bus=xhci.0,port=2,id=mouse
+	-device usb-kbd,bus=xhci.0,port=1,pcap=keyboard.pcap \
+	-device usb-mouse,bus=xhci.0,port=2,pcap=mouse.pcap \
+	-device usb-net,bus=xhci.0,port=3,pcap=net.pcap \
+	# -trace usb_xhci*
 
 .PHONY: all
 all:
