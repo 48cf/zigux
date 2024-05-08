@@ -122,9 +122,7 @@ export fn _start() callconv(.C) noreturn {
 }
 
 fn mainThread(_: u8) !void {
-    try pci.init();
-
-    ps2.init();
+    try acpi.enumerateDevices();
 
     // const process = try scheduler.spawnProcess(null);
     // const thread = try scheduler.spawnThread(process);

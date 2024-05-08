@@ -247,28 +247,24 @@ fn checkFunction(device: Device) anyerror!void {
         .{ vendor_id, device_id, device.bus, device.slot, device.function },
     );
 
-    if (class_id == 0x6 and subclass_id == 0x4) {
-        try checkBus(device.secondary_bus().read());
-    } else {
-        inline for (@typeInfo(@TypeOf(drivers.pci_drivers)).Struct.fields) |field| {
-            const driver = @field(drivers.pci_drivers, field.name);
-            const discovery = @as(drivers.PciDriverDiscovery, driver.discovery);
+    inline for (@typeInfo(@TypeOf(drivers.pci_drivers)).Struct.fields) |field| {
+        const driver = @field(drivers.pci_drivers, field.name);
+        const discovery = @as(drivers.PciDriverDiscovery, driver.discovery);
 
-            switch (discovery) {
-                .all => try driver.handler(device),
-                .id => |id| {
-                    if (vendor_id == id.vendor and device_id == id.device) {
+        switch (discovery) {
+            .all => try driver.handler(device),
+            .id => |id| {
+                if (vendor_id == id.vendor and device_id == id.device) {
+                    try driver.handler(device);
+                }
+            },
+            .class => |class| {
+                if (class_id == class.class_id and subclass_id == class.subclass_id) {
+                    if (class.prog_if == null or prog_if == class.prog_if.?) {
                         try driver.handler(device);
                     }
-                },
-                .class => |class| {
-                    if (class_id == class.class_id and subclass_id == class.subclass_id) {
-                        if (class.prog_if == null or prog_if == class.prog_if.?) {
-                            try driver.handler(device);
-                        }
-                    }
-                },
-            }
+                }
+            },
         }
     }
 }
@@ -282,28 +278,23 @@ fn checkSlot(bus: u8, slot: u8) !void {
 
     try checkFunction(device);
 
-    // Check if the device is a multi-function device
-    if (device.header_type().read() & 0x80 != 0) {
-        var function: u8 = 1;
+    if (device.header_type().read() & 0x80 == 0) {
+        return;
+    }
 
-        while (function < 8) : (function += 1) {
-            const func_header = Device.init(bus, slot, function);
+    for (1..8) |func| {
+        const it_device = Device.init(bus, slot, @intCast(func));
 
-            if (func_header.vendor_id().read() != 0xFFFF) {
-                try checkFunction(func_header);
-            }
+        if (it_device.vendor_id().read() != 0xFFFF) {
+            try checkFunction(it_device);
         }
     }
 }
 
-fn checkBus(bus: u8) !void {
-    var device: u8 = 0;
+pub fn scanHostBus(segment: u8, bus: u8) !void {
+    _ = segment;
 
-    while (device < 32) : (device += 1) {
-        try checkSlot(bus, device);
+    for (0..32) |i| {
+        try checkSlot(bus, @intCast(i));
     }
-}
-
-pub fn init() !void {
-    return checkBus(0);
 }
