@@ -12,8 +12,7 @@ const per_cpu = @import("per_cpu.zig");
 const virt = @import("virt.zig");
 const utils = @import("utils.zig");
 const vfs = @import("vfs.zig");
-
-const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
+const lock = @import("lock.zig");
 
 pub const syscall_stack_pages = 4;
 pub const thread_stack_pages = 8;
@@ -230,7 +229,7 @@ pub const Semaphore = struct {
     };
 
     queue: std.TailQueue(void) = .{},
-    lock: IrqSpinlock = .{},
+    lock: lock.Spinlock = .{},
     available: isize,
 
     pub fn init(count: isize) Semaphore {
@@ -238,31 +237,22 @@ pub const Semaphore = struct {
     }
 
     pub fn acquire(self: *Semaphore, count: isize) void {
-        self.lock.lock();
+        var critical_sect = lock.CriticalSection.enter();
+        defer critical_sect.leave();
 
-        const ints_enabled = self.lock.re_enable;
+        self.lock.lock();
         const thread = per_cpu.get().thread.?;
 
         if (self.available >= count) {
             self.available -= count;
             self.lock.unlock();
-
-            if (ints_enabled) {
-                asm volatile ("sti");
-            }
         } else {
             var waiter = Waiter{
                 .count = count,
                 .thread = thread,
             };
-
             self.queue.append(&waiter.node);
-
             ungrabAndReschedule(&self.lock);
-
-            if (ints_enabled) {
-                asm volatile ("sti");
-            }
         }
     }
 
@@ -290,7 +280,7 @@ pub const Semaphore = struct {
 
 var processes: std.TailQueue(void) = .{};
 var scheduler_queue: std.TailQueue(void) = .{};
-var scheduler_lock: IrqSpinlock = .{};
+var scheduler_lock: lock.Spinlock = .{};
 
 var pid_counter: u64 = 1;
 var tid_counter: u64 = 0;
@@ -560,22 +550,22 @@ pub fn yield() void {
     }.handler, undefined);
 }
 
-pub fn ungrabAndReschedule(lock: *IrqSpinlock) void {
+pub fn ungrabAndReschedule(lock_arg: *lock.Spinlock) void {
     const callback = struct {
         fn func(frame: *interrupts.InterruptFrame, arg: usize) void {
-            const spinlock = @as(*IrqSpinlock, @ptrFromInt(arg));
+            const spinlock = @as(*lock.Spinlock, @ptrFromInt(arg));
             const cpu_info = per_cpu.get();
             const thread = cpu_info.thread.?;
 
             thread.regs = frame.*;
-            spinlock.ungrab();
+            spinlock.unlock();
             cpu_info.thread = null;
 
             reschedule(frame);
         }
     }.func;
 
-    schedCall(callback, @intFromPtr(lock));
+    schedCall(callback, @intFromPtr(lock_arg));
 }
 
 pub fn schedCall(func: *const fn (*interrupts.InterruptFrame, usize) void, arg: usize) void {

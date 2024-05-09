@@ -8,22 +8,18 @@ const C = @cImport({
 const std = @import("std");
 const limine = @import("limine");
 
-const apic = @import("apic.zig");
-const acpi = @import("acpi.zig");
-const arch = @import("arch.zig");
-const interrupts = @import("interrupts.zig");
-const debug = @import("debug.zig");
-const mutex = @import("mutex.zig");
-const per_cpu = @import("per_cpu.zig");
-const pci = @import("pci.zig");
-const phys = @import("phys.zig");
-const utils = @import("utils.zig");
-const scheduler = @import("scheduler.zig");
-const virt = @import("virt.zig");
-const vfs = @import("vfs.zig");
-const ps2 = @import("drivers/ps2.zig");
-
-const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
+const acpi = @import("./acpi.zig");
+const apic = @import("./apic.zig");
+const arch = @import("./arch.zig");
+const debug = @import("./debug.zig");
+const interrupts = @import("./interrupts.zig");
+const lock = @import("./lock.zig");
+const mutex = @import("./mutex.zig");
+const per_cpu = @import("./per_cpu.zig");
+const phys = @import("./phys.zig");
+const scheduler = @import("./scheduler.zig");
+const vfs = @import("./vfs.zig");
+const virt = @import("./virt.zig");
 
 const PageAllocator = struct {
     bump: std.atomic.Value(u64) = .{ .raw = 0xFFFF_A000_0000_0000 },
@@ -72,7 +68,7 @@ const PageAllocator = struct {
 };
 
 var flanterm_ctx: ?*C.flanterm_context = null;
-var print_lock: IrqSpinlock = .{};
+var print_lock: lock.Spinlock = .{};
 
 pub const log_level = std.log.Level.debug;
 
@@ -91,15 +87,14 @@ pub const os = struct {
     };
 };
 
-pub const std_options = .{ .logFn = log };
+pub const std_options: std.Options = .{ .logFn = log };
 
-pub var page_heap_allocator = PageAllocator{};
-pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = IrqSpinlock }){};
+pub var page_heap_allocator: PageAllocator = .{};
+pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = lock.Spinlock }){};
 pub var allocator = gp_allocator.allocator();
 
 pub export var boot_info_req: limine.BootloaderInfoRequest = .{};
 pub export var hhdm_req: limine.HhdmRequest = .{};
-pub export var term_req: limine.TerminalRequest = .{};
 pub export var memory_map_req: limine.MemoryMapRequest = .{};
 pub export var modules_req: limine.ModuleRequest = .{};
 pub export var kernel_file_req: limine.KernelFileRequest = .{};
@@ -160,6 +155,11 @@ fn main() !void {
     const rsdp_res = rsdp_req.response.?;
     const framebuffer_res = framebuffer_req.response.?;
 
+    if (kernel_file_req.response) |res| {
+        debug.init(res) catch |err|
+            logger.warn("Failed to parsee debug information: {any}", .{err});
+    }
+
     per_cpu.initBsp();
     per_cpu.initFeatures();
 
@@ -188,18 +188,40 @@ fn main() !void {
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
     asm volatile ("cli");
-
     _ = error_return_trace;
     _ = ret_addr;
-
     logger.err("Kernel panic: {s}", .{msg});
-
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
-
     while (true) {
         arch.halt();
     }
 }
+
+const LogWriter = struct {
+    pub const Error = error{};
+
+    pub fn write(_: @This(), bytes: []const u8) Error!usize {
+        debug.debugPrint(bytes);
+        if (flanterm_ctx) |ctx| {
+            C.flanterm_write(ctx, bytes.ptr, bytes.len);
+        }
+        return bytes.len;
+    }
+
+    pub fn writeByte(self: @This(), byte: u8) Error!void {
+        _ = try self.write(&.{byte});
+    }
+
+    pub fn writeBytesNTimes(self: @This(), bytes: []const u8, n: usize) Error!void {
+        for (0..n) |_| {
+            _ = try self.write(bytes);
+        }
+    }
+
+    pub fn writeAll(self: @This(), bytes: []const u8) Error!void {
+        _ = try self.write(bytes);
+    }
+};
 
 pub fn log(
     comptime level: std.log.Level,
@@ -207,27 +229,14 @@ pub fn log(
     comptime fmt: []const u8,
     args: anytype,
 ) void {
-    var bytes: [512]u8 = undefined;
-    var buffer = std.io.fixedBufferStream(&bytes);
-    var writer = buffer.writer();
-
-    const tid = if (per_cpu.get().thread) |thread| thread.tid else 0;
-
-    writer.print("[{d:>3}] ({s}) {s}: ", .{ tid, @tagName(scope), @tagName(level) }) catch {};
-    writer.print(fmt ++ "\n", args) catch {};
-
-    const written = buffer.getWritten();
-    if (written.len == bytes.len) {
-        written[written.len - 1] = '\n';
-    }
-
     print_lock.lock();
     defer print_lock.unlock();
-    debug.debugPrint(written);
-
-    if (flanterm_ctx) |ctx| {
-        C.flanterm_write(ctx, written.ptr, written.len);
-    }
+    const tid = if (per_cpu.get().thread) |thread| thread.tid else 0;
+    std.fmt.format(
+        @as(LogWriter, undefined),
+        "[{d}] {s}({s}): " ++ fmt ++ "\n",
+        .{ tid, @tagName(level), @tagName(scope) } ++ args,
+    ) catch unreachable;
 }
 
 export fn putchar_(ch: u8) callconv(.C) void {

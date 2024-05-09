@@ -19,7 +19,6 @@ const tty_vtable: vfs.VNodeVTable = .{
     .stat = TtyVNode.stat,
 };
 
-var term_buffer: [1024]u8 = undefined;
 var disk_number: usize = 1;
 
 const BlockDeviceError = error{
@@ -307,13 +306,10 @@ const TtyVNode = struct {
         _ = vnode;
         _ = offset;
         _ = flags;
-
-        const written = @min(buffer.len, term_buffer.len);
-
-        @memcpy(&term_buffer, buffer[0..written]);
-        debug.print(term_buffer[0..written]);
-
-        return written;
+        // const written = @min(buffer.len, term_buffer.len);
+        // @memcpy(&term_buffer, buffer[0..written]);
+        // debug.print(term_buffer[0..written]);
+        return buffer.len;
     }
 
     fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlError!u64 {
@@ -335,23 +331,23 @@ const TtyVNode = struct {
 
                 return 0;
             },
-            abi.TIOCGWINSZ => {
-                const term_res = root.term_req.response.?;
-                const terminal = term_res.terminals()[0];
-                const result = process.validatePointer(abi.winsize, arg) catch return .{ .err = abi.EINVAL };
+            // abi.TIOCGWINSZ => {
+            //     const term_res = root.term_req.response.?;
+            //     const terminal = term_res.terminals()[0];
+            //     const result = process.validatePointer(abi.winsize, arg) catch return .{ .err = abi.EINVAL };
 
-                result.* = .{
-                    .ws_row = @as(c_ushort, @intCast(terminal.rows)),
-                    .ws_col = @as(c_ushort, @intCast(terminal.columns)),
-                    .ws_xpixel = 0,
-                    .ws_ypixel = 0,
-                };
+            //     result.* = .{
+            //         .ws_row = @as(c_ushort, @intCast(terminal.rows)),
+            //         .ws_col = @as(c_ushort, @intCast(terminal.columns)),
+            //         .ws_xpixel = 0,
+            //         .ws_ypixel = 0,
+            //     };
 
-                result.ws_xpixel = @as(c_ushort, @intCast(terminal.framebuffer.width));
-                result.ws_ypixel = @as(c_ushort, @intCast(terminal.framebuffer.height));
+            //     result.ws_xpixel = @as(c_ushort, @intCast(terminal.framebuffer.width));
+            //     result.ws_ypixel = @as(c_ushort, @intCast(terminal.framebuffer.height));
 
-                return 0;
-            },
+            //     return 0;
+            // },
             else => {
                 logger.warn("Unhandled IO control request 0x{X}", .{request});
 

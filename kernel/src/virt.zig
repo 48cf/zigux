@@ -10,8 +10,7 @@ const phys = @import("phys.zig");
 const utils = @import("utils.zig");
 const vfs = @import("vfs.zig");
 const per_cpu = @import("per_cpu.zig");
-
-const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
+const lock = @import("lock.zig");
 
 const two_mib = utils.mib(2);
 const user_alloc_base: u64 = 0x7000_0000_0000;
@@ -249,7 +248,7 @@ pub const Mapping = struct {
 pub const AddressSpace = struct {
     cr3: u64,
     page_table: *PageTable,
-    lock: IrqSpinlock = .{},
+    lock: lock.Spinlock = .{},
     mappings: std.TailQueue(void) = .{},
     alloc_base: u64 = user_alloc_max,
 
@@ -477,7 +476,7 @@ pub const AddressSpace = struct {
 
 pub var kernel_address_space: AddressSpace = undefined;
 
-var paging_lock: IrqSpinlock = .{};
+var paging_lock: lock.Spinlock = .{};
 var current_address_space: *AddressSpace = undefined;
 var current_cr3: u64 = undefined;
 

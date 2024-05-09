@@ -4,10 +4,9 @@ const std = @import("std");
 const limine = @import("limine");
 
 const arch = @import("arch.zig");
+const lock = @import("lock.zig");
 const utils = @import("utils.zig");
 const virt = @import("virt.zig");
-
-const IrqSpinlock = @import("irq_lock.zig").IrqSpinlock;
 
 const Bitmap = struct {
     data: []u8,
@@ -29,9 +28,9 @@ const Bitmap = struct {
     }
 };
 
-var lock: IrqSpinlock = .{};
 var bitmap: Bitmap = undefined;
 var highest_phys_addr: u64 = 0;
+var pmm_lock: lock.Spinlock = .{};
 
 var total_pages: usize = undefined;
 var used_pages: usize = undefined;
@@ -106,8 +105,8 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
 }
 
 pub fn allocate(pages: usize, zero: bool) ?u64 {
-    lock.lock();
-    defer lock.unlock();
+    pmm_lock.lock();
+    defer pmm_lock.unlock();
 
     if (pages > total_pages - used_pages) {
         return null;
