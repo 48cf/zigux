@@ -190,8 +190,8 @@ const Ps2KeyboardContext = struct {
     irq: u8 = 0x1,
 };
 
-fn keyboardHandler(context: u64) void {
-    const ps2_ctx: *Ps2KeyboardContext = @ptrFromInt(context);
+fn keyboardHandler(context: interrupts.InterruptContext) void {
+    const ps2_ctx: *Ps2KeyboardContext = @ptrCast(@alignCast(context.?));
     keyboard_buffer.append(arch.in(u8, ps2_ctx.data_port)) catch {};
     generateEvent();
     apic.eoi();
@@ -253,7 +253,7 @@ pub fn init(acpi_node: ?*uacpi.uacpi_namespace_node) !void {
     logger.debug("PS/2 keyboard data port: 0x{X}, command port: 0x{X}", .{ context.data_port, context.command_port });
 
     const keyboard_vector = interrupts.allocateVector();
-    interrupts.registerHandlerWithContext(keyboard_vector, keyboardHandler, @intFromPtr(context));
+    interrupts.registerHandlerWithContext(keyboard_vector, keyboardHandler, context);
     std.debug.assert(apic.routeISAIRQ(context.irq, 0, keyboard_vector, false));
 
     // Flush the keyboard buffer

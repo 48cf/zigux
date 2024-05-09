@@ -10,8 +10,8 @@ const process = @import("process.zig");
 pub const PerCpu = struct {
     self: *PerCpu,
     gdt: arch.Gdt = .{},
-    tss: arch.Tss = .{},
     idt: arch.Idt = .{},
+    tss: arch.Tss = std.mem.zeroes(arch.Tss),
     lapic_base: u64 = 0,
     thread: ?*scheduler.Thread = null,
 

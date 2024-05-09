@@ -422,8 +422,8 @@ const EventRingSegmentTableEntry = extern struct {
     reserved: [3]u16,
 };
 
-fn interruptHandler(context: u64) void {
-    const controller: *Controller = @ptrFromInt(context);
+fn interruptHandler(context: interrupts.InterruptContext) void {
+    const controller: *Controller = @ptrCast(@alignCast(context.?));
     controller.pending_irqs.release(1);
     apic.eoi();
 }
@@ -839,7 +839,7 @@ fn controllerThread(param: u32) !void {
         return error.MsiNotSupported;
     };
 
-    interrupts.registerHandlerWithContext(xhci_vector, interruptHandler, @intFromPtr(controller));
+    interrupts.registerHandlerWithContext(xhci_vector, interruptHandler, controller);
     msi.enable(0, xhci_vector);
 
     // Allocate and initialize the Event Ring Segments

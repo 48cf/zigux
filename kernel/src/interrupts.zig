@@ -10,15 +10,17 @@ const virt = @import("virt.zig");
 
 var next_vector: usize = 32;
 var handlers = [1]InterruptHandler{exceptionHandler} ** 32 ++ [1]InterruptHandler{unhandledInterruptHandler} ** 224;
-var handler_contexts: [256]u64 = undefined;
+var handler_contexts: [256]InterruptContext = undefined;
 
 pub const syscall_vector: u8 = 0xFD;
 pub const sched_call_vector: u8 = 0xFE;
 pub const spurious_vector: u8 = 0xFF;
 
-pub const InterruptStub = *const fn () callconv(.Naked) void;
-pub const InterruptHandler = *const fn (*InterruptFrame) void;
-pub const InterruptHandlerWithContext = *const fn (u64) void;
+pub const InterruptContext = ?*anyopaque;
+
+const InterruptStub = *const fn () callconv(.Naked) void;
+const InterruptHandler = *const fn (*InterruptFrame) void;
+const InterruptHandlerWithContext = *const fn (InterruptContext) void;
 
 const IretFrame = extern struct {
     err: u64,
@@ -51,26 +53,24 @@ pub const InterruptFrame = extern struct {
     iret: IretFrame,
 };
 
-pub fn makeHandlers() [256]InterruptStub {
-    var result = [1]InterruptStub{undefined} ** 256;
-
-    comptime var i: usize = 0;
-
-    inline while (i < 256) : (i += 1) {
-        result[i] = comptime makeHandler(i);
+const interrupt_stubs = blk: {
+    var result: [256]InterruptStub = undefined;
+    for (&result, 0..) |*it, i| {
+        it.* = makeHandler(i);
     }
+    break :blk result;
+};
 
-    return result;
+pub fn getInterruptHandlers() [256]InterruptStub {
+    return interrupt_stubs;
 }
 
 pub fn allocateVector() u8 {
     const result = @atomicRmw(usize, &next_vector, .Add, 1, .acq_rel);
-
     if (result >= 256 - 16) {
         @panic("No more interrupt vectors left to allocate");
     }
-
-    return @as(u8, @truncate(result));
+    return @intCast(result);
 }
 
 pub fn registerHandler(vector: u8, handler: InterruptHandler) void {
@@ -80,7 +80,7 @@ pub fn registerHandler(vector: u8, handler: InterruptHandler) void {
 pub fn registerHandlerWithContext(
     vector: u8,
     comptime handler_: InterruptHandlerWithContext,
-    context: u64,
+    context: InterruptContext,
 ) void {
     handler_contexts[vector] = context;
     handlers[vector] = struct {
@@ -89,11 +89,6 @@ pub fn registerHandlerWithContext(
             @call(.always_inline, handler_, .{handler_context});
         }
     }.handler;
-}
-
-fn interruptHandlerWithContext(frame: *InterruptFrame, context: u64) void {
-    const handler = handlers[frame.vector & 0xFF];
-    handler(frame, context);
 }
 
 fn printRegisters(frame: *InterruptFrame) void {
@@ -123,9 +118,8 @@ fn exceptionHandler(frame: *InterruptFrame) void {
     if (frame.vector == 0x6) {
         const code = @as([*]const u8, @ptrFromInt(frame.iret.rip));
 
-        if (std.mem.eql(u8, code[0..2], &.{ 0x0f, 0x05 })) {
+        if (std.mem.eql(u8, code[0..2], &.{ 0x0F, 0x05 })) {
             frame.iret.rip += 2;
-
             return @call(.always_tail, handlers[syscall_vector], .{frame});
         }
     } else if (frame.vector == 0xE) blk: {
@@ -133,31 +127,24 @@ fn exceptionHandler(frame: *InterruptFrame) void {
             : [result] "=r" (-> u64),
         );
 
-        const handled = virt.handlePageFault(cr2, frame.iret.err) catch |err| {
+        if (virt.handlePageFault(cr2, frame.iret.err) catch |err| {
             logger.err("Failed to handle the page fault: {any}", .{err});
             break :blk;
-        };
-
-        if (handled) {
+        }) {
             return;
         }
     }
 
     logger.err("An exception #{} occurred", .{frame.vector});
-
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
-
     printRegisters(frame);
 
-    if (frame.iret.cs & 3 != 0 and cpu_info.currentProcess() != null) {
+    if ((frame.iret.cs & 0x3) != 0 and cpu_info.currentProcess() != null) {
         // TODO: Implement signals and stuff like that so we can properly
         // terminate processes that violate memory protections
         const process = cpu_info.currentProcess().?;
-
         logger.info("Killed {}:{} because of a protection violation", .{ process.pid, cpu_info.thread.?.tid });
-
         scheduler.exitProcess(process, 0xff);
-
         cpu_info.thread = null;
     } else {
         while (true) {
@@ -168,11 +155,8 @@ fn exceptionHandler(frame: *InterruptFrame) void {
 
 fn unhandledInterruptHandler(frame: *InterruptFrame) void {
     logger.err("An unhandled interrupt #{} occurred", .{frame.vector});
-
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
-
     printRegisters(frame);
-
     while (true) {
         arch.halt();
     }
@@ -225,7 +209,6 @@ fn makeHandler(comptime vector: usize) InterruptStub {
 
 export fn interruptHandler(frame: *InterruptFrame) callconv(.C) void {
     const handler = handlers[frame.vector & 0xFF];
-
     handler(frame);
 }
 

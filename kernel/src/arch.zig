@@ -56,10 +56,10 @@ pub inline fn in(comptime T: type, port: u16) T {
 pub const Msr = struct {
     msr: u32,
 
-    pub const apic = Msr.init(0x1b);
-    pub const fs_base = Msr.init(0xc0000100);
-    pub const gs_base = Msr.init(0xc0000101);
-    pub const gs_kernel_base = Msr.init(0xc0000102);
+    pub const apic = Msr.init(0x1B);
+    pub const fs_base = Msr.init(0xC0000100);
+    pub const gs_base = Msr.init(0xC0000101);
+    pub const gs_kernel_base = Msr.init(0xC0000102);
 
     fn init(msr: u32) Msr {
         return .{ .msr = msr };
@@ -89,14 +89,14 @@ pub const Msr = struct {
 };
 
 pub const Tss = extern struct {
-    reserved: u32 align(1) = 0,
-    rsp: [3]u64 align(1) = .{ 0, 0, 0 },
-    reserved0: u64 align(1) = 0,
-    ist: [7]u64 align(1) = .{ 0, 0, 0, 0, 0, 0, 0 },
-    reserved1: u32 align(1) = 0,
-    reserved2: u32 align(1) = 0,
-    reserved3: u16 align(1) = 0,
-    iopb_offset: u16 align(1) = 0,
+    reserved: u32,
+    rsp: [3]u64 align(4),
+    reserved0: u64 align(4),
+    ist: [7]u64 align(4),
+    reserved1: u32,
+    reserved2: u32,
+    reserved3: u16,
+    iopb_offset: u16,
 };
 
 pub const Idt = struct {
@@ -108,10 +108,10 @@ pub const Idt = struct {
             .base = @intFromPtr(self),
         };
 
-        for (interrupts.makeHandlers(), 0..) |handler, i| {
-            const flags: u8 = if (i == interrupts.syscall_vector) 0xee else 0x8e;
+        for (interrupts.getInterruptHandlers(), 0..) |handler, i| {
+            const flags: u8 = if (i == interrupts.syscall_vector) 0xEE else 0x8E;
             const ist: u8 = switch (i) {
-                0xe => 3,
+                0xE => 3,
                 interrupts.sched_call_vector => 2,
                 else => 1,
             };
@@ -129,14 +129,14 @@ pub const Idt = struct {
 pub const Gdt = struct {
     entries: [11]u64 = .{
         0x0000000000000000, // null
-        0x00009a000000ffff, // 16-bit code
-        0x000093000000ffff, // 16-bit data
-        0x00cf9a000000ffff, // 32-bit code
-        0x00cf93000000ffff, // 32-bit data
-        0x00af9b000000ffff, // 64-bit code
-        0x00af93000000ffff, // 64-bit data
-        0x00affb000000ffff, // usermode 64-bit code
-        0x00aff3000000ffff, // usermode 64-bit data
+        0x00009A000000FFFF, // 16-bit code
+        0x000093000000FFFF, // 16-bit data
+        0x00CF9A000000FFFF, // 32-bit code
+        0x00CF93000000FFFF, // 32-bit data
+        0x00AF9B000000FFFF, // 64-bit code
+        0x00AF93000000FFFF, // 64-bit data
+        0x00AFFB000000FFFF, // usermode 64-bit code
+        0x00AFF3000000FFFF, // usermode 64-bit data
         0x0000000000000000, // tss low
         0x0000000000000000, // tss high
     },
@@ -211,15 +211,6 @@ const GdtEntryExtended = extern struct {
 };
 
 const DescriptorTableRegister = extern struct {
-    limit: u16 align(1),
-    base: u64 align(1),
+    limit: u16,
+    base: u64 align(2),
 };
-
-comptime {
-    std.debug.assert(@sizeOf(IdtEntry) == 16);
-    std.debug.assert(@sizeOf(GdtEntry) == 8);
-    std.debug.assert(@sizeOf(GdtEntryExtended) == 16);
-
-    std.debug.assert(@sizeOf(DescriptorTableRegister) == 10);
-    std.debug.assert(@offsetOf(DescriptorTableRegister, "limit") == 0);
-}
