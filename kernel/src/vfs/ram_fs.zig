@@ -115,7 +115,7 @@ const RamFSDirectory = struct {
 
             dir_ent.d_off = 0;
             dir_ent.d_ino = @as(c_ulong, @intCast(vnode.inode));
-            dir_ent.d_reclen = @as(c_ushort, @truncate(real_size));
+            dir_ent.d_reclen = @truncate(real_size);
             dir_ent.d_type = switch (child.kind) {
                 .File => abi.DT_REG,
                 .Directory => abi.DT_DIR,

@@ -246,7 +246,7 @@ fn syscallHandlerImpl(frame: *interrupts.InterruptFrame) !?u64 {
             return 0;
         },
         abi.SYS_exit => {
-            scheduler.exitProcess(process, @as(u8, @truncate(frame.rdi)));
+            scheduler.exitProcess(process, @truncate(frame.rdi));
             scheduler.reschedule(frame);
 
             return null;

@@ -148,13 +148,13 @@ pub const Gdt = struct {
         tss_entry.* = .{
             .lower = .{
                 .limit = @sizeOf(Tss) - 1,
-                .base_low = @as(u16, @truncate(tss_address)),
-                .base_mid = @as(u8, @truncate(tss_address >> 16)),
+                .base_low = @truncate(tss_address),
+                .base_mid = @truncate(tss_address >> 16),
                 .flags = 0b10001001,
                 .granularity = 0,
-                .base_high = @as(u8, @truncate(tss_address >> 24)),
+                .base_high = @truncate(tss_address >> 24),
             },
-            .base_high_ex = @as(u32, @truncate(tss_address >> 32)),
+            .base_high_ex = @intCast(tss_address >> 32),
             .reserved = 0,
         };
 
@@ -184,12 +184,12 @@ const IdtEntry = extern struct {
 
     pub fn init(offset: u64, ist: u8, flags: u8) IdtEntry {
         return .{
-            .offset_low = @as(u16, @truncate(offset)),
+            .offset_low = @truncate(offset),
             .selector = 0x28,
             .ist = ist,
             .flags = flags,
-            .offset_mid = @as(u16, @truncate(offset >> 16)),
-            .offset_high = @as(u32, @truncate(offset >> 32)),
+            .offset_mid = @truncate(offset >> 16),
+            .offset_high = @intCast(offset >> 32),
             .reserved = 0,
         };
     }

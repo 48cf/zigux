@@ -90,7 +90,7 @@ pub const Msi = struct {
         } else {
             logger.info("Enabling MSI for device , lapic_id: {}, vector: {}", .{ lapic_id, vector });
 
-            self.pci_cap.write(u32, 0x4, @as(u32, @truncate(msi_addr)));
+            self.pci_cap.write(u32, 0x4, @truncate(msi_addr));
             const message_control = self.pci_cap.read(u16, 2);
 
             // 64-bit
