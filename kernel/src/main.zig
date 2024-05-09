@@ -12,12 +12,14 @@ const acpi = @import("./acpi.zig");
 const apic = @import("./apic.zig");
 const arch = @import("./arch.zig");
 const debug = @import("./debug.zig");
+const hpet = @import("./hpet.zig");
 const interrupts = @import("./interrupts.zig");
 const lock = @import("./lock.zig");
 const mutex = @import("./mutex.zig");
 const per_cpu = @import("./per_cpu.zig");
 const phys = @import("./phys.zig");
 const scheduler = @import("./scheduler.zig");
+const time = @import("./time.zig");
 const vfs = @import("./vfs.zig");
 const virt = @import("./virt.zig");
 
@@ -101,6 +103,7 @@ pub export var kernel_file_req: limine.KernelFileRequest = .{};
 pub export var rsdp_req: limine.RsdpRequest = .{};
 pub export var kernel_addr_req: limine.KernelAddressRequest = .{};
 pub export var framebuffer_req: limine.FramebufferRequest = .{};
+pub export var boot_time_req: limine.BootTimeRequest = .{};
 
 export fn _start() callconv(.C) noreturn {
     main() catch |err| {
@@ -160,6 +163,10 @@ fn main() !void {
             logger.warn("Failed to parsee debug information: {any}", .{err});
     }
 
+    if (boot_time_req.response) |res| {
+        time.init(res);
+    }
+
     per_cpu.initBsp();
     per_cpu.initFeatures();
 
@@ -177,11 +184,11 @@ fn main() !void {
         null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
 
     try per_cpu.init();
-
+    try acpi.init(rsdp_res);
+    try hpet.init(false);
     apic.init();
 
     try vfs.init(modules_res);
-    try acpi.init(rsdp_res);
     try scheduler.init();
     _ = try scheduler.startKernelThread(mainThread, 0);
 }
@@ -231,11 +238,17 @@ pub fn log(
 ) void {
     print_lock.lock();
     defer print_lock.unlock();
-    const tid = if (per_cpu.get().thread) |thread| thread.tid else 0;
+    const current_time = time.getClock(.monotonic);
     std.fmt.format(
         @as(LogWriter, undefined),
-        "[{d}] {s}({s}): " ++ fmt ++ "\n",
-        .{ tid, @tagName(level), @tagName(scope) } ++ args,
+        "[{d}.{d:0>6}] [CPU{d}] {s}({s}): " ++ fmt ++ "\n",
+        .{
+            current_time.seconds,
+            @as(u64, @intCast(current_time.nanoseconds)) / std.time.ns_per_us,
+            per_cpu.get().lapic_id,
+            @tagName(level),
+            @tagName(scope),
+        } ++ args,
     ) catch unreachable;
 }
 

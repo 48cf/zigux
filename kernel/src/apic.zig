@@ -2,9 +2,11 @@ const logger = std.log.scoped(.apic);
 
 const std = @import("std");
 
+const hpet = @import("./hpet.zig");
 const interrupts = @import("./interrupts.zig");
 const per_cpu = @import("./per_cpu.zig");
 const scheduler = @import("./scheduler.zig");
+const time = @import("./time.zig");
 const uacpi = @import("./uacpi.zig");
 const virt = @import("./virt.zig");
 
@@ -77,22 +79,40 @@ const InterruptSourceOverride = struct {
     flags: u16,
 };
 
+var timer_ticks_per_ms: u64 = 0;
 var ioapics: std.BoundedArray(IOAPIC, 16) = .{};
 var isos = [1]?InterruptSourceOverride{null} ** 16;
 
 fn timerHandler(frame: *interrupts.InterruptFrame) void {
+    const increment: time.Timespec = .{ .seconds = 0, .nanoseconds = std.time.ns_per_ms };
+    time.setClock(.monotonic, time.getClock(.monotonic).add(increment));
+    time.setClock(.realtime, time.getClock(.realtime).add(increment));
     scheduler.reschedule(frame);
     eoi();
 }
 
 pub fn init() void {
+    getLAPICRegister(.spurious_vector).* = @as(u32, 0xFF) | 0x100;
+
+    // Calibrate the LAPIC timer using the HPET
+    getLAPICRegister(.lvt_timer).* = (1 << 16); // Masked, one shot
+    getLAPICRegister(.timer_divide).* = 0b0001; // Divide by 4
+
+    const initial_count = 0x1000_0000;
+    getLAPICRegister(.timer_initial_count).* = initial_count;
+
+    hpet.sleep(std.time.ns_per_ms * 10, false);
+    const count = getLAPICRegister(.timer_current_count).*;
+    std.debug.assert(count != 0);
+
+    timer_ticks_per_ms = (initial_count - count) / 10;
+    logger.info("LAPIC timer ticks at {d} ticks/ms", .{timer_ticks_per_ms});
+
     const timer_vector = interrupts.allocateVector();
     interrupts.registerHandler(timer_vector, timerHandler);
 
-    getLAPICRegister(.spurious_vector).* = @as(u32, timer_vector) | 0x100;
     getLAPICRegister(.lvt_timer).* = @as(u32, timer_vector) | (1 << 17); // Periodic mode
-    getLAPICRegister(.timer_divide).* = 3;
-    getLAPICRegister(.timer_initial_count).* = 0x10000;
+    getLAPICRegister(.timer_initial_count).* = @intCast(timer_ticks_per_ms);
 }
 
 pub fn eoi() void {
