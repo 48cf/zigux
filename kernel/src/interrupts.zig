@@ -20,6 +20,15 @@ pub const InterruptStub = *const fn () callconv(.Naked) void;
 pub const InterruptHandler = *const fn (*InterruptFrame) void;
 pub const InterruptHandlerWithContext = *const fn (u64) void;
 
+const IretFrame = extern struct {
+    err: u64,
+    rip: u64,
+    cs: u64,
+    rflags: u64,
+    rsp: u64,
+    ss: u64,
+};
+
 pub const InterruptFrame = extern struct {
     es: u64,
     ds: u64,
@@ -39,12 +48,7 @@ pub const InterruptFrame = extern struct {
     rbx: u64,
     rax: u64,
     vector: u64,
-    error_code: u64,
-    rip: u64,
-    cs: u64,
-    rflags: u64,
-    rsp: u64,
-    ss: u64,
+    iret: IretFrame,
 };
 
 pub fn makeHandlers() [256]InterruptStub {
@@ -106,21 +110,21 @@ fn printRegisters(frame: *InterruptFrame) void {
     }
 
     logger.err("Registers:", .{});
-    logger.err("  RAX={X:0>16} RBX={X:0>16} RCX={X:0>16} RDX={X:0>16}", .{ frame.rax, frame.rbx, frame.rcx, frame.rdx });
-    logger.err("  RSI={X:0>16} RDI={X:0>16} RBP={X:0>16} RSP={X:0>16}", .{ frame.rsi, frame.rdi, frame.rbp, frame.rsp });
-    logger.err("   R8={X:0>16}  R9={X:0>16} R10={X:0>16} R11={X:0>16}", .{ frame.r8, frame.r9, frame.r10, frame.r11 });
-    logger.err("  R12={X:0>16} R13={X:0>16} R14={X:0>16} R15={X:0>16}", .{ frame.r12, frame.r13, frame.r14, frame.r15 });
-    logger.err("  RIP={X:0>16} CR2={X:0>16} CR3={X:0>16} ERR={X:0>16}", .{ frame.rip, cr2, cr3, frame.error_code });
+    logger.err("  rax={X:0>16} rbx={X:0>16} rcx={X:0>16} rdx={X:0>16}", .{ frame.rax, frame.rbx, frame.rcx, frame.rdx });
+    logger.err("  rsi={X:0>16} rdi={X:0>16} rbp={X:0>16} rsp={X:0>16}", .{ frame.rsi, frame.rdi, frame.rbp, frame.iret.rsp });
+    logger.err("   r8={X:0>16}  r9={X:0>16} r10={X:0>16} r11={X:0>16}", .{ frame.r8, frame.r9, frame.r10, frame.r11 });
+    logger.err("  r12={X:0>16} r13={X:0>16} r14={X:0>16} r15={X:0>16}", .{ frame.r12, frame.r13, frame.r14, frame.r15 });
+    logger.err("  rip={X:0>16} cr2={X:0>16} cr3={X:0>16} err={X:0>16}", .{ frame.iret.rip, cr2, cr3, frame.iret.err });
 }
 
 fn exceptionHandler(frame: *InterruptFrame) void {
     const cpu_info = per_cpu.get();
 
     if (frame.vector == 0x6) {
-        const code = @as([*]const u8, @ptrFromInt(frame.rip));
+        const code = @as([*]const u8, @ptrFromInt(frame.iret.rip));
 
         if (std.mem.eql(u8, code[0..2], &.{ 0x0f, 0x05 })) {
-            frame.rip += 2;
+            frame.iret.rip += 2;
 
             return @call(.always_tail, handlers[syscall_vector], .{frame});
         }
@@ -129,9 +133,8 @@ fn exceptionHandler(frame: *InterruptFrame) void {
             : [result] "=r" (-> u64),
         );
 
-        const handled = virt.handlePageFault(cr2, frame.error_code) catch |err| {
+        const handled = virt.handlePageFault(cr2, frame.iret.err) catch |err| {
             logger.err("Failed to handle the page fault: {any}", .{err});
-
             break :blk;
         };
 
@@ -146,7 +149,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
 
     printRegisters(frame);
 
-    if (frame.cs & 3 != 0 and cpu_info.currentProcess() != null) {
+    if (frame.iret.cs & 3 != 0 and cpu_info.currentProcess() != null) {
         // TODO: Implement signals and stuff like that so we can properly
         // terminate processes that violate memory protections
         const process = cpu_info.currentProcess().?;
@@ -175,6 +178,15 @@ fn unhandledInterruptHandler(frame: *InterruptFrame) void {
     }
 }
 
+const swapgs_if_needed = std.fmt.comptimePrint(
+    \\
+    \\testb $0x3, 0x{X}(%%rsp)
+    \\je 1f
+    \\swapgs
+    \\1:
+    \\
+, .{@offsetOf(IretFrame, "cs")});
+
 fn makeHandler(comptime vector: usize) InterruptStub {
     // https://wiki.osdev.org/Exceptions
     const has_error_code = switch (vector) {
@@ -189,9 +201,9 @@ fn makeHandler(comptime vector: usize) InterruptStub {
     return struct {
         fn handler() callconv(.Naked) void {
             if (has_error_code) {
-                asm volatile (
-                    \\pushq %[vector]
-                    \\jmp interruptCommonHandler
+                asm volatile (swapgs_if_needed ++
+                        \\pushq %[vector]
+                        \\jmp interruptCommonHandler
                     :
                     : [vector] "i" (vector),
                       [_] "i" (interruptCommonHandler),
@@ -199,8 +211,9 @@ fn makeHandler(comptime vector: usize) InterruptStub {
             } else {
                 asm volatile (
                     \\pushq $0
-                    \\pushq %[vector]
-                    \\jmp interruptCommonHandler
+                    ++ swapgs_if_needed ++
+                        \\pushq %[vector]
+                        \\jmp interruptCommonHandler
                     :
                     : [vector] "i" (vector),
                       [_] "i" (interruptCommonHandler),
@@ -214,12 +227,6 @@ export fn interruptHandler(frame: *InterruptFrame) callconv(.C) void {
     const handler = handlers[frame.vector & 0xFF];
 
     handler(frame);
-}
-
-export fn swapGsIfNeeded(frame: *InterruptFrame) callconv(.C) void {
-    if (frame.cs != 0x28) {
-        asm volatile ("swapgs");
-    }
 }
 
 export fn interruptCommonHandler() callconv(.Naked) void {
@@ -244,14 +251,8 @@ export fn interruptCommonHandler() callconv(.Naked) void {
         \\push %%rax
         \\mov %%es, %%ax
         \\push %%rax
-        \\
-        \\mov %%rsp, %%rdi
-        \\call swapGsIfNeeded
         \\mov %%rsp, %%rdi
         \\call interruptHandler
-        \\mov %%rsp, %%rdi
-        \\call swapGsIfNeeded
-        \\
         \\pop %%rax
         \\mov %%ax, %%es
         \\pop %%rax
@@ -271,11 +272,11 @@ export fn interruptCommonHandler() callconv(.Naked) void {
         \\pop %%rcx
         \\pop %%rbx
         \\pop %%rax
-        \\
-        \\add $16, %%rsp
-        \\iretq
+        \\add $8, %%rsp
+        ++ swapgs_if_needed ++
+            \\add $8, %%rsp
+            \\iretq
         :
         : [_] "i" (interruptHandler),
-          [_] "i" (swapGsIfNeeded),
     );
 }

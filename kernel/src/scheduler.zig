@@ -324,10 +324,10 @@ pub fn init() !void {
         .parent = &kernel_process,
     };
 
-    idle_thread.regs.rip = @intFromPtr(&idleThread);
-    idle_thread.regs.rflags = 0x202;
-    idle_thread.regs.cs = 0x28;
-    idle_thread.regs.ss = 0x30;
+    idle_thread.regs.iret.rip = @intFromPtr(&idleThread);
+    idle_thread.regs.iret.rflags = 0x202;
+    idle_thread.regs.iret.cs = 0x28;
+    idle_thread.regs.iret.ss = 0x30;
     idle_thread.regs.ds = 0x30;
     idle_thread.regs.es = 0x30;
 }
@@ -364,9 +364,9 @@ pub fn spawnThreadWithoutStack(parent: *process.Process) !*Thread {
     const syscall_stack = phys.allocate(syscall_stack_pages, false) orelse return error.OutOfMemory;
 
     thread.syscall_stack = virt.asHigherHalf(u64, syscall_stack);
-    thread.regs.rflags = 0x202;
-    thread.regs.cs = 0x38 | 3;
-    thread.regs.ss = 0x40 | 3;
+    thread.regs.iret.rflags = 0x202;
+    thread.regs.iret.cs = 0x38 | 3;
+    thread.regs.iret.ss = 0x40 | 3;
     thread.regs.ds = 0x40 | 3;
     thread.regs.es = 0x40 | 3;
 
@@ -447,15 +447,15 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
         }
     };
 
-    thread.regs.rip = @intFromPtr(&wrapper.handler);
-    thread.regs.rsp = stack + std.mem.page_size * 16 - 0x10;
+    thread.regs.iret.rip = @intFromPtr(&wrapper.handler);
+    thread.regs.iret.rsp = stack + std.mem.page_size * 16 - 0x10;
     thread.regs.rdi = switch (@typeInfo(@TypeOf(context))) {
         .Pointer => @intFromPtr(context),
         else => @as(u64, context),
     };
-    thread.regs.rflags = 0x202;
-    thread.regs.cs = 0x28;
-    thread.regs.ss = 0x30;
+    thread.regs.iret.rflags = 0x202;
+    thread.regs.iret.cs = 0x28;
+    thread.regs.iret.ss = 0x30;
     thread.regs.ds = 0x30;
     thread.regs.es = 0x30;
 
