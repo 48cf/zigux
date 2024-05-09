@@ -291,7 +291,7 @@ fn checkSlot(bus: u8, slot: u8) !void {
     }
 }
 
-pub fn scanHostBus(segment: u8, bus: u8) !void {
+pub fn scanBus(segment: u8, bus: u8) !void {
     _ = segment;
 
     for (0..32) |i| {

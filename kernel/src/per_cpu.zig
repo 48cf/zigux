@@ -33,7 +33,7 @@ pub fn initBsp() void {
     };
 
     arch.Msr.gs_base.write(@intFromPtr(&bsp_percpu));
-    arch.Msr.gs_kernel_base.write(@intFromPtr(&bsp_percpu));
+    arch.Msr.gs_kernel_base.write(0);
 }
 
 pub fn initFeatures() void {

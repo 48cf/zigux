@@ -5,9 +5,9 @@ const std = @import("std");
 
 const arch = @import("../arch.zig");
 const apic = @import("../apic.zig");
-const acpi = @import("../acpi.zig");
 const interrupts = @import("../interrupts.zig");
 const scheduler = @import("../scheduler.zig");
+const uacpi = @import("../uacpi.zig");
 const input = @import("./input.zig");
 
 var keyboard_buffer: std.BoundedArray(u8, 8) = .{};
@@ -199,16 +199,16 @@ fn keyboardHandler(context: u64) void {
 
 fn resourceIterationCallback(
     context: ?*anyopaque,
-    resource: ?*acpi.C.uacpi_resource,
-) callconv(.C) acpi.C.uacpi_resource_iteration_decision {
+    resource: ?*uacpi.uacpi_resource,
+) callconv(.C) uacpi.uacpi_resource_iteration_decision {
     const ps2_ctx: *Ps2KeyboardContext = @ptrCast(@alignCast(context.?));
     switch (resource.?.type) {
-        acpi.C.UACPI_RESOURCE_TYPE_IRQ => {
+        uacpi.UACPI_RESOURCE_TYPE_IRQ => {
             const irq_resource = &resource.?.unnamed_0.irq;
             std.debug.assert(irq_resource.num_irqs == 1);
             ps2_ctx.irq = irq_resource.irqs()[0];
         },
-        acpi.C.UACPI_RESOURCE_TYPE_IO => if (!ps2_ctx.has_data_port) {
+        uacpi.UACPI_RESOURCE_TYPE_IO => if (!ps2_ctx.has_data_port) {
             // Assume first IO resource is the data port
             ps2_ctx.data_port = resource.?.unnamed_0.io.minimum;
             ps2_ctx.has_data_port = true;
@@ -217,43 +217,40 @@ fn resourceIterationCallback(
         },
         else => {},
     }
-    return acpi.C.UACPI_RESOURCE_ITERATION_CONTINUE;
+    return uacpi.UACPI_RESOURCE_ITERATION_CONTINUE;
 }
 
-pub fn init(acpi_node: ?*acpi.C.uacpi_namespace_node) !void {
-    const path = acpi.C.uacpi_namespace_node_generate_absolute_path(acpi_node);
-    logger.info("Found PS/2 keyboard controller at {s}", .{path});
+pub fn init(acpi_node: ?*uacpi.uacpi_namespace_node) !void {
+    const path = uacpi.uacpi_namespace_node_generate_absolute_path(acpi_node);
+    logger.info("Found PS/2 keyboard at {s}", .{path});
 
     const context = try root.allocator.create(Ps2KeyboardContext);
     context.* = .{ .path = path };
 
-    var status: acpi.C.uacpi_status = undefined;
-    var resources: ?*acpi.C.uacpi_resources = null;
-    defer acpi.C.uacpi_free_resources(resources);
+    var status: uacpi.uacpi_status = undefined;
+    var resources: ?*uacpi.uacpi_resources = null;
+    defer uacpi.uacpi_free_resources(resources);
 
-    status = acpi.C.uacpi_get_current_resources(acpi_node, &resources);
-    if (status != acpi.C.UACPI_STATUS_OK) {
+    status = uacpi.uacpi_get_current_resources(acpi_node, &resources);
+    if (status != uacpi.UACPI_STATUS_OK) {
         logger.err(
-            "Failed to get resources for PS/2 keyboard controller {s}: {s}",
-            .{ path, acpi.C.uacpi_status_to_string(status) },
+            "Failed to get resources for PS/2 keyboard {s}: {s}",
+            .{ path, uacpi.uacpi_status_to_string(status) },
         );
         return;
     }
 
-    status = acpi.C.uacpi_for_each_resource(resources, resourceIterationCallback, context);
-    if (status != acpi.C.UACPI_STATUS_OK) {
+    status = uacpi.uacpi_for_each_resource(resources, resourceIterationCallback, context);
+    if (status != uacpi.UACPI_STATUS_OK) {
         logger.err(
-            "Failed to iterate resources for PS/2 keyboard controller {s}: {s}",
-            .{ path, acpi.C.uacpi_status_to_string(status) },
+            "Failed to iterate resources for PS/2 keyboard {s}: {s}",
+            .{ path, uacpi.uacpi_status_to_string(status) },
         );
         return;
     }
 
-    logger.debug("PS/2 keyboard controller IRQ: {d}", .{context.irq});
-    logger.debug(
-        "PS/2 keyboard controller data port: 0x{X}, command port: 0x{X}",
-        .{ context.data_port, context.command_port },
-    );
+    logger.debug("PS/2 keyboard IRQ: {d}", .{context.irq});
+    logger.debug("PS/2 keyboard data port: 0x{X}, command port: 0x{X}", .{ context.data_port, context.command_port });
 
     const keyboard_vector = interrupts.allocateVector();
     interrupts.registerHandlerWithContext(keyboard_vector, keyboardHandler, @intFromPtr(context));
@@ -264,5 +261,5 @@ pub fn init(acpi_node: ?*acpi.C.uacpi_namespace_node) !void {
         _ = arch.in(u8, context.data_port);
     }
 
-    logger.info("PS/2 keyboard controller initialized", .{});
+    logger.info("PS/2 keyboard initialized", .{});
 }
