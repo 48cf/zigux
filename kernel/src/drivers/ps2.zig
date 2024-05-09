@@ -254,7 +254,7 @@ pub fn init(acpi_node: ?*uacpi.uacpi_namespace_node) !void {
 
     const keyboard_vector = interrupts.allocateVector();
     interrupts.registerHandlerWithContext(keyboard_vector, keyboardHandler, @intFromPtr(context));
-    apic.routeIrq(context.irq, 0, keyboard_vector);
+    std.debug.assert(apic.routeISAIRQ(context.irq, 0, keyboard_vector, false));
 
     // Flush the keyboard buffer
     while (arch.in(u8, context.command_port) & (1 << 0) != 0) {

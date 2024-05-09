@@ -247,11 +247,8 @@ fn checkFunction(device: Device) anyerror!void {
         .{ vendor_id, device_id, device.bus, device.slot, device.function },
     );
 
-    inline for (@typeInfo(@TypeOf(drivers.pci_drivers)).Struct.fields) |field| {
-        const driver = @field(drivers.pci_drivers, field.name);
-        const discovery = @as(drivers.PciDriverDiscovery, driver.discovery);
-
-        switch (discovery) {
+    inline for (drivers.pci_drivers) |driver| {
+        switch (@as(drivers.PciDriverDiscovery, driver.discovery)) {
             .all => try driver.handler(device),
             .id => |id| {
                 if (vendor_id == id.vendor and device_id == id.device) {

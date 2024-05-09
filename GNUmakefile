@@ -1,4 +1,4 @@
-override QEMUFLAGS += -M q35,smm=off -m 2G -debugcon stdio -smp 1 \
+override QEMUFLAGS += -M q35 -m 2G -debugcon stdio -smp 1 \
 	-device qemu-xhci,id=xhci \
 	-device usb-kbd,bus=xhci.0,port=1,pcap=keyboard.pcap \
 	-device usb-mouse,bus=xhci.0,port=2,pcap=mouse.pcap \

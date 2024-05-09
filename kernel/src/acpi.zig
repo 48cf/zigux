@@ -49,11 +49,11 @@ pub fn init(rsdp_res: *limine.RsdpResponse) !void {
         switch (entry.type) {
             uacpi.ACPI_MADT_ENTRY_TYPE_IOAPIC => {
                 const ioapic: *const uacpi.acpi_madt_ioapic = @ptrCast(entry);
-                apic.handleIoApic(ioapic.id, ioapic.address, ioapic.gsi_base);
+                apic.handleIOAPIC(ioapic.address, ioapic.gsi_base);
             },
             uacpi.ACPI_MADT_ENTRY_TYPE_INTERRUPT_SOURCE_OVERRIDE => {
                 const iso: *const uacpi.acpi_madt_interrupt_source_override = @ptrCast(entry);
-                apic.handleIoApicIso(iso.bus, iso.source, iso.gsi, iso.flags);
+                apic.handleIOAPICISO(iso.bus, iso.source, iso.gsi, iso.flags);
             },
             else => logger.warn("Unhandled MADT entry {d} of length {d}", .{ entry.type, entry.length }),
         }

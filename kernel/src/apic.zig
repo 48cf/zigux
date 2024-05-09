@@ -2,175 +2,160 @@ const logger = std.log.scoped(.apic);
 
 const std = @import("std");
 
-const interrupts = @import("interrupts.zig");
-const per_cpu = @import("per_cpu.zig");
-const scheduler = @import("scheduler.zig");
-const virt = @import("virt.zig");
+const interrupts = @import("./interrupts.zig");
+const per_cpu = @import("./per_cpu.zig");
+const scheduler = @import("./scheduler.zig");
+const uacpi = @import("./uacpi.zig");
+const virt = @import("./virt.zig");
 
-const ApicRegister = enum(usize) {
-    CpuId = 0x20,
-    Eoi = 0xB0,
-    SpuriousVector = 0xF0,
-    Icr0 = 0x300,
-    Icr1 = 0x310,
-    LvtInitialCount = 0x380,
-    LvtCurrentCount = 0x390,
-    LvtTimer = 0x320,
-    LvtDivide = 0x3E0,
+const APICRegister = enum(usize) {
+    lapic_id = 0x20,
+    eoi = 0xB0,
+    spurious_vector = 0xF0,
+    icr0 = 0x300,
+    icr1 = 0x310,
+    lvt_timer = 0x320,
+    timer_initial_count = 0x380,
+    timer_current_count = 0x390,
+    timer_divide = 0x3E0,
 };
 
-const IoApic = struct {
-    address: u32,
+fn getLAPICRegister(reg: APICRegister) *volatile u32 {
+    return @as(*volatile u32, @ptrFromInt(per_cpu.get().lapic_base + @intFromEnum(reg)));
+}
+
+const IOAPIC = struct {
+    ioregsel: *volatile u32,
+    iowin: *volatile u32,
+
     base_gsi: u32,
+    gsi_count: u32,
 
-    fn read(self: *const IoApic, offset: u32) u32 {
-        virt.asHigherHalf(*volatile u32, self.address + 0x00).* = offset;
-        return virt.asHigherHalf(*volatile u32, self.address + 0x10).*;
+    fn read(self: *const @This(), offset: u32) u32 {
+        self.ioregsel.* = offset;
+        return self.iowin.*;
     }
 
-    fn write(self: *const IoApic, offset: u32, value: u32) void {
-        virt.asHigherHalf(*volatile u32, self.address + 0x00).* = offset;
-        virt.asHigherHalf(*volatile u32, self.address + 0x10).* = value;
+    fn write(self: *const @This(), offset: u32, value: u32) void {
+        self.ioregsel.* = offset;
+        self.iowin.* = value;
     }
 
-    fn gsi_count(self: *const IoApic) u32 {
-        return (self.read(1) >> 16) & 0xFF;
-    }
+    const RouteFlags = struct {
+        delivery_mode: enum { fixed, lowest_priority, smi, nmi, init, ext_int },
+        pin_polarity: enum { high, low },
+        trigger_mode: enum { edge, level },
+        masked: bool,
+    };
 
-    fn route(self: *const IoApic, gsi: u32, lapic_id: u32, vector: u8, flags: u16) void {
-        const value = @as(u64, @intCast(vector)) | @as(u64, @intCast(flags & 0b1010)) << 12 | @as(u64, @intCast(lapic_id));
+    fn route(self: *const @This(), gsi: u32, lapic_id: u32, vector: u8, flags: RouteFlags) void {
+        const delivery_mode: u3 = switch (flags.delivery_mode) {
+            .fixed => 0b000,
+            .lowest_priority => 0b001,
+            .smi => 0b010,
+            .nmi => 0b100,
+            .init => 0b101,
+            .ext_int => 0b111,
+        };
+
         const offset = 0x10 + (gsi - self.base_gsi) * 2;
+        const entry: u64 = vector |
+            @as(u64, delivery_mode) << 8 |
+            @as(u64, @intFromBool(flags.pin_polarity == .low)) << 13 |
+            @as(u64, @intFromBool(flags.trigger_mode == .level)) << 15 |
+            @as(u64, @intFromBool(flags.masked)) << 16 |
+            @as(u64, @intCast(lapic_id)) << 56;
 
-        self.write(offset + 0, @as(u32, @truncate(value)));
-        self.write(offset + 1, @as(u32, @truncate(value >> 32)));
+        self.write(offset, @truncate(entry));
+        self.write(offset + 1, @intCast(entry >> 32));
     }
 };
 
-const SourceOverride = struct {
-    ioapic_id: u8,
-    gsi: u32,
+const InterruptSourceOverride = struct {
+    bus: u8,
+    gsi: u8,
     flags: u16,
 };
 
-var timer_vector: ?u8 = null;
-var one_shot_vector: ?u8 = null;
-var io_apics = [1]?IoApic{null} ** 16;
-var source_overrides = [1]?SourceOverride{null} ** 256;
+var ioapics: std.BoundedArray(IOAPIC, 16) = .{};
+var isos = [1]?InterruptSourceOverride{null} ** 16;
 
 fn timerHandler(frame: *interrupts.InterruptFrame) void {
     scheduler.reschedule(frame);
-
-    eoi();
-}
-
-// TODO: Implement one shot timers for scheduling
-fn oneShotHandler(frame: *interrupts.InterruptFrame) void {
-    _ = frame;
-
     eoi();
 }
 
 pub fn init() void {
-    writeRegister(.SpuriousVector, @as(u32, interrupts.spurious_vector) | 0x100);
-}
+    const timer_vector = interrupts.allocateVector();
+    interrupts.registerHandler(timer_vector, timerHandler);
 
-pub fn initTimer() void {
-    if (timer_vector == null) {
-        timer_vector = interrupts.allocateVector();
-        one_shot_vector = interrupts.allocateVector();
-    }
-
-    interrupts.registerHandler(timer_vector.?, timerHandler);
-    interrupts.registerHandler(one_shot_vector.?, oneShotHandler);
-
-    // ░░░░░▄▄▄▄▀▀▀▀▀▀▀▀▄▄▄▄▄▄░░░░░░░░
-    // ░░░░░█░░░░▒▒▒▒▒▒▒▒▒▒▒▒░░▀▀▄░░░░
-    // ░░░░█░░░▒▒▒▒▒▒░░░░░░░░▒▒▒░░█░░░
-    // ░░░█░░░░░░▄██▀▄▄░░░░░▄▄▄░░░░█░░
-    // ░▄▀▒▄▄▄▒░█▀▀▀▀▄▄█░░░██▄▄█░░░░█░
-    // █░▒█▒▄░▀▄▄▄▀░░░░░░░░█░░░▒▒▒▒▒░█
-    // █░▒█░█▀▄▄░░░░░█▀░░░░▀▄░░▄▀▀▀▄▒█
-    // ░█░▀▄░█▄░█▀▄▄░▀░▀▀░▄▄▀░░░░█░░█░
-    // ░░█░░░▀▄▀█▄▄░█▀▀▀▄▄▄▄▀▀█▀██░█░░
-    // ░░░█░░░░██░░▀█▄▄▄█▄▄█▄████░█░░░
-    // ░░░░█░░░░▀▀▄░█░░░█░█▀██████░█░░
-    // ░░░░░▀▄░░░░░▀▀▄▄▄█▄█▄█▄█▄▀░░█░░
-    // ░░░░░░░▀▄▄░▒▒▒▒░░░░░░░░░░▒░░░█░
-    // ░░░░░░░░░░▀▀▄▄░▒▒▒▒▒▒▒▒▒▒░░░░█░
-    // ░░░░░░░░░░░░░░▀▄▄▄▄▄░░░░░░░░█░░
-    // ░░░░░░░░░░░░░░░░░░░░▀▀▀▀▀▀▀▀░░░
-
-    writeRegister(.LvtDivide, 3);
-    writeRegister(.LvtTimer, @as(u32, timer_vector.?) | 0x20000);
-    writeRegister(.LvtInitialCount, 0x5000);
+    getLAPICRegister(.spurious_vector).* = @as(u32, timer_vector) | 0x100;
+    getLAPICRegister(.lvt_timer).* = @as(u32, timer_vector) | (1 << 17); // Periodic mode
+    getLAPICRegister(.timer_divide).* = 3;
+    getLAPICRegister(.timer_initial_count).* = 0x10000;
 }
 
 pub fn eoi() void {
-    writeRegister(.Eoi, 0);
+    getLAPICRegister(.eoi).* = 0;
 }
 
-pub fn localApicId() u32 {
-    return readRegister(.CpuId);
+pub fn getLapicID() u32 {
+    return getLAPICRegister(.lapic_id).* >> 24;
 }
 
-pub fn routeIrq(irq: u8, lapic_id: u32, vector: u8) void {
-    const gsi = mapIrqToGsi(irq);
-    const ioapic_id = mapGsiToIoApic(gsi.gsi);
-    const ioapic = &io_apics[ioapic_id].?;
-
-    ioapic.route(gsi.gsi, lapic_id, vector, gsi.flags);
-}
-
-pub fn handleIoApic(id: u8, address: u32, base_gsi: u32) void {
-    std.debug.assert(io_apics[id] == null);
-
-    io_apics[id] = .{
-        .address = address,
-        .base_gsi = base_gsi,
+pub fn routeISAIRQ(irq: u8, lapic_id: u32, vector: u8, masked: bool) bool {
+    var gsi = irq;
+    var route_flags: IOAPIC.RouteFlags = .{
+        .delivery_mode = .fixed,
+        .pin_polarity = .high,
+        .trigger_mode = .edge,
+        .masked = masked,
     };
-}
 
-pub fn handleIoApicIso(ioapic_id: u8, irq_source: u8, gsi: u32, flags: u16) void {
-    std.debug.assert(source_overrides[irq_source] == null);
-
-    source_overrides[irq_source] = .{
-        .ioapic_id = ioapic_id,
-        .gsi = gsi,
-        .flags = flags,
-    };
-}
-
-fn mapGsiToIoApic(gsi: u32) u8 {
-    for (io_apics, 0..) |io_apic, i| {
-        if (io_apic) |ioa| {
-            const gsi_count = ioa.gsi_count();
-
-            if (gsi >= ioa.base_gsi and gsi < ioa.base_gsi + gsi_count)
-                return @as(u8, @intCast(i));
+    if (isos[irq]) |iso| {
+        gsi = @intCast(iso.gsi);
+        switch (iso.flags & uacpi.ACPI_MADT_POLARITY_MASK) {
+            uacpi.ACPI_MADT_POLARITY_ACTIVE_LOW => route_flags.pin_polarity = .low,
+            uacpi.ACPI_MADT_POLARITY_ACTIVE_HIGH => route_flags.pin_polarity = .high,
+            else => {},
+        }
+        switch (iso.flags & uacpi.ACPI_MADT_TRIGGERING_MASK) {
+            uacpi.ACPI_MADT_TRIGGERING_EDGE => route_flags.trigger_mode = .edge,
+            uacpi.ACPI_MADT_TRIGGERING_LEVEL => route_flags.trigger_mode = .level,
+            else => {},
         }
     }
 
-    std.debug.panic("Could not find an IOAPIC for GSI {}", .{gsi});
+    var responsible_ioapic: ?*const IOAPIC = null;
+    for (ioapics.constSlice()) |*it| {
+        if (it.base_gsi >= irq and irq < it.base_gsi + it.gsi_count) {
+            responsible_ioapic = it;
+            break;
+        }
+    }
+
+    if (responsible_ioapic) |ioapic| {
+        ioapic.route(gsi, lapic_id, vector, route_flags);
+        return true;
+    }
+
+    logger.warn("Failed to route ISA IRQ {d}, could not find responsible IOAPIC", .{irq});
+    return false;
 }
 
-fn mapIrqToGsi(irq: u8) SourceOverride {
-    return source_overrides[irq] orelse .{
-        .ioapic_id = mapGsiToIoApic(irq),
-        .gsi = @as(u32, irq),
-        .flags = 0,
+pub fn handleIOAPIC(address: u32, base_gsi: u32) void {
+    var ioapic: IOAPIC = .{
+        .ioregsel = @ptrFromInt(address),
+        .iowin = @ptrFromInt(address + 0x10),
+        .base_gsi = base_gsi,
+        .gsi_count = undefined,
     };
+
+    ioapic.base_gsi = (ioapic.read(0x1) >> 16) & 0xFF;
+    ioapics.append(ioapic) catch @panic("Exceeded maximum number of IOAPICs");
 }
 
-fn readRegister(reg: ApicRegister) u32 {
-    const address = per_cpu.get().lapic_base + @intFromEnum(reg);
-    const pointer = @as(*align(4) volatile u32, @ptrFromInt(address));
-
-    return pointer.*;
-}
-
-fn writeRegister(reg: ApicRegister, value: u32) void {
-    const address = per_cpu.get().lapic_base + @intFromEnum(reg);
-    const pointer = @as(*align(4) volatile u32, @ptrFromInt(address));
-
-    pointer.* = value;
+pub fn handleIOAPICISO(bus: u8, irq: u8, gsi: u32, flags: u16) void {
+    std.debug.assert(isos[irq] == null);
+    isos[irq] = .{ .bus = bus, .gsi = @intCast(gsi), .flags = flags };
 }

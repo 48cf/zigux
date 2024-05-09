@@ -150,6 +150,7 @@ fn flantermFree(addr: ?*anyopaque, size: usize) callconv(.C) void {
 
 fn main() !void {
     asm volatile ("cli");
+    defer asm volatile ("sti");
 
     const boot_info_res = boot_info_req.response.?;
     const hhdm_res = hhdm_req.response.?;
@@ -176,15 +177,12 @@ fn main() !void {
         null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
 
     try per_cpu.init();
+
+    apic.init();
+
     try vfs.init(modules_res);
     try acpi.init(rsdp_res);
     try scheduler.init();
-
-    apic.init();
-    apic.initTimer();
-
-    asm volatile ("sti");
-
     _ = try scheduler.startKernelThread(mainThread, 0);
 }
 
