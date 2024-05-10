@@ -20,23 +20,13 @@ const per_cpu = @import("./per_cpu.zig");
 const phys = @import("./phys.zig");
 const scheduler = @import("./scheduler.zig");
 const time = @import("./time.zig");
+const utils = @import("./utils.zig");
 const vfs = @import("./vfs.zig");
 const virt = @import("./virt.zig");
 
 const PageAllocator = struct {
-    bump: std.atomic.Value(u64) = .{ .raw = 0xFFFF_A000_0000_0000 },
-
-    pub fn allocate(self: *@This(), pages: usize) ?u64 {
-        const base = self.bump.fetchAdd((pages + 1) * std.mem.page_size, .acq_rel);
-        for (0..pages) |i| {
-            const page = phys.allocate(1, true) orelse return null;
-            virt.kernel_address_space.page_table.mapPage(
-                base + (i + 1) * std.mem.page_size,
-                page,
-                virt.PTEFlags.present | virt.PTEFlags.writable,
-            ) catch return null;
-        }
-        return base + std.mem.page_size;
+    pub fn allocate(_: *@This(), pages: usize) ?u64 {
+        return heap_paged_arena.allocate(pages * std.mem.page_size);
     }
 
     fn alloc(ctx: *anyopaque, len: usize, _: u8, _: usize) ?[*]u8 {
@@ -73,6 +63,9 @@ pub const os = struct {
 };
 
 pub const std_options: std.Options = .{ .logFn = log };
+
+var heap_va_arena: virt.Arena = .{};
+var heap_paged_arena: virt.Arena = .{};
 
 pub var page_heap_allocator: PageAllocator = .{};
 pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = lock.Spinlock }){};
@@ -118,6 +111,33 @@ fn mainThread(_: u8) !void {
     }
 }
 
+fn pagedAlloc(source: *virt.Arena, size: usize) ?u64 {
+    const page_table = virt.kernel_address_space.page_table;
+    const pages = @divExact(size, std.mem.page_size);
+    const address = source.allocate((pages + 1) * std.mem.page_size) orelse return null;
+    for (0..pages) |i| {
+        const page = phys.allocate(1, true) orelse return null;
+        page_table.mapPage(
+            address + (i + 1) * std.mem.page_size,
+            page,
+            virt.PTEFlags.present | virt.PTEFlags.writable,
+        ) catch return null;
+    }
+    return address + std.mem.page_size;
+}
+
+fn pagedFree(source: *virt.Arena, address: u64, size: usize) void {
+    const page_table = virt.kernel_address_space.page_table;
+    const pages = std.math.divCeil(usize, size, std.mem.page_size) catch unreachable;
+    for (0..pages) |i| {
+        const addr = address + (i + 1) * std.mem.page_size;
+        const phys_addr = page_table.translate(addr) orelse unreachable;
+        page_table.unmapPage(addr) catch unreachable;
+        phys.free(phys_addr, 1);
+    }
+    source.free(address, size);
+}
+
 fn flantermAlloc(size: usize) callconv(.C) ?*anyopaque {
     const result = allocator.alignedAlloc(u8, 8, size) catch return null;
     return result.ptr;
@@ -132,6 +152,14 @@ fn flantermFree(addr: ?*anyopaque, size: usize) callconv(.C) void {
 fn main() !void {
     asm volatile ("cli");
     defer asm volatile ("sti");
+
+    per_cpu.initBsp();
+    per_cpu.initFeatures();
+
+    virt.bootstrapArena();
+
+    heap_va_arena = virt.Arena.init("heap-va", 0xFFFF_A000_0000_0000, utils.tib(16));
+    heap_paged_arena = virt.Arena.initWithSource("heap-paged", &heap_va_arena, pagedAlloc, pagedFree);
 
     const boot_info_res = boot_info_req.response.?;
     const hhdm_res = hhdm_req.response.?;
@@ -149,9 +177,6 @@ fn main() !void {
     if (boot_time_req.response) |res| {
         time.init(res);
     }
-
-    per_cpu.initBsp();
-    per_cpu.initFeatures();
 
     std.debug.assert(hhdm_res.offset == virt.asHigherHalf(u64, 0));
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });

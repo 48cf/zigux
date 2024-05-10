@@ -170,6 +170,276 @@ pub const PageFaultReason = struct {
     pub const instruction_fetch = 1 << 4;
 };
 
+var segment_lock: lock.Spinlock = .{};
+var free_segments: Arena.SegList = .{};
+var free_segment_count: usize = 0;
+
+fn allocateSegment() *Arena.Segment {
+    segment_lock.lock();
+    defer segment_lock.unlock();
+    const result = free_segments.popFirst().?;
+    free_segment_count -= 1;
+    return @fieldParentPtr("list_node", result);
+}
+
+fn freeSegment(segment: *Arena.Segment) void {
+    segment_lock.lock();
+    defer segment_lock.unlock();
+    free_segments.prepend(&segment.list_node);
+    free_segment_count += 1;
+}
+
+fn refillSegments() void {
+    segment_lock.lock();
+    defer segment_lock.unlock();
+    const segments_phys = phys.allocate(1, false) orelse unreachable;
+    const segments = asHigherHalf(*[std.mem.page_size / @sizeOf(Arena.Segment)]Arena.Segment, segments_phys);
+    for (segments) |*seg| {
+        free_segments.prepend(&seg.list_node);
+        free_segment_count += 1;
+    }
+}
+
+pub const Arena = struct {
+    const SegmentKind = enum {
+        free,
+        allocated,
+        span,
+        imported_span,
+    };
+
+    const Segment = struct {
+        base: u64,
+        length: usize,
+        kind: SegmentKind,
+        queue_node: SegQueue.Node = .{ .data = {} },
+        list_node: SegList.Node = .{ .data = {} },
+
+        fn fit(self: *const @This(), size: usize, min_addr: u64, max_addr: u64) ?u64 {
+            std.debug.assert(self.length >= size);
+            const end = @min(self.base + self.length, max_addr);
+            const start = std.mem.alignForward(u64, @max(self.base, min_addr), std.mem.page_size);
+            if (start > end or (end - start) < size) {
+                return null;
+            }
+            return start;
+        }
+    };
+
+    const SegQueue = std.TailQueue(void);
+    const SegList = std.SinglyLinkedList(void);
+
+    const AllocFn = *const fn (*Arena, usize) ?u64;
+    const FreeFn = *const fn (*Arena, u64, usize) void;
+
+    const freelist_count = std.math.log2_int(usize, utils.tib(128));
+    const hashtable_count = 16;
+
+    name: std.BoundedArray(u8, 64) = .{},
+    // Arena we can import resources from
+    source: ?*Arena = null,
+    alloc_fn: ?AllocFn = null,
+    free_fn: ?FreeFn = null,
+    // List of all segments
+    span_list: SegList = .{},
+    segment_queue: SegQueue = .{},
+    freelists: [freelist_count]SegList = std.mem.zeroes([freelist_count]SegList),
+    hash_table: [hashtable_count]SegList = std.mem.zeroes([hashtable_count]SegList),
+
+    fn freelistIndex(size: usize) usize {
+        std.debug.assert(size >= std.mem.page_size);
+        return std.math.log2_int(usize, size) - 12;
+    }
+
+    fn hashTableForAddress(self: *@This(), address: u64) *SegList {
+        const hash = std.hash.Murmur2_64.hashUint64(address);
+        return &self.hash_table[hash % hashtable_count];
+    }
+
+    fn addSpan(self: *@This(), address: u64, size: usize, kind: SegmentKind) ?*Segment {
+        const segment_span = allocateSegment(); // orelse return null;
+        const segment_free = allocateSegment(); // orelse return null;
+        segment_span.* = .{ .base = address, .length = size, .kind = kind };
+        segment_free.* = .{ .base = address, .length = size, .kind = .free };
+        self.segment_queue.append(&segment_span.queue_node);
+        self.segment_queue.append(&segment_free.queue_node);
+        self.span_list.prepend(&segment_span.list_node);
+        self.freelists[freelistIndex(size)].prepend(&segment_free.list_node);
+        return segment_free;
+    }
+
+    fn importSpan(self: *@This(), size: usize) bool {
+        if (self.source == null) {
+            return false;
+        }
+        const source = self.source.?;
+        const address = self.alloc_fn.?(source, size) orelse return false;
+        if (self.addSpan(address, size, .imported_span) == null) {
+            self.free_fn.?(source, address, size);
+            return false;
+        }
+        return true;
+    }
+
+    pub fn init(name: []const u8, base: u64, length: usize) @This() {
+        var arena: @This() = .{};
+        arena.name.appendSlice(name) catch unreachable;
+        if (length != 0) {
+            _ = arena.addSpan(base, length, .span);
+        }
+        return arena;
+    }
+
+    pub fn initWithSource(name: []const u8, source: *@This(), alloc_fn: AllocFn, free_fn: FreeFn) @This() {
+        var arena: @This() = .{ .source = source, .alloc_fn = alloc_fn, .free_fn = free_fn };
+        arena.name.appendSlice(name) catch unreachable;
+        return arena;
+    }
+
+    pub fn allocRaw(self: *@This(), size_: usize, min_addr: u64, max_addr: u64, best_fit: bool) ?u64 {
+        var size = size_;
+        if (!std.mem.isAlignedGeneric(usize, size, std.mem.page_size)) {
+            size = std.mem.alignForward(usize, size, std.mem.page_size);
+        }
+
+        if (free_segment_count < 64) {
+            refillSegments();
+        }
+
+        const first_freelist = freelistIndex(size);
+
+        var found_seg: ?*Segment = null;
+        var seg_freelist: ?*SegList = null;
+        var address: u64 = 0;
+        blk: while (true) {
+            if (!best_fit) {
+                for (first_freelist..freelist_count) |i| {
+                    const freelist = &self.freelists[i];
+                    if (freelist.first) |node| {
+                        const segment: *Segment = @fieldParentPtr("list_node", node);
+                        if (segment.fit(size, min_addr, max_addr)) |addr| {
+                            found_seg = segment;
+                            seg_freelist = freelist;
+                            address = addr;
+                            break :blk;
+                        }
+                    }
+                }
+            } else {
+                @panic("TODO: Best fit");
+            }
+
+            if (!self.importSpan(size)) {
+                return null;
+            }
+        }
+
+        const segment = found_seg.?;
+        seg_freelist.?.remove(&segment.list_node);
+
+        if (address > segment.base) {
+            const pre_segment = allocateSegment();
+            pre_segment.* = .{ .base = segment.base, .length = address - segment.base, .kind = .free };
+            self.freelists[freelistIndex(pre_segment.length)].prepend(&pre_segment.list_node);
+            self.segment_queue.insertBefore(&segment.queue_node, &pre_segment.queue_node);
+            segment.base = address;
+            segment.length -= pre_segment.length;
+        }
+
+        if (segment.length != size) {
+            const post_segment = allocateSegment();
+            post_segment.* = .{ .base = segment.base + size, .length = segment.length - size, .kind = .free };
+            self.freelists[freelistIndex(post_segment.length)].prepend(&post_segment.list_node);
+            self.segment_queue.insertAfter(&segment.queue_node, &post_segment.queue_node);
+            segment.length = size;
+        }
+
+        segment.kind = .allocated;
+        self.hashTableForAddress(address).prepend(&segment.list_node);
+        return address;
+    }
+
+    pub fn free(self: *@This(), address: u64, size: usize) void {
+        const hash_table = self.hashTableForAddress(address);
+
+        var it = hash_table.first;
+        blk: while (it) |node| : (it = node.next) {
+            const segment: *Segment = @fieldParentPtr("list_node", it.?);
+            if (segment.base == address) {
+                std.debug.assert(segment.length == size);
+                break :blk;
+            }
+        }
+
+        const segment: *Segment = @fieldParentPtr("list_node", it.?);
+        hash_table.remove(&segment.list_node);
+        segment.kind = .free;
+
+        if (segment.queue_node.prev) |prev| {
+            const neighbor: *Segment = @fieldParentPtr("queue_node", prev);
+            if (neighbor.kind == .free) {
+                segment.length += neighbor.length;
+                self.segment_queue.remove(&neighbor.queue_node);
+                self.freelists[freelistIndex(neighbor.length)].remove(&neighbor.list_node);
+                freeSegment(neighbor);
+            }
+        }
+
+        if (segment.queue_node.next) |next| {
+            const neighbor: *Segment = @fieldParentPtr("queue_node", next);
+            if (neighbor.kind == .free) {
+                segment.base = neighbor.base;
+                segment.length += neighbor.length;
+                self.segment_queue.remove(&neighbor.queue_node);
+                self.freelists[freelistIndex(neighbor.length)].remove(&neighbor.list_node);
+                freeSegment(neighbor);
+            }
+        }
+
+        const previous: *Segment = @fieldParentPtr("queue_node", segment.queue_node.prev.?);
+        std.debug.assert(previous.kind != .free);
+
+        if (previous.kind == .imported_span and previous.length == segment.length) {
+            const base, const length = .{ segment.base, segment.length };
+            self.segment_queue.remove(&segment.queue_node);
+            self.segment_queue.remove(&previous.queue_node);
+            freeSegment(segment);
+            freeSegment(previous);
+            self.free_fn.?(self.source.?, base, length);
+        } else {
+            self.freelists[freelistIndex(segment.length)].prepend(&segment.list_node);
+        }
+    }
+
+    pub fn allocate(self: *@This(), size: usize) ?u64 {
+        return self.allocRaw(size, 0, std.math.maxInt(u64), false);
+    }
+
+    pub fn dump(self: *const @This()) void {
+        logger.debug("Arena \"{s}\" segments:", .{self.name.constSlice()});
+
+        var seg_it = self.segment_queue.first;
+        while (seg_it) |it| : (seg_it = it.next) {
+            const segment: *Segment = @fieldParentPtr("queue_node", it);
+            logger.debug("  base: 0x{X}, length: 0x{X}, type: {s}", .{ segment.base, segment.length, @tagName(segment.kind) });
+        }
+
+        logger.debug("Arena \"{s}\" hash table:", .{self.name.constSlice()});
+
+        for (self.hash_table) |ht| {
+            var node_it = ht.first;
+            while (node_it) |it| : (node_it = it.next) {
+                const segment: *Segment = @fieldParentPtr("list_node", it);
+                const hash = std.hash.Murmur2_64.hashUint64(segment.base);
+                logger.debug(
+                    "  [0x{X}] base: 0x{X}, length: 0x{X}, type: {s}",
+                    .{ hash, segment.base, segment.length, @tagName(segment.kind) },
+                );
+            }
+        }
+    }
+};
+
 pub const Mapping = struct {
     node: std.TailQueue(void).Node = .{ .data = {} },
     base: u64,
@@ -426,6 +696,15 @@ fn map_section(
     const end_addr = std.mem.alignForward(usize, @intFromPtr(end), std.mem.page_size);
 
     try page_table.map(start_addr, start_addr - kernel_addr_res.virtual_base + kernel_addr_res.physical_base, end_addr - start_addr, flags);
+}
+
+var bootstrap_segments: [128]Arena.Segment = undefined;
+
+pub fn bootstrapArena() void {
+    for (&bootstrap_segments) |*seg| {
+        free_segments.prepend(&seg.list_node);
+        free_segment_count += 1;
+    }
 }
 
 pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
