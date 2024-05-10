@@ -28,45 +28,28 @@ const PageAllocator = struct {
 
     pub fn allocate(self: *@This(), pages: usize) ?u64 {
         const base = self.bump.fetchAdd((pages + 1) * std.mem.page_size, .acq_rel);
-
         for (0..pages) |i| {
             const page = phys.allocate(1, true) orelse return null;
             virt.kernel_address_space.page_table.mapPage(
                 base + (i + 1) * std.mem.page_size,
                 page,
-                virt.Flags.Present | virt.Flags.Writable,
+                virt.PTEFlags.present | virt.PTEFlags.writable,
             ) catch return null;
         }
-
         return base + std.mem.page_size;
     }
 
-    fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
-        _ = ptr_align;
-        _ = ret_addr;
-
+    fn alloc(ctx: *anyopaque, len: usize, _: u8, _: usize) ?[*]u8 {
         const self = @as(*PageAllocator, @ptrCast(@alignCast(ctx)));
         const pages = std.math.divCeil(usize, len, std.mem.page_size) catch unreachable;
-
         return @ptrFromInt(self.allocate(pages) orelse return null);
     }
 
-    fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
-        _ = ctx;
-        _ = buf;
-        _ = buf_align;
-        _ = new_len;
-        _ = ret_addr;
-
+    fn resize(_: *anyopaque, _: []u8, _: u8, _: usize, _: usize) bool {
         return false;
     }
 
-    fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
-        _ = ctx;
-        _ = buf;
-        _ = buf_align;
-        _ = ret_addr;
-    }
+    fn free(_: *anyopaque, _: []u8, _: u8, _: usize) void {}
 };
 
 var flanterm_ctx: ?*C.flanterm_context = null;

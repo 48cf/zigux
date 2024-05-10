@@ -19,14 +19,14 @@ const flags_mask: u64 = 0xFFF0_0000_0000_0FFF;
 const hhdm: u64 = 0xFFFF_8000_0000_0000;
 const hhdm_uc: u64 = 0xFFFF_9000_0000_0000;
 
-pub const Flags = struct {
-    pub const None = 0;
-    pub const Present = 1 << 0;
-    pub const Writable = 1 << 1;
-    pub const User = 1 << 2;
-    pub const WriteThrough = 1 << 3;
-    pub const NoCache = 1 << 4;
-    pub const NoExecute = 1 << 63;
+pub const PTEFlags = struct {
+    pub const none = 0;
+    pub const present = 1 << 0;
+    pub const writable = 1 << 1;
+    pub const user = 1 << 2;
+    pub const write_through = 1 << 3;
+    pub const no_cache = 1 << 4;
+    pub const no_execute = 1 << 63;
 };
 
 fn switchPageTable(cr3: u64) void {
@@ -37,184 +37,117 @@ fn switchPageTable(cr3: u64) void {
     );
 }
 
-fn getPageTable(page_table: *PageTable, index: usize, allocate: bool) ?*PageTable {
-    var entry = &page_table.entries[index];
-
-    if (entry.getFlags() & Flags.Present != 0) {
+fn getPageTable(pt: *PageTable, index: u9, allocate: bool) ?*PageTable {
+    var entry = &pt.entries[index];
+    if ((entry.getFlags() & PTEFlags.present) != 0) {
         return asHigherHalf(*PageTable, entry.getAddress());
-    } else if (allocate) {
-        const new_page_table = phys.allocate(1, true) orelse return null;
-
-        entry.setAddress(new_page_table);
-        entry.setFlags(Flags.Present | Flags.Writable | Flags.User);
-
-        return asHigherHalf(*PageTable, new_page_table);
     }
-
+    if (allocate) {
+        const new_pt_phys = phys.allocate(1, true) orelse return null;
+        entry.setAddress(new_pt_phys);
+        entry.setFlags(PTEFlags.present | PTEFlags.writable | PTEFlags.user);
+        return asHigherHalf(*PageTable, new_pt_phys);
+    }
     return null;
 }
 
-fn virtToIndices(virt: u64) struct { pml4: usize, pml3: usize, pml2: usize, pml1: usize } {
-    const pml4 = @as(usize, virt >> 39) & 0x1FF;
-    const pml3 = @as(usize, virt >> 30) & 0x1FF;
-    const pml2 = @as(usize, virt >> 21) & 0x1FF;
-    const pml1 = @as(usize, virt >> 12) & 0x1FF;
-
+fn addressToIndices(address: u64) [4]u9 {
     return .{
-        .pml4 = pml4,
-        .pml3 = pml3,
-        .pml2 = pml2,
-        .pml1 = pml1,
+        @truncate(address >> 39), // PML4 index
+        @truncate(address >> 30), // PML3 index
+        @truncate(address >> 21), // PML2 index
+        @truncate(address >> 12), // PML1 index
     };
 }
 
-inline fn protToFlags(prot: u64, user: bool) u64 {
-    var flags: u64 = Flags.Present;
-
-    if (user)
-        flags |= Flags.User;
-
-    if (prot & abi.PROT_WRITE != 0)
-        flags |= Flags.Writable;
-
-    if (prot & abi.PROT_EXEC == 0)
-        flags |= Flags.NoExecute;
-
-    return flags;
+inline fn protToPTEFlags(prot: u64, user: bool) u64 {
+    return PTEFlags.present |
+        if (user) PTEFlags.user else 0 |
+        if ((prot & abi.PROT_WRITE) != 0) PTEFlags.write else 0 |
+        if ((prot & abi.PROT_EXEC) == 0) PTEFlags.no_execute else 0;
 }
 
-const PageTableEntry = extern struct {
+const PTE = extern struct {
     value: u64,
 
-    pub fn getAddress(self: *const PageTableEntry) u64 {
+    pub fn getAddress(self: *const PTE) u64 {
         return self.value & ~flags_mask;
     }
 
-    pub fn getFlags(self: *const PageTableEntry) u64 {
+    pub fn getFlags(self: *const PTE) u64 {
         return self.value & flags_mask;
     }
 
-    pub fn setAddress(self: *PageTableEntry, address: u64) void {
+    pub fn setAddress(self: *PTE, address: u64) void {
         self.value = address | self.getFlags();
     }
 
-    pub fn setFlags(self: *PageTableEntry, flags: u64) void {
+    pub fn setFlags(self: *PTE, flags: u64) void {
         self.value = self.getAddress() | flags;
     }
 };
 
 const PageTable = extern struct {
-    entries: [512]PageTableEntry,
+    entries: [512]PTE,
 
-    pub fn translate(self: *PageTable, virt_addr: u64) ?u64 {
-        const indices = virtToIndices(virt_addr);
-        const pml3 = getPageTable(self, indices.pml4, false) orelse return null;
-        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return null;
-        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return null;
-        const entry = &pml1.entries[indices.pml1];
-
-        if (entry.getFlags() & Flags.Present != 0) {
+    pub fn translate(self: *PageTable, address: u64) ?u64 {
+        const pml4i, const pml3i, const pml2i, const pml1i = addressToIndices(address);
+        const pml3 = getPageTable(self, pml4i, false) orelse return null;
+        const pml2 = getPageTable(pml3, pml3i, false) orelse return null;
+        const pml1 = getPageTable(pml2, pml2i, false) orelse return null;
+        const entry = &pml1.entries[pml1i];
+        if ((entry.getFlags() & PTEFlags.present) != 0) {
             return entry.getAddress();
-        } else {
-            return null;
         }
+        return null;
     }
 
-    pub fn mapPage(self: *PageTable, virt_addr: u64, phys_addr: u64, flags: u64) !void {
-        const indices = virtToIndices(virt_addr);
-        const pml3 = getPageTable(self, indices.pml4, true) orelse return error.OutOfMemory;
-        const pml2 = getPageTable(pml3, indices.pml3, true) orelse return error.OutOfMemory;
-        const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
-        const entry = &pml1.entries[indices.pml1];
-
-        if (entry.getFlags() & Flags.Present != 0) {
+    pub fn mapPage(self: *PageTable, address: u64, physical: u64, flags: u64) !void {
+        const pml4i, const pml3i, const pml2i, const pml1i = addressToIndices(address);
+        const pml3 = getPageTable(self, pml4i, true) orelse return error.OutOfMemory;
+        const pml2 = getPageTable(pml3, pml3i, true) orelse return error.OutOfMemory;
+        const pml1 = getPageTable(pml2, pml2i, true) orelse return error.OutOfMemory;
+        const entry = &pml1.entries[pml1i];
+        if ((entry.getFlags() & PTEFlags.present) != 0) {
             return error.AlreadyMapped;
-        } else {
-            entry.setAddress(phys_addr);
-            entry.setFlags(flags);
         }
+        entry.setAddress(physical);
+        entry.setFlags(flags);
     }
 
-    pub fn remapPage(self: *PageTable, virt_addr: u64, phys_addr: u64, flags: u64) !void {
-        const indices = virtToIndices(virt_addr);
-        const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
-        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml1 = getPageTable(pml2, indices.pml2, true) orelse return error.OutOfMemory;
-        const entry = &pml1.entries[indices.pml1];
-
-        if (entry.getFlags() & Flags.Present != 0) {
-            entry.setAddress(phys_addr);
-            entry.setFlags(flags);
-
-            asm volatile ("invlpg %[page]"
-                :
-                : [page] "rm" (virt_addr),
-            );
-        } else {
+    pub fn unmapPage(self: *PageTable, address: u64) !void {
+        const pml4i, const pml3i, const pml2i, const pml1i = addressToIndices(address);
+        const pml3 = getPageTable(self, pml4i, false) orelse return error.NotMapped;
+        const pml2 = getPageTable(pml3, pml3i, false) orelse return error.NotMapped;
+        const pml1 = getPageTable(pml2, pml2i, false) orelse return error.NotMapped;
+        const entry = &pml1.entries[pml1i];
+        if ((entry.getFlags() & PTEFlags.present) == 0) {
             return error.NotMapped;
         }
+        entry.setAddress(0);
+        entry.setFlags(PTEFlags.none);
+        asm volatile ("invlpg %[page]"
+            :
+            : [page] "rm" (address),
+        );
     }
 
-    pub fn unmapPage(self: *PageTable, virt_addr: u64) !void {
-        const indices = virtToIndices(virt_addr);
-        const pml3 = getPageTable(self, indices.pml4, false) orelse return error.OutOfMemory;
-        const pml2 = getPageTable(pml3, indices.pml3, false) orelse return error.OutOfMemory;
-        const pml1 = getPageTable(pml2, indices.pml2, false) orelse return error.OutOfMemory;
-        const entry = &pml1.entries[indices.pml1];
-
-        if (entry.getFlags() & Flags.Present != 0) {
-            entry.setAddress(0);
-            entry.setFlags(Flags.None);
-
-            asm volatile ("invlpg %[page]"
-                :
-                : [page] "rm" (virt_addr),
-            );
-        } else {
-            return error.NotMapped;
+    pub fn map(self: *PageTable, address: u64, physical: u64, size: usize, flags: u64) !void {
+        std.debug.assert(std.mem.isAlignedGeneric(u64, address, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, physical, std.mem.page_size));
+        std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
+        var i: usize = 0;
+        while (i < size) : (i += std.mem.page_size) {
+            try self.mapPage(address + i, physical + i, flags);
         }
     }
 
-    pub fn map(self: *PageTable, virt_addr: u64, phys_addr: u64, size: usize, flags: u64) !void {
-        var i: u64 = 0;
-
-        std.debug.assert(std.mem.isAlignedGeneric(u64, virt_addr, std.mem.page_size));
-        std.debug.assert(std.mem.isAlignedGeneric(u64, phys_addr, std.mem.page_size));
+    pub fn unmap(self: *PageTable, address: u64, size: usize) !void {
+        std.debug.assert(std.mem.isAlignedGeneric(u64, address, std.mem.page_size));
         std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
-
-        while (i < size) {
-            const new_virt_addr = virt_addr + i;
-            const new_phys_addr = phys_addr + i;
-            try self.mapPage(new_virt_addr, new_phys_addr, flags);
-            i += std.mem.page_size;
-        }
-    }
-
-    pub fn remap(self: *PageTable, virt_addr: u64, phys_addr: u64, size: usize, flags: u64) !void {
-        var i: u64 = 0;
-
-        std.debug.assert(std.mem.isAlignedGeneric(u64, virt_addr, std.mem.page_size));
-        std.debug.assert(std.mem.isAlignedGeneric(u64, phys_addr, std.mem.page_size));
-        std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
-
-        while (i < size) {
-            const new_virt_addr = virt_addr + i;
-            const new_phys_addr = phys_addr + i;
-            try self.remapPage(new_virt_addr, new_phys_addr, flags);
-            i += std.mem.page_size;
-        }
-    }
-
-    pub fn unmap(self: *PageTable, virt_addr: u64, size: usize) !void {
-        var i: u64 = 0;
-
-        std.debug.assert(std.mem.isAlignedGeneric(u64, virt_addr, std.mem.page_size));
-        std.debug.assert(std.mem.isAlignedGeneric(u64, size, std.mem.page_size));
-
-        while (i < size) {
-            const new_virt_addr = virt_addr + i;
-            try self.unmapPage(new_virt_addr);
-            i += std.mem.page_size;
+        var i: usize = 0;
+        while (i < size) : (i += std.mem.page_size) {
+            try self.unmapPage(address + i);
         }
     }
 };
@@ -230,11 +163,11 @@ pub const LoadedExecutable = struct {
     },
 };
 
-pub const FaultReason = struct {
-    pub const Present = 1 << 0;
-    pub const Write = 1 << 1;
-    pub const User = 1 << 2;
-    pub const InstructionFetch = 1 << 4;
+pub const PageFaultReason = struct {
+    pub const present = 1 << 0;
+    pub const write = 1 << 1;
+    pub const user = 1 << 2;
+    pub const instruction_fetch = 1 << 4;
 };
 
 pub const Mapping = struct {
@@ -316,7 +249,7 @@ pub const AddressSpace = struct {
                     const virt_addr = std.mem.alignBackward(u64, ph.p_vaddr, std.mem.page_size) + base;
                     const mapping = try root.allocator.create(Mapping);
 
-                    try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, protToFlags(prot, true));
+                    try self.page_table.map(virt_addr, page_phys, page_count * std.mem.page_size, protToPTEFlags(prot, true));
                     _ = try file.read(page_hh[0..ph.p_filesz], ph.p_offset, 0);
 
                     mapping.* = .{
@@ -352,7 +285,7 @@ pub const AddressSpace = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        if (reason & FaultReason.Present != 0) {
+        if (reason & PageFaultReason.present != 0) {
             return false;
         }
 
@@ -364,7 +297,7 @@ pub const AddressSpace = struct {
             if (address >= mapping.base and address < mapping.base + mapping.length) {
                 const base = std.mem.alignBackward(u64, address, std.mem.page_size);
                 const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
-                const flags = protToFlags(mapping.prot, true);
+                const flags = protToPTEFlags(mapping.prot, true);
 
                 try self.page_table.mapPage(base, page_phys, flags);
 
@@ -447,7 +380,7 @@ pub const AddressSpace = struct {
                 try new_as.page_table.mapPage(
                     mapping.base + page_index * std.mem.page_size,
                     new_page,
-                    protToFlags(mapping.prot, true),
+                    protToPTEFlags(mapping.prot, true),
                 );
             }
         }
@@ -500,20 +433,18 @@ pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
     const page_table = asHigherHalf(*PageTable, page_table_phys);
 
     // Pre-populate the higher half of kernel address space
-    var i: usize = 256;
-
-    while (i < 512) : (i += 1) {
-        _ = getPageTable(page_table, i, true);
+    for (256..512) |i| {
+        _ = getPageTable(page_table, @intCast(i), true);
     }
 
     // TODO: Map all of the memory map entries too
-    try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(16) - std.mem.page_size, Flags.Present | Flags.Writable);
-    try page_table.map(hhdm, 0, utils.gib(16), Flags.Present | Flags.Writable | Flags.NoExecute);
-    try page_table.map(hhdm_uc, 0, utils.gib(16), Flags.Present | Flags.Writable | Flags.NoCache | Flags.NoExecute);
+    try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(16) - std.mem.page_size, PTEFlags.present | PTEFlags.writable);
+    try page_table.map(hhdm, 0, utils.gib(16), PTEFlags.present | PTEFlags.writable | PTEFlags.no_execute);
+    try page_table.map(hhdm_uc, 0, utils.gib(16), PTEFlags.present | PTEFlags.writable | PTEFlags.no_cache | PTEFlags.no_execute);
 
-    try map_section("text", page_table, kernel_addr_res, Flags.Present);
-    try map_section("rodata", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute);
-    try map_section("data", page_table, kernel_addr_res, Flags.Present | Flags.NoExecute | Flags.Writable);
+    try map_section("text", page_table, kernel_addr_res, PTEFlags.present);
+    try map_section("rodata", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute);
+    try map_section("data", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute | PTEFlags.writable);
 
     // Prepare for the address space switch
     kernel_address_space = AddressSpace.init(page_table_phys);
