@@ -66,9 +66,7 @@ const BlockDevice = struct {
 
         if (!utils.isAligned(usize, disk_offset, self.sector_size)) {
             const step = utils.alignUp(usize, disk_offset, self.sector_size) - disk_offset;
-
             try small_callback(self, buffer[0..step], first_sector, self.sector_size - step);
-
             buffer = buffer[step..];
             disk_offset += step;
             first_sector += 1;
@@ -76,7 +74,6 @@ const BlockDevice = struct {
 
         while (buffer.len >= self.sector_size) {
             try large_callback(self, buffer[0..self.sector_size], first_sector);
-
             buffer = buffer[self.sector_size..];
             disk_offset += self.sector_size;
             first_sector += 1;
@@ -99,52 +96,38 @@ const BlockDevice = struct {
 
     fn doSmallRead(self: *BlockDevice, buffer: []u8, sector: usize, offset: usize) !void {
         var temp_buffer: [512]u8 = undefined;
-
         try self.vtable.read_block(self, sector, &temp_buffer);
-
         @memcpy(buffer, temp_buffer[offset..][0..buffer.len]);
     }
 
     fn doSmallWrite(self: *BlockDevice, buffer: []const u8, sector: usize, offset: usize) !void {
         var temp_buffer: [512]u8 = undefined;
-
         try self.vtable.read_block(self, sector, &temp_buffer);
-
         @memcpy(temp_buffer[offset..][0..buffer.len], buffer);
-
         try self.vtable.write_block(self, sector, &temp_buffer);
     }
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
-        const self = @as(*BlockDevice, @fieldParentPtr("vnode", vnode));
+    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, _: usize) vfs.ReadError!usize {
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         const max_read = @min(buffer.len, self.sector_count * self.sector_size - offset);
-
-        _ = flags;
-
         try self.iterateSectors(buffer[0..max_read], offset, doSmallRead, doLargeRead);
-
         return max_read;
     }
 
-    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
-        const self = @as(*BlockDevice, @fieldParentPtr("vnode", vnode));
+    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, _: usize) vfs.WriteError!usize {
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         const max_write = @min(buffer.len, self.sector_count * self.sector_size - offset);
-
-        _ = flags;
-
         try self.iterateSectors(buffer[0..max_write], offset, doSmallWrite, doLargeWrite);
-
         return max_write;
     }
 
     fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
-        const self = @as(*BlockDevice, @fieldParentPtr("vnode", vnode));
-
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         buffer.* = std.mem.zeroes(abi.stat);
         buffer.st_mode = 0o777 | abi.S_IFBLK;
-        buffer.st_size = @as(c_long, @intCast(self.sector_count * self.sector_size));
-        buffer.st_blksize = @as(c_long, @intCast(self.sector_size));
-        buffer.st_blocks = @as(c_long, @intCast(self.sector_count));
+        buffer.st_size = @intCast(self.sector_count * self.sector_size);
+        buffer.st_blksize = @intCast(self.sector_size);
+        buffer.st_blocks = @intCast(self.sector_count);
     }
 };
 
@@ -159,14 +142,12 @@ fn BlockDeviceWrapper(comptime T: type) type {
         };
 
         fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
-            const self = @as(*@This(), @fieldParentPtr("block", block_dev));
-
+            const self: *@This() = @fieldParentPtr("block", block_dev);
             try self.device.readBlock(block, buffer);
         }
 
         fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
-            const self = @as(*@This(), @fieldParentPtr("block", block_dev));
-
+            const self: *@This() = @fieldParentPtr("block", block_dev);
             try self.device.writeBlock(block, buffer);
         }
     };
@@ -184,18 +165,14 @@ const PartitionBlockDeviceWrapper = struct {
     };
 
     fn readBlock(block_dev: *BlockDevice, block: usize, buffer: []u8) BlockDeviceError!void {
-        const self = @as(*@This(), @fieldParentPtr("block", block_dev));
-
+        const self: *@This() = @fieldParentPtr("block", block_dev);
         std.debug.assert(self.start_block + block < self.end_block);
-
         return self.parent.vtable.read_block(self.parent, self.start_block + block, buffer);
     }
 
     fn writeBlock(block_dev: *BlockDevice, block: usize, buffer: []const u8) BlockDeviceError!void {
-        const self = @as(*@This(), @fieldParentPtr("block", block_dev));
-
+        const self: *@This() = @fieldParentPtr("block", block_dev);
         std.debug.assert(self.start_block + block < self.end_block);
-
         return self.parent.vtable.write_block(self.parent, self.start_block + block, buffer);
     }
 };
@@ -208,157 +185,36 @@ const TtyVNode = struct {
         .c_lflag = abi.ECHO | abi.ICANON,
     }),
 
-    fn read(vnode: *vfs.VNode, buffer: []u8, offset: usize, flags: usize) vfs.ReadError!usize {
-        _ = vnode;
-        _ = offset;
-        _ = flags;
-
-        if (tty_buffer.pop()) |byte| {
-            buffer[0] = byte;
-            return 1;
-        }
-
-        while (true) {
-            const event = input.dequeueKeyboardEvent();
-
-            if (!event.pressed) {
-                continue;
-            }
-
-            const shift = input.keyboard_state.isShiftPressed();
-            const result = switch (event.location) {
-                .Number1 => if (shift) "!" else "1",
-                .Number2 => if (shift) "@" else "2",
-                .Number3 => if (shift) "#" else "3",
-                .Number4 => if (shift) "$" else "4",
-                .Number5 => if (shift) "%" else "5",
-                .Number6 => if (shift) "^" else "6",
-                .Number7 => if (shift) "&" else "7",
-                .Number8 => if (shift) "*" else "8",
-                .Number9 => if (shift) "(" else "9",
-                .Number0 => if (shift) ")" else "0",
-                .RightOf0 => if (shift) "_" else "-",
-                .LeftOfBackspace => if (shift) "+" else "=",
-                .Backspace => "\x08", // \b
-                .Tab => "\t",
-                .Line1n1 => if (shift) "Q" else "q",
-                .Line1n2 => if (shift) "W" else "w",
-                .Line1n3 => if (shift) "E" else "e",
-                .Line1n4 => if (shift) "R" else "r",
-                .Line1n5 => if (shift) "T" else "t",
-                .Line1n6 => if (shift) "Y" else "y",
-                .Line1n7 => if (shift) "U" else "u",
-                .Line1n8 => if (shift) "I" else "i",
-                .Line1n9 => if (shift) "O" else "o",
-                .Line1n10 => if (shift) "P" else "p",
-                .Line1n11 => if (shift) "{" else "[",
-                .Line1n12 => if (shift) "}" else "]",
-                .Line1n13, .NonUsBackslash => if (shift) "|" else "\\",
-                .Line2n1 => if (shift) "A" else "a",
-                .Line2n2 => if (shift) "S" else "s",
-                .Line2n3 => if (shift) "D" else "d",
-                .Line2n4 => if (shift) "F" else "f",
-                .Line2n5 => if (shift) "G" else "g",
-                .Line2n6 => if (shift) "H" else "h",
-                .Line2n7 => if (shift) "J" else "j",
-                .Line2n8 => if (shift) "K" else "k",
-                .Line2n9 => if (shift) "L" else "l",
-                .Line2n10 => if (shift) ":" else ";",
-                .Line2n11 => if (shift) "\"" else "'",
-                .Enter => "\n",
-                .Line3n1 => if (shift) "Z" else "z",
-                .Line3n2 => if (shift) "X" else "x",
-                .Line3n3 => if (shift) "C" else "c",
-                .Line3n4 => if (shift) "V" else "v",
-                .Line3n5 => if (shift) "B" else "b",
-                .Line3n6 => if (shift) "N" else "n",
-                .Line3n7 => if (shift) "M" else "m",
-                .Line3n8 => if (shift) "<" else ",",
-                .Line3n9 => if (shift) ">" else ".",
-                .Line3n10 => if (shift) "?" else "/",
-                .Spacebar => " ",
-                .ArrowLeft => "\x1b[D",
-                .ArrowRight => "\x1b[C",
-                .ArrowUp => "\x1b[A",
-                .ArrowDown => "\x1b[B",
-                .Home => "\x1b[1~",
-                .End => "\x1b[4~",
-                .PageUp => "\x1b[5~",
-                .PageDown => "\x1b[6~",
-                .Insert => "\x1b[2~",
-                .Delete => "\x1b[3~",
-                else => continue,
-            };
-
-            const max_read = @min(buffer.len, result.len);
-
-            @memcpy(buffer[0..max_read], result);
-
-            for (result[max_read..]) |byte| {
-                _ = tty_buffer.push(byte);
-            }
-
-            return max_read;
-        }
+    fn read(_: *vfs.VNode, _: []u8, _: usize, _: usize) vfs.ReadError!usize {
+        return 0;
     }
 
-    fn write(vnode: *vfs.VNode, buffer: []const u8, offset: usize, flags: usize) vfs.WriteError!usize {
-        _ = vnode;
-        _ = offset;
-        _ = flags;
-        // const written = @min(buffer.len, term_buffer.len);
-        // @memcpy(&term_buffer, buffer[0..written]);
-        // debug.print(term_buffer[0..written]);
+    fn write(_: *vfs.VNode, buffer: []const u8, _: usize, _: usize) vfs.WriteError!usize {
         return buffer.len;
     }
 
     fn ioctl(vnode: *vfs.VNode, request: u64, arg: u64) vfs.IoctlError!u64 {
-        const self = @as(*TtyVNode, @fieldParentPtr("vnode", vnode));
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         const process = per_cpu.get().currentProcess().?;
-
         switch (request) {
             abi.TCGETS => {
                 const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
-
                 result.* = self.state;
-
                 return 0;
             },
             abi.TCSETSW, abi.TCSETSF, abi.TCSETS => {
                 const result = process.validatePointer(abi.termios, arg) catch return .{ .err = abi.EINVAL };
-
                 self.state = result.*;
-
                 return 0;
             },
-            // abi.TIOCGWINSZ => {
-            //     const term_res = root.term_req.response.?;
-            //     const terminal = term_res.terminals()[0];
-            //     const result = process.validatePointer(abi.winsize, arg) catch return .{ .err = abi.EINVAL };
-
-            //     result.* = .{
-            //         .ws_row = @as(c_ushort, @intCast(terminal.rows)),
-            //         .ws_col = @as(c_ushort, @intCast(terminal.columns)),
-            //         .ws_xpixel = 0,
-            //         .ws_ypixel = 0,
-            //     };
-
-            //     result.ws_xpixel = @as(c_ushort, @intCast(terminal.framebuffer.width));
-            //     result.ws_ypixel = @as(c_ushort, @intCast(terminal.framebuffer.height));
-
-            //     return 0;
-            // },
             else => {
-                logger.warn("Unhandled IO control request 0x{X}", .{request});
-
+                logger.warn("Unhandled TTY IO control request 0x{X}", .{request});
                 return error.InvalidArgument;
             },
         }
     }
 
-    fn stat(vnode: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
-        _ = vnode;
-
+    fn stat(_: *vfs.VNode, buffer: *abi.stat) vfs.StatError!void {
         buffer.* = std.mem.zeroes(abi.stat);
         buffer.st_mode = 0o777 | abi.S_IFCHR;
     }
@@ -366,19 +222,17 @@ const TtyVNode = struct {
 
 pub fn init(name: []const u8, parent: ?*vfs.VNode) !*vfs.VNode {
     const ramfs = try ram_fs.init(name, parent);
+    ramfs.filesystem.name = "devfs";
+
     const tty = try root.allocator.create(TtyVNode);
-
-    ramfs.filesystem.name = "DevFS";
-
     tty.* = .{
         .vnode = .{
             .vtable = &tty_vtable,
             .filesystem = ramfs.filesystem,
-            .kind = .CharacterDevice,
+            .kind = .character_device,
             .name = "tty",
         },
     };
-
     try ramfs.insert(&tty.vnode);
 
     return ramfs;
@@ -390,7 +244,6 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
     const dev = try vfs.resolve(null, "/dev", 0);
     const node = try root.allocator.create(WrappedDevice);
     const disk_id = @atomicRmw(usize, &disk_number, .Add, 1, .acq_rel);
-
     node.* = .{
         .block = .{
             .vnode = undefined,
@@ -400,13 +253,11 @@ pub fn addDiskBlockDevice(name: []const u8, device: anytype) !void {
         },
         .device = device,
     };
-
     node.block.vnode = .{
         .vtable = &BlockDevice.vnode_vtable,
         .filesystem = dev.filesystem,
         .name = try std.fmt.bufPrint(&node.block.name, "{s}{d}", .{ name, disk_id }),
     };
-
     try dev.insert(&node.block.vnode);
     try probePartitions(&node.block, node.block.sector_size);
 }
@@ -444,13 +295,10 @@ const GptPartitionEntry = extern struct {
 
 fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
     var buffer = try root.allocator.alloc(u8, sector_size * 2);
-
     _ = try device.vnode.read(buffer, 0, 0);
-
     const dev = try vfs.resolve(null, "/dev", 0);
     const mbr_header = @as(*align(1) const MbrHeader, @ptrCast(buffer));
     const gpt_header = @as(*align(1) const GptHeader, @ptrCast(buffer[512..]));
-
     if (std.mem.eql(u8, &gpt_header.signature, "EFI PART") and gpt_header.revision == 0x10000) {
         var entry: GptPartitionEntry = undefined;
 
@@ -466,7 +314,6 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
             }
 
             const part_node = try root.allocator.create(PartitionBlockDeviceWrapper);
-
             part_node.* = .{
                 .block = .{
                     .vnode = undefined,
@@ -478,13 +325,11 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
                 .start_block = entry.starting_lba,
                 .end_block = entry.ending_lba + 1,
             };
-
             part_node.block.vnode = .{
                 .vtable = &BlockDevice.vnode_vtable,
                 .filesystem = dev.filesystem,
                 .name = try std.fmt.bufPrint(&part_node.block.name, "{s}p{d}", .{ device.vnode.name, i + 1 }),
             };
-
             try dev.insert(&part_node.block.vnode);
 
             logger.debug(
@@ -494,7 +339,7 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
 
             try ext_fs.init(&part_node.block.vnode);
         }
-    } else if (mbr_header.magic == 0xaa55) {
+    } else if (mbr_header.magic == 0xAA55) {
         logger.debug("{}: MBR partition table detected", .{device.vnode.getFullPath()});
     } else {
         logger.debug("{}: No partition table detected", .{device.vnode.getFullPath()});

@@ -38,13 +38,13 @@ pub const VNodeVTable = struct {
 };
 
 pub const VNodeKind = enum {
-    File,
-    Directory,
-    Symlink,
-    CharacterDevice,
-    BlockDevice,
-    Fifo,
-    Socket,
+    file,
+    directory,
+    symlink,
+    character_device,
+    block_device,
+    fifo,
+    socket,
 };
 
 pub const VNode = struct {
@@ -68,49 +68,40 @@ pub const VNode = struct {
 
     pub fn open(self: *VNode, name: []const u8, flags: usize) !*VNode {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.open) |fun| {
-            return fun(vnode, name, flags);
-        } else {
-            return error.NotImplemented;
+        if (vnode.vtable.open) |open_fn| {
+            return open_fn(vnode, name, flags);
         }
+        return error.NotImplemented;
     }
 
     pub fn close(self: *VNode) void {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.close) |fun| {
-            return fun(vnode);
+        if (vnode.vtable.close) |close_fn| {
+            return close_fn(vnode);
         }
     }
 
     pub fn read(self: *VNode, buffer: []u8, offset: usize, flags: usize) !usize {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.read) |fun| {
-            return fun(vnode, buffer, offset, flags);
-        } else if (vnode.kind == .Symlink) {
-            const read_length = @min(buffer.len, vnode.symlink_target.?.len);
-
-            @memcpy(buffer[0..read_length], vnode.symlink_target.?);
-
-            return read_length;
-        } else {
-            return error.NotImplemented;
+        if (vnode.vtable.read) |read_fn| {
+            return read_fn(vnode, buffer, offset, flags);
         }
+        if (vnode.kind == .symlink) {
+            const read_length = @min(buffer.len, vnode.symlink_target.?.len);
+            @memcpy(buffer[0..read_length], vnode.symlink_target.?);
+            return read_length;
+        }
+        return error.NotImplemented;
     }
 
     pub fn readAll(self: *VNode, buffer: []u8, offset: usize, flags: usize) !void {
         var buf = buffer;
         var off = offset;
-
         while (buf.len > 0) {
             const read_amount = try self.read(buf, off, flags);
-
             if (read_amount == 0) {
                 return error.EndOfStream;
             }
-
             buf = buf[read_amount..];
             off += read_amount;
         }
@@ -118,37 +109,31 @@ pub const VNode = struct {
 
     pub fn readDir(self: *VNode, buffer: []u8, offset: *usize) !usize {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.read_dir) |fun| {
-            return fun(vnode, buffer, offset);
-        } else {
-            return error.NotImplemented;
+        if (vnode.vtable.read_dir) |read_dir_fn| {
+            return read_dir_fn(vnode, buffer, offset);
         }
+        return error.NotImplemented;
     }
 
     pub fn write(self: *VNode, buffer: []const u8, offset: usize, flags: usize) !usize {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.write) |fun| {
-            return fun(vnode, buffer, offset, flags);
-        } else if (vnode.kind == .Symlink) {
-            return error.NotOpenForWriting;
-        } else {
-            return error.NotImplemented;
+        if (vnode.vtable.write) |write_fn| {
+            return write_fn(vnode, buffer, offset, flags);
         }
+        if (vnode.kind == .symlink) {
+            return error.NotOpenForWriting;
+        }
+        return error.NotImplemented;
     }
 
     pub fn writeAll(self: *VNode, buffer: []const u8, offset: usize, flags: usize) !void {
         var buf = buffer;
         var off = offset;
-
         while (buf.len > 0) {
             const written = try self.write(buf, off, flags);
-
             if (written == 0) {
                 return error.EndOfStream;
             }
-
             buf = buf[written..];
             off += written;
         }
@@ -161,46 +146,35 @@ pub const VNode = struct {
         std.debug.assert(child.name != null);
 
         const vnode = self.getEffectiveVNode();
+        const old_parent = child.parent;
+        errdefer child.parent = old_parent;
 
-        if (vnode.vtable.insert) |fun| {
-            const old_parent = child.parent;
-
-            errdefer child.parent = old_parent;
-
-            child.parent = vnode;
-
-            return fun(vnode, child);
-        } else {
-            @panic("An insert operation is required");
-        }
+        child.parent = vnode;
+        try vnode.vtable.insert.?(vnode, child);
     }
 
     pub fn ioctl(self: *VNode, request: u64, arg: u64) !u64 {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.ioctl) |fun| {
-            return fun(vnode, request, arg);
-        } else {
-            return error.NoDevice;
+        if (vnode.vtable.ioctl) |ioctl_fn| {
+            return ioctl_fn(vnode, request, arg);
         }
+        return error.NoDevice;
     }
 
     pub fn stat(self: *VNode, buffer: *abi.stat) !void {
         const vnode = self.getEffectiveVNode();
-
-        if (vnode.vtable.stat) |fun| {
-            return fun(vnode, buffer);
-        } else if (vnode.kind == .Symlink) {
+        if (vnode.vtable.stat) |stat_fn| {
+            return stat_fn(vnode, buffer);
+        }
+        if (vnode.kind == .symlink) {
             const target = self.symlink_target.?;
-
             buffer.* = std.mem.zeroes(abi.stat);
             buffer.st_mode |= 0o777 | abi.S_IFLNK;
-            buffer.st_size = @as(c_long, @intCast(target.len));
+            buffer.st_size = @intCast(target.len);
             buffer.st_blksize = std.mem.page_size;
-            buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, target.len, std.mem.page_size) / std.mem.page_size));
-        } else {
-            return error.NotImplemented;
+            buffer.st_blocks = @intCast(std.mem.alignForward(usize, target.len, std.mem.page_size) / std.mem.page_size);
         }
+        return error.NotImplemented;
     }
 
     pub fn mount(self: *VNode, other: *VNode) void {
@@ -231,19 +205,15 @@ pub const VNodePath = struct {
             try formatPath(parent, writer);
             try writer.writeByte('/');
         }
-
         try writer.writeAll(node.name.?);
     }
 
     pub fn format(
         value: *const VNodePath,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
         try formatPath(value.node, writer);
     }
 };
@@ -315,28 +285,20 @@ const Pipe = struct {
     };
 
     fn close(vnode: *VNode) void {
-        const self = @as(*Pipe, @fieldParentPtr("vnode", vnode));
-
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         self.closed = true;
         self.buffer.semaphore.release(1);
     }
 
-    fn read(vnode: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize {
-        _ = offset;
-        _ = flags;
-
-        const self = @as(*Pipe, @fieldParentPtr("vnode", vnode));
-
+    fn read(vnode: *VNode, buffer: []u8, _: usize, _: usize) ReadError!usize {
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         if (!self.closed) {
             while (true) {
                 self.buffer.semaphore.acquire(1);
-
                 if (self.closed) {
                     return 0;
                 }
-
                 buffer[0] = self.buffer.buffer.pop() orelse continue;
-
                 break;
             }
 
@@ -348,26 +310,19 @@ const Pipe = struct {
                 byte.* = self.buffer.buffer.pop() orelse return i;
             }
         }
-
         return buffer.len;
     }
 
-    fn write(vnode: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize {
-        _ = offset;
-        _ = flags;
-
-        const self = @as(*Pipe, @fieldParentPtr("vnode", vnode));
-
+    fn write(vnode: *VNode, buffer: []const u8, _: usize, _: usize) WriteError!usize {
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         if (self.closed) {
             return error.BrokenPipe;
         }
-
         for (buffer, 0..) |byte, i| {
             if (!self.buffer.push(byte)) {
                 return if (i == 0) error.WouldBlock else i;
             }
         }
-
         return buffer.len;
     }
 };
@@ -382,39 +337,28 @@ const SliceBackedFile = struct {
         .stat = SliceBackedFile.stat,
     };
 
-    fn read(vnode: *VNode, buffer: []u8, offset: usize, flags: usize) ReadError!usize {
-        const self = @as(*SliceBackedFile, @fieldParentPtr("vnode", vnode));
-
-        _ = flags;
-
+    fn read(vnode: *VNode, buffer: []u8, offset: usize, _: usize) ReadError!usize {
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         if (offset >= self.data.len) {
             return 0;
         }
 
         const bytes_read = @min(buffer.len, self.data.len - offset);
-
         @memcpy(buffer[0..bytes_read], self.data[offset .. offset + bytes_read]);
-
         return bytes_read;
     }
 
-    fn write(vnode: *VNode, buffer: []const u8, offset: usize, flags: usize) WriteError!usize {
-        _ = vnode;
-        _ = buffer;
-        _ = offset;
-        _ = flags;
-
+    fn write(_: *VNode, _: []const u8, _: usize, _: usize) WriteError!usize {
         return error.NotOpenForWriting;
     }
 
     fn stat(vnode: *VNode, buffer: *abi.stat) StatError!void {
-        const self = @as(*SliceBackedFile, @fieldParentPtr("vnode", vnode));
-
+        const self: *@This() = @fieldParentPtr("vnode", vnode);
         buffer.* = std.mem.zeroes(abi.stat);
         buffer.st_mode = 0o777 | abi.S_IFREG;
-        buffer.st_size = @as(c_long, @intCast(self.data.len));
+        buffer.st_size = @intCast(self.data.len);
         buffer.st_blksize = std.mem.page_size;
-        buffer.st_blocks = @as(c_long, @intCast(std.mem.alignForward(usize, self.data.len, std.mem.page_size) / std.mem.page_size));
+        buffer.st_blocks = @intCast(std.mem.alignForward(usize, self.data.len, std.mem.page_size) / std.mem.page_size);
     }
 };
 
@@ -431,68 +375,57 @@ pub const FileSystem = struct {
     name: []const u8,
 
     pub fn createFile(self: *FileSystem, name: []const u8) !*VNode {
-        if (self.vtable.create_file) |fun| {
+        if (self.vtable.create_file) |create_file_fn| {
             const inode = try self.vtable.allocate_inode(self);
-            const node = try fun(self);
-
-            node.kind = .File;
+            const node = try create_file_fn(self);
+            node.kind = .file;
             node.name = try root.allocator.dupe(u8, name);
             node.inode = inode;
-
             return node;
-        } else {
-            return error.NotImplemented;
         }
+        return error.NotImplemented;
     }
 
     pub fn createDir(self: *FileSystem, name: []const u8) !*VNode {
-        if (self.vtable.create_dir) |fun| {
+        if (self.vtable.create_dir) |create_dir_fn| {
             const inode = try self.vtable.allocate_inode(self);
-            const node = try fun(self);
-
-            node.kind = .Directory;
+            const node = try create_dir_fn(self);
+            node.kind = .directory;
             node.name = try root.allocator.dupe(u8, name);
             node.inode = inode;
-
             return node;
-        } else {
-            return error.NotImplemented;
         }
+        return error.NotImplemented;
     }
 
     pub fn createSymlink(self: *FileSystem, name: []const u8, target: []const u8) !*VNode {
-        if (self.vtable.create_symlink) |fun| {
+        if (self.vtable.create_symlink) |create_symlink_fn| {
             const inode = try self.vtable.allocate_inode(self);
-            const node = try fun(self, target);
-
-            node.kind = .Symlink;
+            const node = try create_symlink_fn(self, target);
+            node.kind = .symlink;
             node.name = try root.allocator.dupe(u8, name);
             node.inode = inode;
-
             return node;
-        } else {
-            return error.NotImplemented;
         }
+        return error.NotImplemented;
     }
 };
 
-var root_vnode: ?*VNode = null;
-
 fn createSliceBackedFile(name: []const u8, data: []const u8) !*VNode {
     const file = try root.allocator.create(SliceBackedFile);
-
     file.* = .{
         .vnode = .{
             .vtable = &SliceBackedFile.slice_backed_file_vtable,
             .filesystem = undefined,
-            .kind = .File,
+            .kind = .file,
             .name = name,
         },
         .data = data,
     };
-
     return &file.vnode;
 }
+
+var root_vnode: ?*VNode = null;
 
 pub fn init(modules_res: *limine.ModuleResponse) !void {
     const root_node = try ram_fs.init("", null);
@@ -539,11 +472,11 @@ pub fn init(modules_res: *limine.ModuleResponse) !void {
     logger.info("Loaded {d} ({d}KiB) files from {s}", .{ files, total_size / 1024, name });
 }
 
-pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertError || error{NotImplemented})!*VNode {
+pub fn resolve(cwd_: ?*VNode, path: []const u8, flags: u64) !*VNode {
+    var cwd = cwd_;
     if (cwd == null) {
         std.debug.assert(std.fs.path.isAbsolute(path));
-
-        return resolve(root_vnode.?, path[1..], flags);
+        cwd = root_vnode.?;
     }
 
     var next = if (std.fs.path.isAbsolute(path)) root_vnode.? else cwd.?;
@@ -582,26 +515,21 @@ pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertE
                 };
             }
 
-            if (flags & abi.O_NOFOLLOW == 0 and next_node.?.kind == .Symlink) {
+            if ((flags & abi.O_NOFOLLOW) == 0 and next_node.?.kind == .symlink) {
                 const new_node = next_node.?;
                 const target = new_node.symlink_target.?;
 
-                if (std.fs.path.isAbsolute(target)) {
-                    next_node = try resolve(null, target, 0);
-                } else {
-                    next_node = try resolve(new_node.parent, target, 0);
-                }
+                next_node = if (std.fs.path.isAbsolute(target))
+                    try resolve(null, target, 0)
+                else
+                    try resolve(new_node.parent, target, 0);
 
                 if (next_node.? == new_node) {
                     return error.SymLinkLoop;
                 }
             }
 
-            if (next_node) |new_node| {
-                next = new_node;
-            } else {
-                return error.FileNotFound;
-            }
+            next = next_node orelse return error.FileNotFound;
         }
     }
 
