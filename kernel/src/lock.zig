@@ -2,7 +2,6 @@ const std = @import("std");
 
 const arch = @import("arch.zig");
 const debug = @import("debug.zig");
-const mutex = @import("mutex.zig");
 
 pub const CriticalSection = struct {
     previous_rflags: u64,

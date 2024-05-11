@@ -1,15 +1,15 @@
 const logger = std.log.scoped(.vfs);
 
+const limine = @import("limine");
 const root = @import("root");
 const std = @import("std");
-const limine = @import("limine");
 
-const abi = @import("abi.zig");
-const tar = @import("tar.zig");
-const mutex = @import("mutex.zig");
-const utils = @import("utils.zig");
-const dev_fs = @import("vfs/dev_fs.zig");
-const ram_fs = @import("vfs/ram_fs.zig");
+const abi = @import("./abi.zig");
+const lock = @import("./lock.zig");
+const tar = @import("./tar.zig");
+const utils = @import("./utils.zig");
+const dev_fs = @import("./vfs/dev_fs.zig");
+const ram_fs = @import("./vfs/ram_fs.zig");
 
 const RingWaitQueue = @import("containers/ring_buffer.zig").RingWaitQueue;
 
@@ -55,8 +55,8 @@ pub const VNode = struct {
     parent: ?*VNode = null,
     name: ?[]const u8 = null,
     symlink_target: ?[]const u8 = null,
+    spinlock: lock.Spinlock = .{},
     inode: u64 = 0,
-    lock: mutex.AtomicMutex = .{},
 
     fn getEffectiveVNode(self: *VNode) *VNode {
         return self.mounted_vnode orelse self;
@@ -155,8 +155,8 @@ pub const VNode = struct {
     }
 
     pub fn insert(self: *VNode, child: *VNode) !void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.spinlock.lock();
+        defer self.spinlock.unlock();
 
         std.debug.assert(child.name != null);
 
@@ -204,8 +204,8 @@ pub const VNode = struct {
     }
 
     pub fn mount(self: *VNode, other: *VNode) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.spinlock.lock();
+        defer self.spinlock.unlock();
 
         std.debug.assert(self.mounted_vnode == null);
         std.debug.assert(other.parent == null);

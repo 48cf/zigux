@@ -1,12 +1,11 @@
 const logger = std.log.scoped(.acpi);
 
+const limine = @import("limine");
 const root = @import("root");
 const std = @import("std");
-const limine = @import("limine");
 
 const apic = @import("./apic.zig");
 const arch = @import("./arch.zig");
-const mutex = @import("./mutex.zig");
 const virt = @import("./virt.zig");
 const pci = @import("./pci.zig");
 const uacpi = @import("./uacpi.zig");

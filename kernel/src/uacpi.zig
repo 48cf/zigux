@@ -10,14 +10,15 @@ const C = @cImport({
     @cInclude("printf/printf.h");
 });
 
+const limine = @import("limine");
 const root = @import("root");
 const std = @import("std");
-const limine = @import("limine");
 
 const arch = @import("./arch.zig");
-const mutex = @import("./mutex.zig");
-const virt = @import("./virt.zig");
+const lock = @import("./lock.zig");
 const pci = @import("./pci.zig");
+const hpet = @import("./hpet.zig");
+const virt = @import("./virt.zig");
 
 pub usingnamespace C;
 
@@ -37,11 +38,10 @@ pub const x_uacpi_namespace_node_info = extern struct {
 };
 
 fn notifyHandler(
-    handle: C.uacpi_handle,
+    _: C.uacpi_handle,
     node: ?*C.uacpi_namespace_node,
     value: C.uacpi_u64,
 ) callconv(.C) C.uacpi_status {
-    _ = handle;
     const path = C.uacpi_namespace_node_generate_absolute_path(node);
     logger.info("Received a notification from {s} {x}", .{ path, value });
     return C.UACPI_STATUS_OK;
@@ -184,17 +184,14 @@ export fn uacpi_kernel_pci_write(
 
 export fn uacpi_kernel_io_map(
     base: C.uacpi_io_addr,
-    len: C.uacpi_size,
+    _: C.uacpi_size,
     out_handle: *C.uacpi_handle,
 ) callconv(.C) C.uacpi_status {
-    _ = len;
     out_handle.* = @ptrFromInt(base);
     return C.UACPI_STATUS_OK;
 }
 
-export fn uacpi_kernel_io_unmap(handle: C.uacpi_handle) callconv(.C) void {
-    _ = handle;
-}
+export fn uacpi_kernel_io_unmap(_: C.uacpi_handle) callconv(.C) void {}
 
 export fn uacpi_kernel_io_read(
     handle: C.uacpi_handle,
@@ -216,15 +213,11 @@ export fn uacpi_kernel_io_write(
     return uacpi_kernel_raw_io_write(base + offset, byte_width, in_value);
 }
 
-export fn uacpi_kernel_map(addr: C.uacpi_phys_addr, len: C.uacpi_size) callconv(.C) *anyopaque {
-    _ = len;
+export fn uacpi_kernel_map(addr: C.uacpi_phys_addr, _: C.uacpi_size) callconv(.C) *anyopaque {
     return virt.asHigherHalf(*anyopaque, addr);
 }
 
-export fn uacpi_kernel_unmap(addr: *anyopaque, len: C.uacpi_size) callconv(.C) void {
-    _ = addr;
-    _ = len;
-}
+export fn uacpi_kernel_unmap(_: *anyopaque, _: C.uacpi_size) callconv(.C) void {}
 
 export fn uacpi_kernel_alloc(size: C.uacpi_size) callconv(.C) *anyopaque {
     const result = root.allocator.rawAlloc(size, 8, @returnAddress());
@@ -286,27 +279,24 @@ export fn uacpi_kernel_get_ticks() callconv(.C) C.uacpi_u64 {
 }
 
 export fn uacpi_kernel_stall(usec: C.uacpi_u8) callconv(.C) void {
-    _ = usec;
-    logger.warn("uacpi_kernel_stall is a stub", .{});
+    hpet.sleep(@as(usize, usec) * std.time.ns_per_us, false);
 }
 
 export fn uacpi_kernel_sleep(msec: C.uacpi_u64) callconv(.C) void {
-    _ = msec;
-    logger.warn("uacpi_kernel_sleep is a stub", .{});
+    hpet.sleep(msec * std.time.ns_per_ms, true);
 }
 
 export fn uacpi_kernel_create_mutex() callconv(.C) C.uacpi_handle {
-    const result = root.allocator.create(mutex.AtomicMutex) catch {
+    const result = root.allocator.create(lock.Spinlock) catch {
         @panic("uacpi_kernel_create_mutex failed");
     };
-
     result.* = .{};
     return @ptrCast(result);
 }
 
 export fn uacpi_kernel_free_mutex(handle: C.uacpi_handle) callconv(.C) void {
     if (handle) |ptr| {
-        const mtx: *mutex.AtomicMutex = @ptrCast(@alignCast(ptr));
+        const mtx: *lock.Spinlock = @ptrCast(@alignCast(ptr));
         root.allocator.destroy(mtx);
     }
 }
@@ -315,20 +305,17 @@ export fn uacpi_kernel_acquire_mutex(
     handle: C.uacpi_handle,
     timeout: C.uacpi_u16,
 ) callconv(.C) C.uacpi_bool {
-    const mtx: *mutex.AtomicMutex = @ptrCast(@alignCast(handle));
-
     if (timeout != 0xFFFF) {
         logger.warn("uacpi_kernel_acquire_mutex does not support timeout", .{});
     }
 
+    const mtx: *lock.Spinlock = @ptrCast(@alignCast(handle));
     mtx.lock();
-
     return true;
 }
 
 export fn uacpi_kernel_release_mutex(handle: C.uacpi_handle) callconv(.C) void {
-    const mtx: *mutex.AtomicMutex = @ptrCast(@alignCast(handle));
-
+    const mtx: *lock.Spinlock = @ptrCast(@alignCast(handle));
     mtx.unlock();
 }
 
@@ -416,18 +403,17 @@ export fn uacpi_kernel_create_spinlock() callconv(.C) C.uacpi_handle {
     return uacpi_kernel_create_mutex();
 }
 
-export fn uacpi_kernel_free_spinlock(lock: C.uacpi_handle) callconv(.C) void {
-    uacpi_kernel_free_mutex(lock);
+export fn uacpi_kernel_free_spinlock(spinlock: C.uacpi_handle) callconv(.C) void {
+    uacpi_kernel_free_mutex(spinlock);
 }
 
-export fn uacpi_kernel_spinlock_lock(lock: C.uacpi_handle) callconv(.C) C.uacpi_cpu_flags {
-    _ = uacpi_kernel_acquire_mutex(lock, 0xFFFF);
+export fn uacpi_kernel_spinlock_lock(spinlock: C.uacpi_handle) callconv(.C) C.uacpi_cpu_flags {
+    _ = uacpi_kernel_acquire_mutex(spinlock, 0xFFFF);
     return 0;
 }
 
-export fn uacpi_kernel_spinlock_unlock(lock: C.uacpi_handle, flags: C.uacpi_cpu_flags) callconv(.C) void {
-    _ = flags;
-    uacpi_kernel_release_mutex(lock);
+export fn uacpi_kernel_spinlock_unlock(spinlock: C.uacpi_handle, _: C.uacpi_cpu_flags) callconv(.C) void {
+    uacpi_kernel_release_mutex(spinlock);
 }
 
 export fn uacpi_kernel_schedule_work(

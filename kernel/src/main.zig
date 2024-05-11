@@ -15,7 +15,6 @@ const debug = @import("./debug.zig");
 const hpet = @import("./hpet.zig");
 const interrupts = @import("./interrupts.zig");
 const lock = @import("./lock.zig");
-const mutex = @import("./mutex.zig");
 const per_cpu = @import("./per_cpu.zig");
 const phys = @import("./phys.zig");
 const scheduler = @import("./scheduler.zig");
