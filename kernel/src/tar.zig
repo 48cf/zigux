@@ -2,16 +2,18 @@
 
 const std = @import("std");
 
+const abi = @import("./abi.zig");
+
 pub const FileType = enum(u8) {
-    Normal = '0',
-    HardLink = '1',
-    SymbolicLink = '2',
-    CharacterDevice = '3',
-    BlockDevice = '4',
-    Directory = '5',
-    Fifo = '6',
-    ContiguousFile = '7',
-    LongFileName = 'L',
+    normal = '0',
+    hard_link = '1',
+    symbolic_link = '2',
+    character_device = '3',
+    block_device = '4',
+    directory = '5',
+    fifo = '6',
+    contiguous_file = '7',
+    long_file_name = 'L',
     _,
 };
 
@@ -20,6 +22,10 @@ pub const File = struct {
     kind: FileType,
     data: []const u8,
     link: []const u8,
+    uid: abi.uid_t,
+    gid: abi.gid_t,
+    mtime: abi.time_t,
+    mode: abi.mode_t,
 };
 
 const TarHeader = extern struct {
@@ -34,7 +40,7 @@ const TarHeader = extern struct {
     linked_name: [100]u8,
     padding: [255]u8,
 
-    fn validate(self: *const TarHeader) bool {
+    fn validate(self: *const @This()) bool {
         for (self.file_size[0..11]) |ch| {
             if (ch < '0' or ch > '9') {
                 return false;
@@ -48,27 +54,33 @@ const TarHeader = extern struct {
         return true;
     }
 
-    fn fileName(self: *const TarHeader) []const u8 {
-        for (self.file_name, 0..) |ch, i| {
-            if (ch == 0) {
-                return self.file_name[0..i];
-            }
-        }
-
-        return self.file_name[0..self.file_name.len];
+    fn fileName(self: *const @This()) []const u8 {
+        const length = std.mem.indexOfScalar(u8, &self.file_name, 0) orelse self.file_name.len;
+        return self.file_name[0..length];
     }
 
-    fn linkedName(self: *const TarHeader) []const u8 {
-        for (self.linked_name, 0..) |ch, i| {
-            if (ch == 0) {
-                return self.linked_name[0..i];
-            }
-        }
-
-        return self.linked_name[0..self.linked_name.len];
+    fn fileMode(self: *const @This()) !abi.mode_t {
+        return std.fmt.parseUnsigned(abi.mode_t, self.file_mode[0..7], 8);
     }
 
-    fn fileSize(self: *const TarHeader) !usize {
+    fn getUID(self: *const @This()) !abi.uid_t {
+        return std.fmt.parseUnsigned(abi.uid_t, self.uid[0..7], 8);
+    }
+
+    fn getGID(self: *const @This()) !abi.gid_t {
+        return std.fmt.parseUnsigned(abi.gid_t, self.gid[0..7], 8);
+    }
+
+    fn lastModified(self: *const @This()) !abi.time_t {
+        return std.fmt.parseUnsigned(abi.time_t, self.last_modified[0..11], 8);
+    }
+
+    fn linkedName(self: *const @This()) []const u8 {
+        const length = std.mem.indexOfScalar(u8, &self.linked_name, 0) orelse self.linked_name.len;
+        return self.linked_name[0..length];
+    }
+
+    fn fileSize(self: *const @This()) !usize {
         return std.fmt.parseUnsigned(usize, self.file_size[0..11], 8);
     }
 };
@@ -119,14 +131,16 @@ const TarIterator = struct {
         }
 
         const name = self.name_override orelse header.fileName();
-
         self.name_override = null;
-
         return .{
             .name = name,
             .kind = @as(FileType, @enumFromInt(header.link_indicator)),
             .data = header_buf[@sizeOf(TarHeader) .. @sizeOf(TarHeader) + file_size],
             .link = header.linkedName(),
+            .uid = try header.getUID(),
+            .gid = try header.getGID(),
+            .mtime = try header.lastModified(),
+            .mode = try header.fileMode(),
         };
     }
 };

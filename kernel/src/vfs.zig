@@ -496,53 +496,47 @@ fn createSliceBackedFile(name: []const u8, data: []const u8) !*VNode {
 
 pub fn init(modules_res: *limine.ModuleResponse) !void {
     const root_node = try ram_fs.init("", null);
-
     root_vnode = root_node;
 
-    for (modules_res.modules()) |module| {
-        const name = std.fs.path.basename(std.mem.span(module.path));
-        const module_file = try createSliceBackedFile(name, module.data());
+    const dev_dir = try resolve(root_node, "dev", abi.O_CREAT | abi.O_DIRECTORY);
+    dev_dir.mount(try dev_fs.init("dev", null));
 
-        if (std.mem.endsWith(u8, name, ".tar")) {
-            var files: usize = 0;
-            var total_size: usize = 0;
-            var iterator = tar.iterate(module.data());
+    if (modules_res.module_count == 0) {
+        logger.warn("No initramfs module found", .{});
+        return;
+    }
 
-            while (try iterator.next()) |file| {
-                files += 1;
+    const module = modules_res.modules()[0];
+    const name = std.fs.path.basename(std.mem.span(module.path));
 
-                switch (file.kind) {
-                    .Normal => {
-                        const parent_path = std.fs.path.dirname(file.name) orelse "/";
-                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
-                        const file_node = try createSliceBackedFile(std.fs.path.basename(file.name), file.data);
+    var files: usize = 0;
+    var total_size: usize = 0;
+    var iterator = tar.iterate(module.data());
+    while (try iterator.next()) |file| {
+        files += 1;
 
-                        try parent.insert(file_node);
-
-                        total_size += file.data.len;
-                    },
-                    .SymbolicLink => {
-                        const parent_path = std.fs.path.dirname(file.name) orelse "/";
-                        const parent = try resolve(root_node, parent_path, abi.O_CREAT);
-                        const link_node = try parent.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
-
-                        try parent.insert(link_node);
-                    },
-                    .Directory => {
-                        _ = try resolve(root_node, file.name, abi.O_CREAT | abi.O_DIRECTORY);
-                    },
-                    else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
-                }
-            }
-
-            logger.info("Loaded {} ({}KiB) files from {}", .{ files, total_size / 1024, module_file.getFullPath() });
+        switch (file.kind) {
+            .normal => {
+                const parent_path = std.fs.path.dirname(file.name) orelse "/";
+                const parent = try resolve(root_node, parent_path, abi.O_CREAT);
+                const file_node = try createSliceBackedFile(std.fs.path.basename(file.name), file.data);
+                try parent.insert(file_node);
+                total_size += file.data.len;
+            },
+            .symbolic_link => {
+                const parent_path = std.fs.path.dirname(file.name) orelse "/";
+                const parent = try resolve(root_node, parent_path, abi.O_CREAT);
+                const link_node = try parent.filesystem.createSymlink(std.fs.path.basename(file.name), file.link);
+                try parent.insert(link_node);
+            },
+            .directory => {
+                _ = try resolve(root_node, file.name, abi.O_CREAT | abi.O_DIRECTORY);
+            },
+            else => logger.warn("Unhandled file {s} of type {}", .{ file.name, file.kind }),
         }
     }
 
-    // Initalize /dev
-    const dev_dir = try resolve(root_node, "dev", abi.O_CREAT | abi.O_DIRECTORY);
-
-    dev_dir.mount(try dev_fs.init("dev", null));
+    logger.info("Loaded {d} ({d}KiB) files from {s}", .{ files, total_size / 1024, name });
 }
 
 pub fn resolve(cwd: ?*VNode, path: []const u8, flags: u64) (OpenError || InsertError || error{NotImplemented})!*VNode {
