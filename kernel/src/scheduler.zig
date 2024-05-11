@@ -91,7 +91,7 @@ pub const Thread = struct {
     tid: u64,
     parent: *process.Process,
     regs: interrupts.InterruptFrame = std.mem.zeroes(interrupts.InterruptFrame),
-    node: std.TailQueue(void).Node = undefined,
+    node: std.TailQueue(void).Node = .{ .data = {} },
     syscall_stack: u64 = 0,
 
     pub fn exec(
@@ -409,7 +409,7 @@ pub fn getProcessByPid(pid: u64) ?*process.Process {
 
 pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     const thread = try root.allocator.create(Thread);
-    const stack = root.page_heap_allocator.allocate(16) orelse return error.OutOfMemory;
+    const kernel_stack = try utils.KernelStack.allocate(16);
 
     errdefer root.allocator.destroy(thread);
 
@@ -438,7 +438,7 @@ pub fn startKernelThread(comptime entry: anytype, context: anytype) !*Thread {
     };
 
     thread.regs.iret.rip = @intFromPtr(&wrapper.handler);
-    thread.regs.iret.rsp = stack + std.mem.page_size * 16 - 0x10;
+    thread.regs.iret.rsp = kernel_stack.getEndAddress() - 0x10;
     thread.regs.rdi = switch (@typeInfo(@TypeOf(context))) {
         .Pointer => @intFromPtr(context),
         else => @as(u64, context),

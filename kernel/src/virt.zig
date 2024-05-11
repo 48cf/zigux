@@ -26,6 +26,7 @@ pub const PTEFlags = struct {
     pub const user = 1 << 2;
     pub const write_through = 1 << 3;
     pub const no_cache = 1 << 4;
+    pub const guard_page = 1 << 10;
     pub const no_execute = 1 << 63;
 };
 
@@ -90,12 +91,16 @@ const PTE = extern struct {
 const PageTable = extern struct {
     entries: [512]PTE,
 
-    pub fn translate(self: *PageTable, address: u64) ?u64 {
+    pub fn getPTE(self: *@This(), address: u64, allocate: bool) ?*PTE {
         const pml4i, const pml3i, const pml2i, const pml1i = addressToIndices(address);
-        const pml3 = getPageTable(self, pml4i, false) orelse return null;
-        const pml2 = getPageTable(pml3, pml3i, false) orelse return null;
-        const pml1 = getPageTable(pml2, pml2i, false) orelse return null;
-        const entry = &pml1.entries[pml1i];
+        const pml3 = getPageTable(self, pml4i, allocate) orelse return null;
+        const pml2 = getPageTable(pml3, pml3i, allocate) orelse return null;
+        const pml1 = getPageTable(pml2, pml2i, allocate) orelse return null;
+        return &pml1.entries[pml1i];
+    }
+
+    pub fn translate(self: *PageTable, address: u64) ?u64 {
+        const entry = self.getPTE(address, false) orelse return null;
         if ((entry.getFlags() & PTEFlags.present) != 0) {
             return entry.getAddress();
         }
@@ -103,12 +108,8 @@ const PageTable = extern struct {
     }
 
     pub fn mapPage(self: *PageTable, address: u64, physical: u64, flags: u64) !void {
-        const pml4i, const pml3i, const pml2i, const pml1i = addressToIndices(address);
-        const pml3 = getPageTable(self, pml4i, true) orelse return error.OutOfMemory;
-        const pml2 = getPageTable(pml3, pml3i, true) orelse return error.OutOfMemory;
-        const pml1 = getPageTable(pml2, pml2i, true) orelse return error.OutOfMemory;
-        const entry = &pml1.entries[pml1i];
-        if ((entry.getFlags() & PTEFlags.present) != 0) {
+        const entry = self.getPTE(address, true) orelse return error.OutOfMemory;
+        if ((entry.getFlags() & PTEFlags.present) != 0 or (entry.getFlags() & PTEFlags.guard_page) != 0) {
             return error.AlreadyMapped;
         }
         entry.setAddress(physical);
@@ -116,12 +117,8 @@ const PageTable = extern struct {
     }
 
     pub fn unmapPage(self: *PageTable, address: u64) !void {
-        const pml4i, const pml3i, const pml2i, const pml1i = addressToIndices(address);
-        const pml3 = getPageTable(self, pml4i, false) orelse return error.NotMapped;
-        const pml2 = getPageTable(pml3, pml3i, false) orelse return error.NotMapped;
-        const pml1 = getPageTable(pml2, pml2i, false) orelse return error.NotMapped;
-        const entry = &pml1.entries[pml1i];
-        if ((entry.getFlags() & PTEFlags.present) == 0) {
+        const entry = self.getPTE(address, false) orelse return error.NotMapped;
+        if ((entry.getFlags() & PTEFlags.present) == 0 and (entry.getFlags() & PTEFlags.guard_page) == 0) {
             return error.NotMapped;
         }
         entry.setAddress(0);

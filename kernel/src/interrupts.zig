@@ -127,6 +127,17 @@ fn exceptionHandler(frame: *InterruptFrame) void {
             : [result] "=r" (-> u64),
         );
 
+        // If the access violation comes from kernel mode (CPL=0) and the
+        // first bit of error code (present bit) is not set, then we can
+        // make sure that we did in fact hit a guard page of a kernel stack
+        if ((frame.iret.cs & 0x3) == 0 and (frame.iret.err & (1 << 0)) == 0) {
+            if (virt.kernel_address_space.page_table.getPTE(cr2, false)) |pte| {
+                if ((pte.getFlags() & virt.PTEFlags.guard_page) != 0) {
+                    @panic("A kernel stack guard page was hit!!! O_O");
+                }
+            }
+        }
+
         if (virt.handlePageFault(cr2, frame.iret.err) catch |err| {
             logger.err("Failed to handle the page fault: {any}", .{err});
             break :blk;

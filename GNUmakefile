@@ -25,11 +25,11 @@ distro-base: jinx
 
 .PHONY: run
 run: zigux.iso
-	qemu-system-x86_64 -cdrom $< -cpu qemu64,+fsgsbase $(QEMUFLAGS)
+	qemu-system-x86_64 -cdrom $< $(QEMUFLAGS)
 
 .PHONY: run-kvm
 run-kvm: zigux.iso
-	qemu-system-x86_64 -cdrom $< -enable-kvm -cpu host $(QEMUFLAGS)
+	qemu-system-x86_64 -cdrom $< -enable-kvm $(QEMUFLAGS)
 
 jinx:
 	curl -o $@ https://raw.githubusercontent.com/mintsuki/jinx/802082d0389d0b73afed5f52875a204e9134a3fe/jinx

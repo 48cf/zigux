@@ -26,7 +26,7 @@ const virt = @import("./virt.zig");
 
 const PageAllocator = struct {
     pub fn allocate(_: *@This(), pages: usize) ?u64 {
-        return heap_paged_arena.allocate(pages * std.mem.page_size);
+        return kernel_paged_arena.allocate(pages * std.mem.page_size);
     }
 
     fn alloc(ctx: *anyopaque, len: usize, _: u8, _: usize) ?[*]u8 {
@@ -64,8 +64,8 @@ pub const os = struct {
 
 pub const std_options: std.Options = .{ .logFn = log };
 
-var heap_va_arena: virt.Arena = .{};
-var heap_paged_arena: virt.Arena = .{};
+pub var kernel_va_arena: virt.Arena = .{};
+pub var kernel_paged_arena: virt.Arena = .{};
 
 pub var page_heap_allocator: PageAllocator = .{};
 pub var gp_allocator = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true, .MutexType = lock.Spinlock }){};
@@ -114,23 +114,23 @@ fn mainThread(_: u8) !void {
 fn pagedAlloc(source: *virt.Arena, size: usize) ?u64 {
     const page_table = virt.kernel_address_space.page_table;
     const pages = @divExact(size, std.mem.page_size);
-    const address = source.allocate((pages + 1) * std.mem.page_size) orelse return null;
+    const address = source.allocate(pages * std.mem.page_size) orelse return null;
     for (0..pages) |i| {
         const page = phys.allocate(1, true) orelse return null;
         page_table.mapPage(
-            address + (i + 1) * std.mem.page_size,
+            address + i * std.mem.page_size,
             page,
             virt.PTEFlags.present | virt.PTEFlags.writable,
         ) catch return null;
     }
-    return address + std.mem.page_size;
+    return address;
 }
 
 fn pagedFree(source: *virt.Arena, address: u64, size: usize) void {
     const page_table = virt.kernel_address_space.page_table;
     const pages = std.math.divCeil(usize, size, std.mem.page_size) catch unreachable;
     for (0..pages) |i| {
-        const addr = address + (i + 1) * std.mem.page_size;
+        const addr = address + i * std.mem.page_size;
         const phys_addr = page_table.translate(addr) orelse unreachable;
         page_table.unmapPage(addr) catch unreachable;
         phys.free(phys_addr, 1);
@@ -158,8 +158,8 @@ fn main() !void {
 
     virt.bootstrapArena();
 
-    heap_va_arena = virt.Arena.init("heap-va", 0xFFFF_A000_0000_0000, utils.tib(16));
-    heap_paged_arena = virt.Arena.initWithSource("heap-paged", &heap_va_arena, pagedAlloc, pagedFree);
+    kernel_va_arena = virt.Arena.init("kernel-va", 0xFFFF_A000_0000_0000, utils.tib(16));
+    kernel_paged_arena = virt.Arena.initWithSource("kernel-paged", &kernel_va_arena, pagedAlloc, pagedFree);
 
     const boot_info_res = boot_info_req.response.?;
     const hhdm_res = hhdm_req.response.?;

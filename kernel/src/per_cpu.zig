@@ -1,12 +1,13 @@
 const root = @import("root");
 const std = @import("std");
 
-const arch = @import("arch.zig");
-const apic = @import("apic.zig");
-const phys = @import("phys.zig");
-const virt = @import("virt.zig");
-const scheduler = @import("scheduler.zig");
-const process = @import("process.zig");
+const apic = @import("./apic.zig");
+const arch = @import("./arch.zig");
+const phys = @import("./phys.zig");
+const process = @import("./process.zig");
+const scheduler = @import("./scheduler.zig");
+const utils = @import("./utils.zig");
+const virt = @import("./virt.zig");
 
 pub const PerCpu = struct {
     self: *PerCpu,
@@ -43,8 +44,7 @@ pub fn initFeatures() void {
         : [result] "=r" (-> u64),
     );
 
-    cr4 |= 1 << 9;
-    cr4 |= 1 << 16;
+    cr4 |= (1 << 9);
 
     asm volatile ("mov %[value], %%cr4"
         :
@@ -60,16 +60,16 @@ pub fn init() !void {
         .lapic_base = virt.asHigherHalf(u64, arch.Msr.apic.read() & ~@as(u64, 0xFFF)),
     };
 
-    const intr_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
-    const ist_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
-    const sched_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
-    const pf_stack = root.page_heap_allocator.allocate(4) orelse return error.OutOfMemory;
+    const intr_stack = try utils.KernelStack.allocate(4);
+    const ist_stack = try utils.KernelStack.allocate(4);
+    const sched_stack = try utils.KernelStack.allocate(4);
+    const pf_stack = try utils.KernelStack.allocate(4);
 
     instance.lapic_id = apic.getLapicID();
-    instance.tss.rsp[0] = intr_stack + std.mem.page_size * 4;
-    instance.tss.ist[0] = ist_stack + std.mem.page_size * 4;
-    instance.tss.ist[1] = sched_stack + std.mem.page_size * 4;
-    instance.tss.ist[2] = pf_stack + std.mem.page_size * 4;
+    instance.tss.rsp[0] = intr_stack.getEndAddress();
+    instance.tss.ist[0] = ist_stack.getEndAddress();
+    instance.tss.ist[1] = sched_stack.getEndAddress();
+    instance.tss.ist[2] = pf_stack.getEndAddress();
 
     instance.gdt.load(&instance.tss);
     instance.idt.load();
