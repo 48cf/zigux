@@ -9,7 +9,6 @@ const vfs = @import("../vfs.zig");
 const utils = @import("../utils.zig");
 const per_cpu = @import("../per_cpu.zig");
 const input = @import("../drivers/input.zig");
-const ext_fs = @import("ext_fs.zig");
 const ram_fs = @import("ram_fs.zig");
 
 const tty_vtable: vfs.VNodeVTable = .{
@@ -336,8 +335,6 @@ fn probePartitions(device: *BlockDevice, sector_size: usize) !void {
                 "{}: Added partition with start LBA of {} and end LBA of {}",
                 .{ part_node.block.vnode.getFullPath(), entry.starting_lba, entry.ending_lba },
             );
-
-            try ext_fs.init(&part_node.block.vnode);
         }
     } else if (mbr_header.magic == 0xAA55) {
         logger.debug("{}: MBR partition table detected", .{device.vnode.getFullPath()});

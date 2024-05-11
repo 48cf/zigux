@@ -248,7 +248,7 @@ fn checkFunction(device: Device) anyerror!void {
     );
 
     inline for (drivers.pci_drivers) |driver| {
-        switch (@as(drivers.PciDriverDiscovery, driver.discovery)) {
+        switch (@as(drivers.PCIDriverDiscovery, driver.discovery)) {
             .all => try driver.handler(device),
             .id => |id| {
                 if (vendor_id == id.vendor and device_id == id.device) {
