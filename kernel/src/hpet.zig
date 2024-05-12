@@ -29,27 +29,26 @@ fn ensureIsSane() bool {
 }
 
 fn tryInit() bool {
-    const hpet_table = acpi.findTable(uacpi.ACPI_HPET_SIGNATURE);
-    if (hpet_table) |table| {
-        const hpet: *uacpi.acpi_hpet = @ptrCast(table.uacpi_table.unnamed_0.hdr);
-        if (hpet.address.address_space_id != uacpi.UACPI_ADDRESS_SPACE_SYSTEM_MEMORY) {
-            logger.err("HPET address space is not system memory", .{});
-            return false;
-        }
+    const hpet_table = acpi.findTable(uacpi.ACPI_HPET_SIGNATURE) orelse {
+        logger.err("HPET table not found", .{});
+        return false;
+    };
 
-        hpet_address = hpet.address;
-        logger.debug("HPET base address is 0x{X}", .{hpet.address.address});
-
-        if (!ensureIsSane()) {
-            hpet_address = null;
-            return false;
-        }
-
-        return true;
+    const hpet: *uacpi.acpi_hpet = @ptrCast(hpet_table.uacpi_table.unnamed_0.hdr);
+    if (hpet.address.address_space_id != uacpi.UACPI_ADDRESS_SPACE_SYSTEM_MEMORY) {
+        logger.err("HPET address space is not system memory", .{});
+        return false;
     }
 
-    logger.err("HPET table not found", .{});
-    return false;
+    hpet_address = hpet.address;
+    logger.debug("HPET base address is 0x{X}", .{hpet.address.address});
+
+    if (!ensureIsSane()) {
+        hpet_address = null;
+        return false;
+    }
+
+    return true;
 }
 
 fn finishInit() void {

@@ -15,11 +15,7 @@ const usb = @import("./usb.zig");
 pub const pci_driver = .{
     .handler = handleDevice,
     .discovery = .{
-        .class = .{
-            .class_id = 0xc,
-            .subclass_id = 0x3,
-            .prog_if = 0x30,
-        },
+        .class = .{ .class_id = 0xC, .subclass_id = 0x3, .prog_if = 0x30 },
     },
 };
 
@@ -726,20 +722,16 @@ fn processIrqs(controller: *Controller) void {
     }
 }
 
-fn controllerThread(param: u32) !void {
-    const address: PciAddress = @bitCast(param);
-    const device = pci.Device{ .bus = address.bus, .slot = address.slot, .function = address.function };
-
-    const bar0 = device.getBar(0).?;
-    const caps = virt.asHigherHalfUncached(*volatile CapabilityRegs, bar0.base);
+fn controllerThread(device: *pci.Device) !void {
+    const bar0 = device.bars[0].?;
+    const caps = virt.asHigherHalfUncached(*volatile CapabilityRegs, bar0.base_address);
 
     const controller = try root.allocator.create(Controller);
     controller.* = .{
         .caps = caps,
-        .ops = virt.asHigherHalfUncached(*volatile OperationalRegs, bar0.base + caps.caplength),
-        .runtime = virt.asHigherHalfUncached(*volatile RuntimeRegs, bar0.base + caps.rtsoff),
-        .doorbells = virt.asHigherHalfUncached([*]volatile u32, bar0.base + caps.dboff),
-
+        .ops = virt.asHigherHalfUncached(*volatile OperationalRegs, bar0.base_address + caps.caplength),
+        .runtime = virt.asHigherHalfUncached(*volatile RuntimeRegs, bar0.base_address + caps.rtsoff),
+        .doorbells = virt.asHigherHalfUncached([*]volatile u32, bar0.base_address + caps.dboff),
         .command_queue = .{ .data = undefined },
         .event_queue = .{ .data = undefined },
     };
@@ -834,7 +826,7 @@ fn controllerThread(param: u32) !void {
     controller.ops.crcr = command_ring_phys | (1 << 0);
 
     const xhci_vector = interrupts.allocateVector();
-    const msi = device.getMsi() orelse {
+    const msi = device.getMSI(true) orelse {
         logger.err("Failed to find the MSI", .{});
         return error.MsiNotSupported;
     };
@@ -917,7 +909,7 @@ fn controllerThread(param: u32) !void {
     // Read in the port status and control registers for each port
     var ext_caps_pointer = controller.caps.hccparams1 >> 16;
     while (true) {
-        const ext_capability = virt.asHigherHalfUncached([*]volatile u32, bar0.base + ext_caps_pointer * 4);
+        const ext_capability = virt.asHigherHalfUncached([*]volatile u32, bar0.base_address + ext_caps_pointer * 4);
 
         const cap_id = ext_capability[0] & 0xff;
         const next_cap_pointer = (ext_capability[0] >> 8) & 0xff;
@@ -965,20 +957,11 @@ fn controllerThread(param: u32) !void {
     }
 }
 
-const PciAddress = packed struct {
-    bus: u8,
-    slot: u8,
-    function: u8,
-    reserved: u8 = undefined,
-};
-
-fn handleDevice(device: pci.Device) !void {
+fn handleDevice(device: *pci.Device) !void {
     logger.info(
-        "Handling device {X:0>4}:{X:0>4}",
-        .{ device.vendor_id().read(), device.device_id().read() },
+        "Discovered new XHCI controller {X:0>4}:{X:0>4} on {any}",
+        .{ device.vendor_id, device.device_id, device.address },
     );
 
-    asm volatile ("sti");
-    const param: u32 = @bitCast(PciAddress{ .bus = device.bus, .slot = device.slot, .function = device.function });
-    _ = try scheduler.startKernelThread(controllerThread, param);
+    _ = try scheduler.startKernelThread(controllerThread, device);
 }

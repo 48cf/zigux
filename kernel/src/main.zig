@@ -16,6 +16,7 @@ const hpet = @import("./hpet.zig");
 const interrupts = @import("./interrupts.zig");
 const lock = @import("./lock.zig");
 const per_cpu = @import("./per_cpu.zig");
+const pci = @import("./pci.zig");
 const phys = @import("./phys.zig");
 const scheduler = @import("./scheduler.zig");
 const time = @import("./time.zig");
@@ -95,6 +96,7 @@ export fn _start() callconv(.C) noreturn {
 }
 
 fn mainThread(_: u8) !void {
+    try pci.init();
     try acpi.enumerateDevices();
 
     // const process = try scheduler.spawnProcess(null);

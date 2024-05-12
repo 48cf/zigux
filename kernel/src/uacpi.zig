@@ -176,11 +176,17 @@ export fn uacpi_kernel_pci_read(
     byte_width: C.uacpi_u8,
     out_value: *C.uacpi_u64,
 ) callconv(.C) C.uacpi_status {
-    const pci_device = pci.Device{ .bus = address.bus, .slot = address.device, .function = address.function };
+    const offset_: u32 = @intCast(offset);
+    const pci_address: pci.Address = .{
+        .segment = address.segment,
+        .bus = address.bus,
+        .device = @intCast(address.device),
+        .function = @intCast(address.function),
+    };
     switch (byte_width) {
-        1 => out_value.* = pci_device.read(u8, @intCast(offset)),
-        2 => out_value.* = pci_device.read(u16, @intCast(offset)),
-        4 => out_value.* = pci_device.read(u32, @intCast(offset)),
+        1 => out_value.* = pci.readConfigSpace(u8, pci_address, offset_),
+        2 => out_value.* = pci.readConfigSpace(u16, pci_address, offset_),
+        4 => out_value.* = pci.readConfigSpace(u32, pci_address, offset_),
         else => return C.UACPI_STATUS_INVALID_ARGUMENT,
     }
     return C.UACPI_STATUS_OK;
@@ -192,11 +198,17 @@ export fn uacpi_kernel_pci_write(
     byte_width: C.uacpi_u8,
     in_value: C.uacpi_u64,
 ) callconv(.C) C.uacpi_status {
-    const pci_device = pci.Device{ .bus = address.bus, .slot = address.device, .function = address.function };
+    const offset_: u32 = @intCast(offset);
+    const pci_address: pci.Address = .{
+        .segment = address.segment,
+        .bus = address.bus,
+        .device = @intCast(address.device),
+        .function = @intCast(address.function),
+    };
     switch (byte_width) {
-        1 => pci_device.write(u8, @intCast(offset), @truncate(in_value)),
-        2 => pci_device.write(u16, @intCast(offset), @truncate(in_value)),
-        4 => pci_device.write(u32, @intCast(offset), @truncate(in_value)),
+        1 => pci.writeConfigSpace(u8, pci_address, offset_, @intCast(in_value)),
+        2 => pci.writeConfigSpace(u16, pci_address, offset_, @intCast(in_value)),
+        4 => pci.writeConfigSpace(u32, pci_address, offset_, @intCast(in_value)),
         else => return C.UACPI_STATUS_INVALID_ARGUMENT,
     }
     return C.UACPI_STATUS_OK;
