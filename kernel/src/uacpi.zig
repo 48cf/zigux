@@ -252,12 +252,10 @@ export fn uacpi_kernel_map(addr: C.uacpi_phys_addr, _: C.uacpi_size) callconv(.C
 export fn uacpi_kernel_unmap(_: *anyopaque, _: C.uacpi_size) callconv(.C) void {}
 
 export fn uacpi_kernel_alloc(size: C.uacpi_size) callconv(.C) *anyopaque {
-    const result = root.allocator.rawAlloc(size, 8, @returnAddress());
-
+    const result = root.allocator.rawAlloc(@max(size, 8), 3, @returnAddress());
     if (result == null) {
         @panic("uacpi_kernel_alloc failed");
     }
-
     return @ptrCast(result);
 }
 
@@ -270,7 +268,7 @@ export fn uacpi_kernel_calloc(count: C.uacpi_size, size: C.uacpi_size) callconv(
 export fn uacpi_kernel_free(mem: ?*anyopaque, size: C.uacpi_size) callconv(.C) void {
     if (mem != null) {
         const result: [*]u8 = @ptrCast(mem.?);
-        root.allocator.rawFree(result[0..size], 8, @returnAddress());
+        root.allocator.rawFree(result[0..@max(size, 8)], 3, @returnAddress());
     }
 }
 
@@ -295,6 +293,7 @@ export fn uacpi_kernel_vlog(
     }
 
     const level_str = switch (level) {
+        C.UACPI_LOG_DEBUG => "debug",
         C.UACPI_LOG_TRACE => "trace",
         C.UACPI_LOG_INFO => "info",
         C.UACPI_LOG_WARN => "warn",
@@ -353,7 +352,7 @@ export fn uacpi_kernel_release_mutex(handle: C.uacpi_handle) callconv(.C) void {
 
 export fn uacpi_kernel_create_event() callconv(.C) C.uacpi_handle {
     logger.warn("uacpi_kernel_create_event is a stub", .{});
-    unreachable;
+    return @ptrFromInt(0x1);
 }
 
 export fn uacpi_kernel_free_event(event: C.uacpi_handle) callconv(.C) void {
@@ -468,12 +467,7 @@ export fn uacpi_kernel_schedule_work(
 ) callconv(.C) C.uacpi_status {
     _ = work_type;
     logger.warn("uacpi_kernel_schedule_work is a stub", .{});
-    if (handler) |handler_| {
-        handler_(ctx);
-    } else {
-        logger.warn("uacpi_kernel_schedule_work: handler is null", .{});
-        return C.UACPI_STATUS_INVALID_ARGUMENT;
-    }
+    handler.?(ctx);
     return C.UACPI_STATUS_OK;
 }
 
