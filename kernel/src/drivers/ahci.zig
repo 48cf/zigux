@@ -402,7 +402,7 @@ const PortState = struct {
     fn setupCommandHeaders(self: *PortState) !void {
         const port_io_size = @sizeOf(CommandList) + @sizeOf(RecvFis);
         const page_count = std.mem.alignForward(u64, port_io_size, std.mem.page_size) / std.mem.page_size;
-        const commands_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
+        const commands_phys = phys.allocate(page_count, .dma) orelse return error.OutOfMemory;
         const fis_phys = commands_phys + @sizeOf(CommandList);
 
         write_u64(&self.mmio.command_list_base, commands_phys);
@@ -416,7 +416,7 @@ const PortState = struct {
         for (self.mmio.getCommandHeaders()) |*header| {
             if (remaining_table_size < @sizeOf(CommandTable)) {
                 remaining_table_size = std.mem.page_size;
-                current_table_addr = phys.allocate(1, true) orelse return error.OutOfMemory;
+                current_table_addr = phys.allocate(1, .dma) orelse return error.OutOfMemory;
             }
 
             write_u64(&header.command_table_addr, current_table_addr);
@@ -429,7 +429,7 @@ const PortState = struct {
             header.atapi = if (self.port_type == .Atapi) 1 else 0;
 
             const prd = &header.table().prds[0];
-            const buf = phys.allocate(1, true) orelse return error.OutOfMemory;
+            const buf = phys.allocate(1, .dma) orelse return error.OutOfMemory;
 
             write_u64(&prd.data_base_addr, buf);
 

@@ -8,172 +8,118 @@ const lock = @import("lock.zig");
 const utils = @import("utils.zig");
 const virt = @import("virt.zig");
 
-const Bitmap = struct {
-    data: []u8,
+const PageList = std.SinglyLinkedList(void);
+const RegionQueue = std.TailQueue(void);
 
-    pub fn init(data: []u8) Bitmap {
-        return Bitmap{ .data = data };
-    }
+pub const PageUsage = enum(u4) {
+    invalid,
+    pfn_database,
+    free,
+    conventional,
+    dma,
+    stack,
+    page_table,
+    max = 0b1111,
+};
 
-    pub fn testBit(self: *const Bitmap, bit: usize) bool {
-        return self.data[bit / 8] & @as(u8, 1) << @as(u3, @intCast(bit % 8)) != 0;
-    }
+pub const Page = struct {
+    node: PageList.Node = .{ .data = {} },
+    info: packed struct(u64) {
+        pfn: u52,
+        usage: PageUsage,
+        is_dirty: u1,
+        reserved: u7,
+    },
+};
 
-    pub fn setBit(self: *Bitmap, bit: usize) void {
-        self.data[bit / 8] |= @as(u8, 1) << @as(u3, @intCast(bit % 8));
-    }
+const PhysicalRegion = struct {
+    node: RegionQueue.Node = .{ .data = {} },
+    base_address: u64,
+    page_count: usize,
 
-    pub fn clearBit(self: *Bitmap, bit: usize) void {
-        self.data[bit / 8] &= ~(@as(u8, 1) << @as(u3, @intCast(bit % 8)));
+    fn pages(self: *@This()) []Page {
+        const ptr: [*]Page = @ptrFromInt(@intFromPtr(self) + @sizeOf(PhysicalRegion));
+        return ptr[0..self.page_count];
     }
 };
 
-var bitmap: Bitmap = undefined;
-var highest_phys_addr: u64 = 0;
 var pmm_lock: lock.Spinlock = .{};
-
-var total_pages: usize = undefined;
-var used_pages: usize = undefined;
-var last_allocation: usize = undefined;
+var free_pages: PageList = .{};
+var regions: RegionQueue = .{};
 
 pub fn init(memory_map_res: *limine.MemoryMapResponse) !void {
     logger.info("Current system memory map:", .{});
 
-    var bitmap_region: ?*limine.MemoryMapEntry = null;
-
     for (memory_map_res.entries()) |entry| {
-        logger.info("  base=0x{X:0>16}, length=0x{X:0>16}, kind={}", .{ entry.base, entry.length, entry.kind });
-
-        if (entry.kind == .usable and entry.base + entry.length > highest_phys_addr) {
-            highest_phys_addr = entry.base + entry.length;
+        if (entry.kind != .usable) {
+            continue;
         }
-    }
 
-    const bitmap_size = std.mem.alignForward(u64, highest_phys_addr, std.mem.page_size) / std.mem.page_size / 8 + 1;
+        const page_count = std.math.divCeil(usize, entry.length, std.mem.page_size) catch unreachable;
+        const reserved = std.mem.alignForward(usize, @sizeOf(PhysicalRegion) + @sizeOf(Page) * page_count, std.mem.page_size);
+        const aligned_length = page_count * std.mem.page_size;
 
-    logger.debug("Highest available address: 0x{X:0>16}", .{highest_phys_addr});
-    logger.debug("Required bitmap size: {}KiB", .{bitmap_size / 1024});
-
-    for (memory_map_res.entries()) |entry| {
-        if (entry.kind == .usable and entry.length >= bitmap_size) {
-            bitmap_region = entry;
-            break;
+        if (aligned_length - reserved < std.mem.page_size * 8) {
+            logger.debug(
+                "Skipping usable physical region 0x{X}-0x{X}, too small to track",
+                .{ entry.base, entry.base + aligned_length },
+            );
+            continue;
         }
+
+        const region = virt.asHigherHalf(*PhysicalRegion, entry.base);
+        region.* = .{ .base_address = entry.base, .page_count = page_count };
+
+        logger.info(
+            "Tracking physical region 0x{X}-0x{X}, {d} KiB, {d} pages, {d} KiB for PFDB",
+            .{ region.base_address, region.base_address + aligned_length, aligned_length / 1024, region.page_count, reserved / 1024 },
+        );
+
+        const pages = region.pages();
+        const reserved_page_count = reserved / std.mem.page_size;
+
+        for (pages, 0..) |*page, i| {
+            page.* = Page{
+                .info = .{
+                    .pfn = @truncate((region.base_address + i * std.mem.page_size) >> 12),
+                    .usage = if (i < reserved_page_count) .pfn_database else .free,
+                    .is_dirty = @intFromBool(i >= reserved_page_count),
+                    .reserved = 0,
+                },
+            };
+
+            if (i >= reserved_page_count) {
+                free_pages.prepend(&page.node);
+            }
+        }
+
+        regions.append(&region.node);
     }
+}
 
-    if (bitmap_region == null) {
-        return error.BitmapTooBig;
-    }
+pub fn allocate(pages: usize, usage: PageUsage) ?u64 {
+    std.debug.assert(pages == 1);
+    std.debug.assert(@intFromEnum(usage) >= @intFromEnum(PageUsage.conventional));
 
-    bitmap = blk: {
-        const bitmap_data = virt.asHigherHalf([*]u8, bitmap_region.?.base);
-
-        break :blk Bitmap.init(bitmap_data[0..bitmap_size]);
+    const page: *Page = blk: {
+        pmm_lock.lock();
+        defer pmm_lock.unlock();
+        break :blk @fieldParentPtr("node", free_pages.popFirst() orelse return null);
     };
 
-    total_pages = 0;
-    used_pages = 0;
-    last_allocation = 0;
+    std.debug.assert(page.info.usage == .free);
+    page.info.usage = usage;
 
-    @memset(bitmap.data, 0xFF);
-
-    for (memory_map_res.entries()) |entry| {
-        if (entry.kind == .usable) {
-            const base = entry.base / std.mem.page_size;
-            const length = entry.length / std.mem.page_size;
-
-            for (0..length) |i| {
-                bitmap.clearBit(base + i);
-            }
-
-            total_pages += length;
-        }
+    const page_phys = page.info.pfn << 12;
+    if (page.info.is_dirty == 1) {
+        const page_virt = virt.asHigherHalf(*[std.mem.page_size]u8, page_phys);
+        @memset(page_virt, 0);
     }
 
-    const bitmap_base = std.mem.alignBackward(u64, bitmap_region.?.base, std.mem.page_size) / std.mem.page_size;
-    const bitmap_length = std.mem.alignForward(u64, bitmap_size, std.mem.page_size) / std.mem.page_size;
-
-    var i: usize = 0;
-
-    while (i < bitmap_length) : (i += 1) {
-        bitmap.setBit(bitmap_base + i);
-    }
-
-    total_pages -= bitmap_length;
-
-    logger.info("Amount of memory available: {}MiB", .{(total_pages * std.mem.page_size) / 1024 / 1024});
+    return page_phys;
 }
 
-pub fn allocate(pages: usize, zero: bool) ?u64 {
-    pmm_lock.lock();
-    defer pmm_lock.unlock();
-
-    if (pages > total_pages - used_pages) {
-        return null;
-    }
-
-    const allocation = allocate_inner(last_allocation, pages) orelse allocate_inner(0, pages);
-
-    if (allocation == null) {
-        return null;
-    }
-
-    var i: usize = 0;
-
-    while (i < pages) : (i += 1) {
-        bitmap.setBit(allocation.? + i);
-    }
-
-    last_allocation = allocation.? + pages;
-    used_pages += pages;
-
-    const address = allocation.? * std.mem.page_size;
-
-    if (zero) {
-        const allocation_data = virt.asHigherHalf([*]u8, address);
-
-        @memset(allocation_data[0 .. pages * std.mem.page_size], 0);
-    }
-
-    return address;
-}
-
-// TODO: Implement free lmao
 pub fn free(address: u64, pages: usize) void {
-    logger.warn("Physical free is a stub, attempt to free {} pages at 0x{X}", .{ pages, address });
-}
-
-pub fn highestAddress() u64 {
-    return highest_phys_addr;
-}
-
-pub fn freePages() usize {
-    return total_pages - used_pages;
-}
-
-pub fn totalPages() usize {
-    return total_pages;
-}
-
-pub fn usedPages() usize {
-    return used_pages;
-}
-
-fn allocate_inner(start: usize, pages: usize) ?u64 {
-    var i: usize = start;
-
-    while (i < bitmap.data.len * 8) : (i += 1) {
-        var found = true;
-        var j: usize = 0;
-
-        while (found and j < pages) : (j += 1) {
-            found = !bitmap.testBit(i + j);
-        }
-
-        if (found) {
-            return i;
-        }
-    }
-
-    return null;
+    _ = address;
+    _ = pages;
 }

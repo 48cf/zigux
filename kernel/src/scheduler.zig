@@ -351,8 +351,7 @@ pub fn spawnThreadWithoutStack(parent: *process.Process) !*Thread {
         .parent = parent,
     };
 
-    const syscall_stack = phys.allocate(syscall_stack_pages, false) orelse return error.OutOfMemory;
-
+    const syscall_stack = phys.allocate(syscall_stack_pages, .stack) orelse return error.OutOfMemory;
     thread.syscall_stack = virt.asHigherHalf(u64, syscall_stack);
     thread.regs.iret.rflags = 0x202;
     thread.regs.iret.cs = 0x38 | 3;

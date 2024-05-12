@@ -115,7 +115,7 @@ fn pagedAlloc(source: *virt.Arena, size: usize) ?u64 {
     const pages = @divExact(size, std.mem.page_size);
     const address = source.allocate(pages * std.mem.page_size) orelse return null;
     for (0..pages) |i| {
-        const page = phys.allocate(1, true) orelse return null;
+        const page = phys.allocate(1, .conventional) orelse return null;
         page_table.mapPage(
             address + i * std.mem.page_size,
             page,

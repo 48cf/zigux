@@ -44,7 +44,7 @@ fn getPageTable(pt: *PageTable, index: u9, allocate: bool) ?*PageTable {
         return asHigherHalf(*PageTable, entry.getAddress());
     }
     if (allocate) {
-        const new_pt_phys = phys.allocate(1, true) orelse return null;
+        const new_pt_phys = phys.allocate(1, .page_table) orelse return null;
         entry.setAddress(new_pt_phys);
         entry.setFlags(PTEFlags.present | PTEFlags.writable | PTEFlags.user);
         return asHigherHalf(*PageTable, new_pt_phys);
@@ -189,7 +189,7 @@ fn freeSegment(segment: *Arena.Segment) void {
 fn refillSegments() void {
     segment_lock.lock();
     defer segment_lock.unlock();
-    const segments_phys = phys.allocate(1, false) orelse unreachable;
+    const segments_phys = phys.allocate(1, .conventional) orelse unreachable;
     const segments = asHigherHalf(*[std.mem.page_size / @sizeOf(Arena.Segment)]Arena.Segment, segments_phys);
     for (segments) |*seg| {
         free_segments.prepend(&seg.list_node);
@@ -499,7 +499,7 @@ pub const AddressSpace = struct {
 
                     const misalign = ph.p_vaddr & (std.mem.page_size - 1);
                     const page_count = std.mem.alignForward(u64, misalign + ph.p_memsz, std.mem.page_size) / std.mem.page_size;
-                    const page_phys = phys.allocate(page_count, true) orelse return error.OutOfMemory;
+                    const page_phys = phys.allocate(page_count, .conventional) orelse return error.OutOfMemory;
                     const page_hh = asHigherHalf([*]u8, page_phys + misalign);
 
                     var prot: u64 = 0;
@@ -563,7 +563,7 @@ pub const AddressSpace = struct {
 
             if (address >= mapping.base and address < mapping.base + mapping.length) {
                 const base = std.mem.alignBackward(u64, address, std.mem.page_size);
-                const page_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+                const page_phys = phys.allocate(1, .conventional) orelse return error.OutOfMemory;
                 const flags = protToPTEFlags(mapping.prot, true);
 
                 try self.page_table.mapPage(base, page_phys, flags);
@@ -637,7 +637,7 @@ pub const AddressSpace = struct {
             // TODO: Please someone implement CoW for me :sadge:
             for (0..utils.alignUp(usize, mapping.length, std.mem.page_size) / std.mem.page_size) |page_index| {
                 const original_page = self.page_table.translate(mapping.base + page_index * std.mem.page_size) orelse continue;
-                const new_page = phys.allocate(1, true) orelse return error.OutOfMemory;
+                const new_page = phys.allocate(1, .conventional) orelse return error.OutOfMemory;
 
                 @memcpy(
                     asHigherHalf([*]u8, new_page)[0..std.mem.page_size],
@@ -705,7 +705,7 @@ pub fn bootstrapArena() void {
 }
 
 pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
-    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const page_table_phys = phys.allocate(1, .page_table) orelse return error.OutOfMemory;
     const page_table = asHigherHalf(*PageTable, page_table_phys);
 
     // Pre-populate the higher half of kernel address space
@@ -732,7 +732,7 @@ pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
 }
 
 pub fn createAddressSpace() !AddressSpace {
-    const page_table_phys = phys.allocate(1, true) orelse return error.OutOfMemory;
+    const page_table_phys = phys.allocate(1, .page_table) orelse return error.OutOfMemory;
     var address_space = AddressSpace.init(page_table_phys);
 
     for (256..512) |i| {

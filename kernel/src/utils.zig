@@ -31,7 +31,7 @@ pub const KernelStack = struct {
         try virt.kernel_address_space.page_table.mapPage(address, 0, virt.PTEFlags.guard_page);
 
         for (0..pages) |i| {
-            const phys_addr = phys.allocate(1, false) orelse return error.NoMemory;
+            const phys_addr = phys.allocate(1, .stack) orelse return error.NoMemory;
             try virt.kernel_address_space.page_table.mapPage(
                 address + (i + 1) * std.mem.page_size,
                 phys_addr,

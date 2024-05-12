@@ -784,7 +784,7 @@ fn controllerThread(param: u32) !void {
     controller.ops.config = controller.slots.len;
 
     // Program the Device Context Base Address Array Pointer (DCBAAP) register
-    const dcbaap_phys = phys.allocate(1, true) orelse {
+    const dcbaap_phys = phys.allocate(1, .dma) orelse {
         logger.err("Failed to allocate memory for DCBAAP", .{});
         return error.OutOfMemory;
     };
@@ -792,11 +792,11 @@ fn controllerThread(param: u32) !void {
 
     // Populate the Device Context Base Address Array
     for (controller.slots.slice(), 0..) |*slot, i| {
-        const input_context_phys = phys.allocate(1, true) orelse {
+        const input_context_phys = phys.allocate(1, .dma) orelse {
             logger.err("Failed to allocate memory for input context", .{});
             return error.OutOfMemory;
         };
-        const device_context_phys = phys.allocate(1, true) orelse {
+        const device_context_phys = phys.allocate(1, .dma) orelse {
             logger.err("Failed to allocate memory for device context", .{});
             return error.OutOfMemory;
         };
@@ -806,14 +806,14 @@ fn controllerThread(param: u32) !void {
             .device_context = virt.asHigherHalfUncached(*volatile anyopaque, device_context_phys),
             .state = .unaddressed,
             .devices = .{},
-            .descriptor_buffer = phys.allocate(1, false) orelse {
+            .descriptor_buffer = phys.allocate(1, .dma) orelse {
                 logger.err("Failed to allocate memory for descriptor buffer", .{});
                 return error.OutOfMemory;
             },
             .ep_queue = undefined,
         };
         for (&slot.ep_queue) |*ep_queue| {
-            const transfer_ring_phys = phys.allocate(1, true) orelse {
+            const transfer_ring_phys = phys.allocate(1, .dma) orelse {
                 logger.err("Failed to allocate memory for transfer ring", .{});
                 return error.OutOfMemory;
             };
@@ -824,7 +824,7 @@ fn controllerThread(param: u32) !void {
     controller.ops.dcbaap = dcbaap_phys;
 
     // Define the Command Ring Dequeue Pointer by programming the Command Ring Control Register
-    const command_ring_phys = phys.allocate(1, true) orelse {
+    const command_ring_phys = phys.allocate(1, .dma) orelse {
         logger.err("Failed to allocate memory for command ring", .{});
         return error.OutOfMemory;
     };
@@ -843,14 +843,14 @@ fn controllerThread(param: u32) !void {
     msi.enable(0, xhci_vector);
 
     // Allocate and initialize the Event Ring Segments
-    const event_ring_phys = phys.allocate(1, true) orelse {
+    const event_ring_phys = phys.allocate(1, .dma) orelse {
         logger.err("Failed to allocate memory for event ring", .{});
         return error.OutOfMemory;
     };
     controller.event_queue.data = virt.asHigherHalfUncached([*]volatile TransferRequestBlock, event_ring_phys);
 
     // Allocate the Event Ring Segment Table
-    const event_ring_segment_table_phys = phys.allocate(1, true) orelse {
+    const event_ring_segment_table_phys = phys.allocate(1, .dma) orelse {
         logger.err("Failed to allocate memory for event ring segment table", .{});
         return error.OutOfMemory;
     };
@@ -891,7 +891,7 @@ fn controllerThread(param: u32) !void {
         std.debug.assert(scratchpad_count <= 512);
         logger.debug("Controller requested {d} scratchpad pages", .{scratchpad_count});
 
-        const scratchpad_array_phys = phys.allocate(1, true) orelse {
+        const scratchpad_array_phys = phys.allocate(1, .dma) orelse {
             logger.err("Failed to allocate memory for scratchpad array", .{});
             return error.OutOfMemory;
         };
@@ -899,7 +899,7 @@ fn controllerThread(param: u32) !void {
 
         const scratchpad_array = virt.asHigherHalf([*]u64, scratchpad_array_phys);
         for (0..scratchpad_count) |i| {
-            scratchpad_array[i] = phys.allocate(1, true) orelse {
+            scratchpad_array[i] = phys.allocate(1, .dma) orelse {
                 logger.err("Failed to allocate memory for scratchpad buffer", .{});
                 return error.OutOfMemory;
             };

@@ -147,7 +147,7 @@ const HidKeyboardDevice = struct {
         controller.sendControlTransfer(slot_id, 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
         controller.sendControlTransfer(slot_id, 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
         controller.enableEndpoint(slot_id, self.poll_ep);
-        self.report_buffer = phys.allocate(1, true).?;
+        self.report_buffer = phys.allocate(1, .dma).?;
     }
 
     fn onConfigured(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: u8) void {
@@ -229,7 +229,7 @@ const HidMouseDevice = struct {
         controller.sendControlTransfer(slot_id, 0, 0x21, 0xB, 0, device.interface_id, 0, 0, false);
         controller.sendControlTransfer(slot_id, 0, 0x21, 0xA, 0, device.interface_id, 0, 0, false);
         controller.enableEndpoint(slot_id, self.poll_ep);
-        self.report_buffer = phys.allocate(1, true).?;
+        self.report_buffer = phys.allocate(1, .dma).?;
     }
 
     fn onConfigured(self: *@This(), device: *Device, controller: *xhci.Controller, slot_id: u8) void {
