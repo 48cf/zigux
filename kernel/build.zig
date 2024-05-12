@@ -44,44 +44,30 @@ pub fn build(b: *std.Build) !void {
     kernel.addIncludePath(.{ .path = "../pkgs/mlibc-headers/usr/include" });
     kernel.addIncludePath(.{ .path = "../pkgs/linux-headers/usr/include" });
 
-    const c_flags: []const []const u8 = &.{
-        "-ffreestanding",
-        "-fno-sanitize=all",
-        "-march=x86-64",
-        "-mno-80387",
-        "-mno-mmx",
-        "-mno-sse",
-        "-mno-sse2",
-        "-mno-red-zone",
-    };
-
     // uacpi includes
     kernel.addIncludePath(.{ .path = "./uacpi/include" });
 
     // uacpi sources
     kernel.defineCMacro("UACPI_SIZED_FREES", "1");
-    kernel.addCSourceFiles(.{
-        .files = &.{
-            "./uacpi/source/tables.c",
-            "./uacpi/source/types.c",
-            "./uacpi/source/uacpi.c",
-            "./uacpi/source/utilities.c",
-            "./uacpi/source/interpreter.c",
-            "./uacpi/source/opcodes.c",
-            "./uacpi/source/namespace.c",
-            "./uacpi/source/stdlib.c",
-            "./uacpi/source/shareable.c",
-            "./uacpi/source/opregion.c",
-            "./uacpi/source/default_handlers.c",
-            "./uacpi/source/io.c",
-            "./uacpi/source/notify.c",
-            "./uacpi/source/sleep.c",
-            "./uacpi/source/registers.c",
-            "./uacpi/source/resources.c",
-            "./uacpi/source/event.c",
-        },
-        .flags = c_flags,
-    });
+    kernel.addCSourceFiles(.{ .files = &.{
+        "./uacpi/source/tables.c",
+        "./uacpi/source/types.c",
+        "./uacpi/source/uacpi.c",
+        "./uacpi/source/utilities.c",
+        "./uacpi/source/interpreter.c",
+        "./uacpi/source/opcodes.c",
+        "./uacpi/source/namespace.c",
+        "./uacpi/source/stdlib.c",
+        "./uacpi/source/shareable.c",
+        "./uacpi/source/opregion.c",
+        "./uacpi/source/default_handlers.c",
+        "./uacpi/source/io.c",
+        "./uacpi/source/notify.c",
+        "./uacpi/source/sleep.c",
+        "./uacpi/source/registers.c",
+        "./uacpi/source/resources.c",
+        "./uacpi/source/event.c",
+    } });
 
     // printf includes
     kernel.addIncludePath(.{ .path = "./printf/src" });
@@ -91,10 +77,7 @@ pub fn build(b: *std.Build) !void {
     kernel.defineCMacro("PRINTF_ALIAS_STANDARD_FUNCTION_NAMES_HARD", "1");
     kernel.defineCMacro("PRINTF_SUPPORT_DECIMAL_SPECIFIERS", "0");
     kernel.defineCMacro("PRINTF_SUPPORT_EXPONENTIAL_SPECIFIERS", "0");
-    kernel.addCSourceFiles(.{
-        .files = &.{"./printf/src/printf/printf.c"},
-        .flags = c_flags,
-    });
+    kernel.addCSourceFiles(.{ .files = &.{"./printf/src/printf/printf.c"} });
 
     // flanterm includes
     kernel.addIncludePath(.{ .path = "./flanterm" });
@@ -105,7 +88,7 @@ pub fn build(b: *std.Build) !void {
             "./flanterm/flanterm.c",
             "./flanterm/backends/fb.c",
         },
-        .flags = c_flags,
+        .flags = &.{"-fno-sanitize=undefined"},
     });
 
     b.installArtifact(kernel);
