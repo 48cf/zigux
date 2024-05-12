@@ -723,6 +723,10 @@ fn processIrqs(controller: *Controller) void {
 }
 
 fn controllerThread(device: *pci.Device) !void {
+    // Enable memory space access and bus mastering
+    const command_reg = device.read(u16, 0x4);
+    device.write(u16, 0x4, command_reg | (1 << 1) | (1 << 2));
+
     const bar0 = device.bars[0].?;
     const caps = virt.asHigherHalfUncached(*volatile CapabilityRegs, bar0.base_address);
 
