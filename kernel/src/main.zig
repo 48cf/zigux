@@ -178,7 +178,7 @@ fn main() !void {
     logger.info("Booted using {s} {s}", .{ boot_info_res.name, boot_info_res.version });
 
     try phys.init(memory_map_res);
-    try virt.init(kernel_addr_res);
+    try virt.init(memory_map_res, kernel_addr_res);
 
     try per_cpu.init();
     try acpi.init(rsdp_res);

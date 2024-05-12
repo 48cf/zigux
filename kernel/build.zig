@@ -24,8 +24,8 @@ pub fn build(b: *std.Build) !void {
     const limine = b.dependency("limine", .{});
     const kernel = b.addExecutable(.{
         .name = "kernel",
-        .code_model = .kernel,
         .pic = true,
+        .code_model = .kernel,
         .root_source_file = .{ .path = "src/main.zig" },
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,

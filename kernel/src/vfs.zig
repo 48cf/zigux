@@ -469,7 +469,7 @@ pub fn init(modules_res: *limine.ModuleResponse) !void {
         }
     }
 
-    logger.info("Loaded {d} ({d}KiB) files from {s}", .{ files, total_size / 1024, name });
+    logger.info("Loaded {s}, {d} files, {d} KiB", .{ name, files, total_size / 1024 });
 }
 
 pub fn resolve(cwd_: ?*VNode, path: []const u8, flags: u64) !*VNode {

@@ -5,8 +5,9 @@ const std = @import("std");
 const acpi = @import("./acpi.zig");
 const scheduler = @import("./scheduler.zig");
 const uacpi = @import("./uacpi.zig");
+const virt = @import("./virt.zig");
 
-var hpet_address: ?uacpi.acpi_gas = null;
+var hpet_address: ?*anyopaque = null;
 var counter_period: u64 = 0;
 
 const Register = enum(usize) {
@@ -16,7 +17,7 @@ const Register = enum(usize) {
 };
 
 fn getRegister(reg: Register) *volatile u64 {
-    return @as(*volatile u64, @ptrFromInt(hpet_address.?.address + @intFromEnum(reg)));
+    return @ptrFromInt(@intFromPtr(hpet_address.?) + @intFromEnum(reg));
 }
 
 fn ensureIsSane() bool {
@@ -40,7 +41,7 @@ fn tryInit() bool {
         return false;
     }
 
-    hpet_address = hpet.address;
+    hpet_address = virt.asHigherHalfUncached(*anyopaque, hpet.address.address);
     logger.debug("HPET base address is 0x{X}", .{hpet.address.address});
 
     if (!ensureIsSane()) {
@@ -73,7 +74,7 @@ pub fn init(force_init: bool) !void {
 
     if (force_init) {
         logger.warn("Could not find an HPET table, assuming the memory location", .{});
-        hpet_address = .{ .address = 0xFED00000 };
+        hpet_address = virt.asHigherHalfUncached(*anyopaque, 0xFED00000);
 
         if (ensureIsSane()) {
             return;

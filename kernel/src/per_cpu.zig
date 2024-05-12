@@ -53,8 +53,7 @@ pub fn initFeatures() void {
 }
 
 pub fn init() !void {
-    var instance = try root.allocator.create(PerCpu);
-
+    const instance = try root.allocator.create(PerCpu);
     instance.* = .{
         .self = instance,
         .lapic_base = virt.asHigherHalf(u64, arch.Msr.apic.read() & ~@as(u64, 0xFFF)),

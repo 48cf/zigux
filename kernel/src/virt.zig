@@ -680,7 +680,7 @@ var paging_lock: lock.Spinlock = .{};
 var current_address_space: *AddressSpace = undefined;
 var current_cr3: u64 = undefined;
 
-fn map_section(
+fn mapSection(
     comptime section_name: []const u8,
     page_table: *PageTable,
     kernel_addr_res: *limine.KernelAddressResponse,
@@ -704,7 +704,7 @@ pub fn bootstrapArena() void {
     }
 }
 
-pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
+pub fn init(memory_map_res: *limine.MemoryMapResponse, kernel_addr_res: *limine.KernelAddressResponse) !void {
     const page_table_phys = phys.allocate(1, .page_table) orelse return error.OutOfMemory;
     const page_table = asHigherHalf(*PageTable, page_table_phys);
 
@@ -713,14 +713,21 @@ pub fn init(kernel_addr_res: *limine.KernelAddressResponse) !void {
         _ = getPageTable(page_table, @intCast(i), true);
     }
 
-    // TODO: Map all of the memory map entries too
-    try page_table.map(std.mem.page_size, std.mem.page_size, utils.gib(16) - std.mem.page_size, PTEFlags.present | PTEFlags.writable);
+    for (memory_map_res.entries()) |entry| {
+        if (entry.base < utils.gib(16)) {
+            continue;
+        }
+
+        try page_table.map(hhdm + entry.base, entry.base, entry.length, PTEFlags.present | PTEFlags.writable | PTEFlags.no_execute);
+        try page_table.map(hhdm_uc + entry.base, entry.base, entry.length, PTEFlags.present | PTEFlags.writable | PTEFlags.no_cache | PTEFlags.no_execute);
+    }
+
     try page_table.map(hhdm, 0, utils.gib(16), PTEFlags.present | PTEFlags.writable | PTEFlags.no_execute);
     try page_table.map(hhdm_uc, 0, utils.gib(16), PTEFlags.present | PTEFlags.writable | PTEFlags.no_cache | PTEFlags.no_execute);
 
-    try map_section("text", page_table, kernel_addr_res, PTEFlags.present);
-    try map_section("rodata", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute);
-    try map_section("data", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute | PTEFlags.writable);
+    try mapSection("text", page_table, kernel_addr_res, PTEFlags.present);
+    try mapSection("rodata", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute);
+    try mapSection("data", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute | PTEFlags.writable);
 
     // Prepare for the address space switch
     kernel_address_space = AddressSpace.init(page_table_phys);

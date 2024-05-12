@@ -165,8 +165,8 @@ pub fn routeISAIRQ(irq: u8, lapic_id: u32, vector: u8, masked: bool) bool {
 
 pub fn handleIOAPIC(address: u32, base_gsi: u32) void {
     var ioapic: IOAPIC = .{
-        .ioregsel = @ptrFromInt(address),
-        .iowin = @ptrFromInt(address + 0x10),
+        .ioregsel = virt.asHigherHalfUncached(*volatile u32, address),
+        .iowin = virt.asHigherHalfUncached(*volatile u32, address + 0x10),
         .base_gsi = base_gsi,
         .gsi_count = undefined,
     };
