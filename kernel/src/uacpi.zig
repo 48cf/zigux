@@ -66,7 +66,7 @@ pub fn initTables(rsdp_res: *limine.RsdpResponse) !void {
         .rsdp = virt.higherHalfToPhysical(rsdp_res.address),
         .no_acpi_mode = false,
         .rt_params = .{
-            .log_level = C.UACPI_LOG_TRACE,
+            .log_level = C.UACPI_LOG_INFO,
             .flags = 0,
         },
     };
