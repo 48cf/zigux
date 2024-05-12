@@ -143,6 +143,14 @@ fn main() !void {
     asm volatile ("cli");
     defer asm volatile ("sti");
 
+    if (framebuffer_req.response) |fb_res| {
+        const framebuffer = fb_res.framebuffers()[0];
+        flanterm_ctx = C.flanterm_fb_init(null, null, @ptrCast(@alignCast(framebuffer.address)), //
+            framebuffer.width, framebuffer.height, framebuffer.pitch, framebuffer.red_mask_size, framebuffer.red_mask_shift, //
+            framebuffer.green_mask_size, framebuffer.green_mask_shift, framebuffer.blue_mask_size, framebuffer.blue_mask_shift, //
+            null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
+    }
+
     per_cpu.initBsp();
     per_cpu.initFeatures();
 
@@ -157,13 +165,6 @@ fn main() !void {
     const kernel_addr_res = kernel_addr_req.response.?;
     const modules_res = modules_req.response.?;
     const rsdp_res = rsdp_req.response.?;
-    const framebuffer_res = framebuffer_req.response.?;
-
-    const framebuffer = framebuffer_res.framebuffers()[0];
-    flanterm_ctx = C.flanterm_fb_init(null, null, @ptrCast(@alignCast(framebuffer.address)), //
-        framebuffer.width, framebuffer.height, framebuffer.pitch, framebuffer.red_mask_size, framebuffer.red_mask_shift, //
-        framebuffer.green_mask_size, framebuffer.green_mask_shift, framebuffer.blue_mask_size, framebuffer.blue_mask_shift, //
-        null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
 
     if (kernel_file_req.response) |res| {
         debug.init(res) catch |err|
