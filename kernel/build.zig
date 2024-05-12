@@ -100,7 +100,6 @@ pub fn build(b: *std.Build) !void {
     kernel.addIncludePath(.{ .path = "./flanterm" });
 
     // flanterm sources
-    kernel.defineCMacro("FLANTERM_FB_DISABLE_BUMP_ALLOC", "1");
     kernel.addCSourceFiles(.{
         .files = &.{
             "./flanterm/flanterm.c",

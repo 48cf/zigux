@@ -137,17 +137,6 @@ fn pagedFree(source: *virt.Arena, address: u64, size: usize) void {
     source.free(address, size);
 }
 
-fn flantermAlloc(size: usize) callconv(.C) ?*anyopaque {
-    const result = allocator.alignedAlloc(u8, 8, size) catch return null;
-    return result.ptr;
-}
-
-fn flantermFree(addr: ?*anyopaque, size: usize) callconv(.C) void {
-    if (addr) |ptr| {
-        allocator.free(@as([*]u8, @ptrCast(ptr))[0..size]);
-    }
-}
-
 fn main() !void {
     asm volatile ("cli");
     defer asm volatile ("sti");
@@ -168,6 +157,12 @@ fn main() !void {
     const rsdp_res = rsdp_req.response.?;
     const framebuffer_res = framebuffer_req.response.?;
 
+    const framebuffer = framebuffer_res.framebuffers()[0];
+    flanterm_ctx = C.flanterm_fb_init(null, null, @ptrCast(@alignCast(framebuffer.address)), //
+        framebuffer.width, framebuffer.height, framebuffer.pitch, framebuffer.red_mask_size, framebuffer.red_mask_shift, //
+        framebuffer.green_mask_size, framebuffer.green_mask_shift, framebuffer.blue_mask_size, framebuffer.blue_mask_shift, //
+        null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
+
     if (kernel_file_req.response) |res| {
         debug.init(res) catch |err|
             logger.warn("Failed to parsee debug information: {any}", .{err});
@@ -182,13 +177,6 @@ fn main() !void {
 
     try phys.init(memory_map_res);
     try virt.init(kernel_addr_res);
-
-    const framebuffer = framebuffer_res.framebuffers()[0];
-
-    flanterm_ctx = C.flanterm_fb_init(flantermAlloc, flantermFree, @ptrCast(@alignCast(framebuffer.address)), //
-        framebuffer.width, framebuffer.height, framebuffer.pitch, framebuffer.red_mask_size, framebuffer.red_mask_shift, //
-        framebuffer.green_mask_size, framebuffer.green_mask_shift, framebuffer.blue_mask_size, framebuffer.blue_mask_shift, //
-        null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
 
     try per_cpu.init();
     try acpi.init(rsdp_res);
