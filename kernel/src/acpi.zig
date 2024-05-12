@@ -34,15 +34,14 @@ pub fn findTable(signature: *const [4]u8) ?AcpiTable {
 }
 
 pub fn init(rsdp_res: *limine.RsdpResponse) !void {
-    try uacpi.init(rsdp_res);
+    try uacpi.initTables(rsdp_res);
 
-    const madt_table = findTable(uacpi.ACPI_MADT_SIGNATURE);
-    if (madt_table == null) {
+    const madt_table = findTable(uacpi.ACPI_MADT_SIGNATURE) orelse {
         logger.err("Could not find the APIC table", .{});
         return error.TableNotFound;
-    }
+    };
 
-    var data = madt_table.?.getData()[@sizeOf(uacpi.acpi_madt)..];
+    var data = madt_table.getData()[@sizeOf(uacpi.acpi_madt)..];
     while (data.len >= @sizeOf(uacpi.acpi_entry_hdr)) {
         const entry: *const uacpi.acpi_entry_hdr = @ptrCast(data.ptr);
         switch (entry.type) {
@@ -58,6 +57,8 @@ pub fn init(rsdp_res: *limine.RsdpResponse) !void {
         }
         data = data[entry.length..];
     }
+
+    try uacpi.init();
 }
 
 pub fn enumerateDevices() !void {

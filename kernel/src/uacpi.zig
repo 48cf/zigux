@@ -1,11 +1,13 @@
 const logger = std.log.scoped(.acpi);
 
 const C = @cImport({
-    @cInclude("uacpi/uacpi.h");
     @cInclude("uacpi/acpi.h");
+    @cInclude("uacpi/event.h");
     @cInclude("uacpi/notify.h");
     @cInclude("uacpi/resources.h");
+    @cInclude("uacpi/sleep.h");
     @cInclude("uacpi/tables.h");
+    @cInclude("uacpi/uacpi.h");
     @cInclude("uacpi/utilities.h");
     @cInclude("printf/printf.h");
 });
@@ -14,7 +16,9 @@ const limine = @import("limine");
 const root = @import("root");
 const std = @import("std");
 
+const apic = @import("./apic.zig");
 const arch = @import("./arch.zig");
+const interrupts = @import("./interrupts.zig");
 const lock = @import("./lock.zig");
 const pci = @import("./pci.zig");
 const hpet = @import("./hpet.zig");
@@ -37,17 +41,27 @@ pub const x_uacpi_namespace_node_info = extern struct {
     cid: C.uacpi_pnp_id_list,
 };
 
-fn notifyHandler(
-    _: C.uacpi_handle,
-    node: ?*C.uacpi_namespace_node,
-    value: C.uacpi_u64,
-) callconv(.C) C.uacpi_status {
-    const path = C.uacpi_namespace_node_generate_absolute_path(node);
-    logger.info("Received a notification from {s} {x}", .{ path, value });
-    return C.UACPI_STATUS_OK;
+fn powerButtonHandler(_: C.uacpi_handle) callconv(.C) C.uacpi_interrupt_ret {
+    logger.debug("Shutting down the system", .{});
+
+    var status = C.uacpi_prepare_for_sleep_state(C.UACPI_SLEEP_STATE_S5);
+    if (status != C.UACPI_STATUS_OK) {
+        logger.err("Failed to prepare for S5 sleep: {s}", .{C.uacpi_status_to_string(status)});
+        return C.UACPI_INTERRUPT_HANDLED;
+    }
+
+    logger.debug("Entering S5 sleep", .{});
+
+    status = C.uacpi_enter_sleep_state(C.UACPI_SLEEP_STATE_S5);
+    if (status != C.UACPI_STATUS_OK) {
+        logger.err("Failed to enter S5 sleep: {s}", .{C.uacpi_status_to_string(status)});
+        return C.UACPI_INTERRUPT_HANDLED;
+    }
+
+    unreachable;
 }
 
-pub fn init(rsdp_res: *limine.RsdpResponse) !void {
+pub fn initTables(rsdp_res: *limine.RsdpResponse) !void {
     var init_params: C.uacpi_init_params = .{
         .rsdp = virt.higherHalfToPhysical(rsdp_res.address),
         .no_acpi_mode = false,
@@ -57,21 +71,15 @@ pub fn init(rsdp_res: *limine.RsdpResponse) !void {
         },
     };
 
-    var status: C.uacpi_status = undefined;
-
-    status = C.uacpi_initialize(&init_params);
+    const status = C.uacpi_initialize(&init_params);
     if (status != C.UACPI_STATUS_OK) {
         logger.err("Failed to initialize uACPI: {s}", .{C.uacpi_status_to_string(status)});
         return error.InitializationFailed;
     }
+}
 
-    status = C.uacpi_install_notify_handler(C.uacpi_namespace_root(), notifyHandler, null);
-    if (status != C.UACPI_STATUS_OK) {
-        logger.err("Failed to install notify handler: {s}", .{C.uacpi_status_to_string(status)});
-        return error.InitializationFailed;
-    }
-
-    status = C.uacpi_namespace_load();
+pub fn init() !void {
+    var status = C.uacpi_namespace_load();
     if (status != C.UACPI_STATUS_OK) {
         logger.err("Failed to load namespace: {s}", .{C.uacpi_status_to_string(status)});
         return error.InitializationFailed;
@@ -83,9 +91,21 @@ pub fn init(rsdp_res: *limine.RsdpResponse) !void {
         return error.InitializationFailed;
     }
 
+    status = C.uacpi_finalize_gpe_initialization();
+    if (status != C.UACPI_STATUS_OK) {
+        logger.err("Failed to finalize GPE initialization: {s}", .{C.uacpi_status_to_string(status)});
+        return error.InitializationFailed;
+    }
+
     status = C.uacpi_set_interrupt_model(C.UACPI_INTERRUPT_MODEL_IOAPIC);
     if (status != C.UACPI_STATUS_OK) {
         logger.err("Failed to set interrupt model: {s}", .{C.uacpi_status_to_string(status)});
+        return error.InitializationFailed;
+    }
+
+    status = C.uacpi_install_fixed_event_handler(C.UACPI_FIXED_EVENT_POWER_BUTTON, powerButtonHandler, null);
+    if (status != C.UACPI_STATUS_OK) {
+        logger.err("Failed to install power button handler: {s}", .{C.uacpi_status_to_string(status)});
         return error.InitializationFailed;
     }
 }
@@ -374,17 +394,30 @@ export fn uacpi_kernel_handle_firmware_request(
     return C.UACPI_STATUS_OK;
 }
 
+const UACPIIRQContext = struct {
+    handler: C.uacpi_interrupt_handler,
+    uacpi_ctx: C.uacpi_handle,
+};
+
+fn uacpiInterruptHandler(context: ?*anyopaque) void {
+    const ctx: *UACPIIRQContext = @ptrCast(@alignCast(context.?));
+    _ = ctx.handler.?(ctx.uacpi_ctx);
+}
+
 export fn uacpi_kernel_install_interrupt_handler(
     irq: C.uacpi_u32,
     handler: C.uacpi_interrupt_handler,
     ctx: C.uacpi_handle,
     out_irq_handle: *C.uacpi_handle,
 ) callconv(.C) C.uacpi_status {
-    _ = irq;
-    _ = handler;
-    _ = ctx;
-    _ = out_irq_handle;
-    logger.warn("uacpi_kernel_install_interrupt_handler is a stub", .{});
+    const irq_handle = root.allocator.create(UACPIIRQContext) catch {
+        @panic("uacpi_kernel_install_interrupt_handler failed");
+    };
+    irq_handle.* = .{ .handler = handler, .uacpi_ctx = ctx };
+    const vector = interrupts.allocateVector();
+    interrupts.registerHandlerWithContext(vector, uacpiInterruptHandler, irq_handle);
+    _ = apic.routeISAIRQ(@intCast(irq), 0, vector, false);
+    out_irq_handle.* = @ptrCast(irq_handle);
     return C.UACPI_STATUS_OK;
 }
 
@@ -423,14 +456,12 @@ export fn uacpi_kernel_schedule_work(
 ) callconv(.C) C.uacpi_status {
     _ = work_type;
     logger.warn("uacpi_kernel_schedule_work is a stub", .{});
-
     if (handler) |handler_| {
         handler_(ctx);
     } else {
         logger.warn("uacpi_kernel_schedule_work: handler is null", .{});
         return C.UACPI_STATUS_INVALID_ARGUMENT;
     }
-
     return C.UACPI_STATUS_OK;
 }
 

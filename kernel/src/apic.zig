@@ -148,7 +148,7 @@ pub fn routeISAIRQ(irq: u8, lapic_id: u32, vector: u8, masked: bool) bool {
 
     var responsible_ioapic: ?*const IOAPIC = null;
     for (ioapics.constSlice()) |*it| {
-        if (it.base_gsi >= irq and irq < it.base_gsi + it.gsi_count) {
+        if (it.base_gsi <= irq and it.base_gsi + it.gsi_count > irq) {
             responsible_ioapic = it;
             break;
         }
@@ -171,7 +171,7 @@ pub fn handleIOAPIC(address: u32, base_gsi: u32) void {
         .gsi_count = undefined,
     };
 
-    ioapic.base_gsi = (ioapic.read(0x1) >> 16) & 0xFF;
+    ioapic.gsi_count = (ioapic.read(0x1) >> 16) & 0xFF;
     ioapics.append(ioapic) catch @panic("Exceeded maximum number of IOAPICs");
 }
 
