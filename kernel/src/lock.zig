@@ -7,7 +7,7 @@ pub const CriticalSection = struct {
     previous_rflags: u64,
 
     pub fn enter() @This() {
-        const rflags = arch.readEflags();
+        const rflags = arch.readEFlags();
         asm volatile ("cli");
         return .{ .previous_rflags = rflags };
     }

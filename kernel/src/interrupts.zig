@@ -159,7 +159,7 @@ fn exceptionHandler(frame: *InterruptFrame) void {
         cpu_info.thread = null;
     } else {
         while (true) {
-            arch.halt();
+            arch.hlt();
         }
     }
 }
@@ -169,7 +169,7 @@ fn unhandledInterruptHandler(frame: *InterruptFrame) void {
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
     printRegisters(frame);
     while (true) {
-        arch.halt();
+        arch.hlt();
     }
 }
 

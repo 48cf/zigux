@@ -537,7 +537,7 @@ pub fn reschedule(frame: *interrupts.InterruptFrame) void {
 }
 
 pub fn yield() void {
-    if (arch.readEflags() & 0x200 == 0) {
+    if (arch.readEFlags() & 0x200 == 0) {
         @panic("Trying to yield with interrupts disabled is usually not a good idea...");
     }
 
@@ -584,6 +584,6 @@ fn schedCallHandler(frame: *interrupts.InterruptFrame) void {
 
 fn idleThread() callconv(.Naked) noreturn {
     while (true) {
-        arch.halt();
+        arch.hlt();
     }
 }

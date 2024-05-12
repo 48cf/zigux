@@ -11,9 +11,9 @@ const virt = @import("./virt.zig");
 
 pub const PerCpu = struct {
     self: *PerCpu,
-    gdt: arch.Gdt = .{},
-    idt: arch.Idt = .{},
-    tss: arch.Tss = std.mem.zeroes(arch.Tss),
+    gdt: arch.GDT = .{},
+    idt: arch.IDT = .{},
+    tss: arch.TSS = std.mem.zeroes(arch.TSS),
     lapic_base: u64 = 0,
     lapic_id: u32 = 0,
     thread: ?*scheduler.Thread = null,
@@ -32,11 +32,14 @@ var bsp_percpu: PerCpu = .{ .self = undefined };
 pub fn initBsp() void {
     bsp_percpu = .{
         .self = &bsp_percpu,
-        .lapic_base = virt.asHigherHalf(u64, arch.Msr.apic.read() & ~@as(u64, 0xFFF)),
+        .lapic_base = virt.asHigherHalf(u64, arch.rdmsr(.IA32_APIC_BASE) & ~@as(u64, 0xFFF)),
     };
 
-    arch.Msr.gs_base.write(@intFromPtr(&bsp_percpu));
-    arch.Msr.gs_kernel_base.write(0);
+    arch.wrmsr(.IA32_GS_BASE, @intFromPtr(&bsp_percpu));
+    arch.wrmsr(.IA32_KERNEL_GS_BASE, 0);
+
+    bsp_percpu.gdt.load();
+    bsp_percpu.idt.load(false);
 }
 
 pub fn initFeatures() void {
@@ -56,7 +59,7 @@ pub fn init() !void {
     const instance = try root.allocator.create(PerCpu);
     instance.* = .{
         .self = instance,
-        .lapic_base = virt.asHigherHalf(u64, arch.Msr.apic.read() & ~@as(u64, 0xFFF)),
+        .lapic_base = virt.asHigherHalf(u64, arch.rdmsr(.IA32_APIC_BASE) & ~@as(u64, 0xFFF)),
     };
 
     const intr_stack = try utils.KernelStack.allocate(4);
@@ -70,11 +73,12 @@ pub fn init() !void {
     instance.tss.ist[1] = sched_stack.getEndAddress();
     instance.tss.ist[2] = pf_stack.getEndAddress();
 
-    instance.gdt.load(&instance.tss);
-    instance.idt.load();
+    instance.gdt.load();
+    instance.gdt.loadTSS(&instance.tss);
+    instance.idt.load(true);
 
-    arch.Msr.gs_base.write(@intFromPtr(instance));
-    arch.Msr.gs_kernel_base.write(0);
+    arch.wrmsr(.IA32_GS_BASE, @intFromPtr(&bsp_percpu));
+    arch.wrmsr(.IA32_KERNEL_GS_BASE, 0);
 }
 
 pub inline fn get() *PerCpu {

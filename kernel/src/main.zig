@@ -91,7 +91,7 @@ export fn _start() callconv(.C) noreturn {
     };
 
     while (true) {
-        arch.halt();
+        arch.hlt();
     }
 }
 
@@ -197,7 +197,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     logger.err("Kernel panic: {s}", .{msg});
     debug.printStackIterator(std.debug.StackIterator.init(@returnAddress(), @frameAddress()));
     while (true) {
-        arch.halt();
+        arch.hlt();
     }
 }
 
