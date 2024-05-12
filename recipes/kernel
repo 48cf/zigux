@@ -10,5 +10,6 @@ package() {
         --cache-dir $(realpath .) \
         --global-cache-dir $(realpath .) \
         --prefix "${dest_dir}/${prefix}" \
-        --build-file "${source_dir}/build.zig"
+        --build-file "${source_dir}/build.zig" \
+        -freference-trace
 }

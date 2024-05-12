@@ -714,7 +714,7 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse, kernel_addr_res: *limine.
     }
 
     for (memory_map_res.entries()) |entry| {
-        if (entry.base < utils.gib(16)) {
+        if (entry.base < utils.gib(4)) {
             continue;
         }
 
@@ -722,8 +722,8 @@ pub fn init(memory_map_res: *limine.MemoryMapResponse, kernel_addr_res: *limine.
         try page_table.map(hhdm_uc + entry.base, entry.base, entry.length, PTEFlags.present | PTEFlags.writable | PTEFlags.no_cache | PTEFlags.no_execute);
     }
 
-    try page_table.map(hhdm, 0, utils.gib(16), PTEFlags.present | PTEFlags.writable | PTEFlags.no_execute);
-    try page_table.map(hhdm_uc, 0, utils.gib(16), PTEFlags.present | PTEFlags.writable | PTEFlags.no_cache | PTEFlags.no_execute);
+    try page_table.map(hhdm, 0, utils.gib(4), PTEFlags.present | PTEFlags.writable | PTEFlags.no_execute);
+    try page_table.map(hhdm_uc, 0, utils.gib(4), PTEFlags.present | PTEFlags.writable | PTEFlags.no_cache | PTEFlags.no_execute);
 
     try mapSection("text", page_table, kernel_addr_res, PTEFlags.present);
     try mapSection("rodata", page_table, kernel_addr_res, PTEFlags.present | PTEFlags.no_execute);
