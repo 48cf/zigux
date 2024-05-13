@@ -143,6 +143,9 @@ fn main() !void {
     asm volatile ("cli");
     defer asm volatile ("sti");
 
+    per_cpu.initBsp();
+    per_cpu.initFeatures();
+
     if (framebuffer_req.response) |fb_res| {
         const framebuffer = fb_res.framebuffers()[0];
         flanterm_ctx = C.flanterm_fb_init(null, null, @ptrCast(@alignCast(framebuffer.address)), //
@@ -150,9 +153,6 @@ fn main() !void {
             framebuffer.green_mask_size, framebuffer.green_mask_shift, framebuffer.blue_mask_size, framebuffer.blue_mask_shift, //
             null, null, null, null, null, null, null, null, 0, 0, 1, 0, 0, 0);
     }
-
-    per_cpu.initBsp();
-    per_cpu.initFeatures();
 
     virt.bootstrapArena();
 
@@ -239,9 +239,9 @@ pub fn log(
     const current_time = time.getClock(.monotonic);
     std.fmt.format(
         @as(LogWriter, undefined),
-        "[{d}.{d:0>6}] [CPU{d}] {s}({s}): " ++ fmt ++ "\n",
+        "[{d:>5}.{d:0>6}] [CPU{d}] {s}({s}): " ++ fmt ++ "\n",
         .{
-            current_time.seconds,
+            @as(u64, @intCast(current_time.seconds)),
             @as(u64, @intCast(current_time.nanoseconds)) / std.time.ns_per_us,
             per_cpu.get().lapic_id,
             @tagName(level),
