@@ -1,6 +1,7 @@
-const logger = std.log.scoped(.acpi);
+const logger = std.log.scoped(.uacpi);
 
 const C = @cImport({
+    @cInclude("nanoprintf.h");
     @cInclude("uacpi/acpi.h");
     @cInclude("uacpi/event.h");
     @cInclude("uacpi/notify.h");
@@ -9,7 +10,6 @@ const C = @cImport({
     @cInclude("uacpi/tables.h");
     @cInclude("uacpi/uacpi.h");
     @cInclude("uacpi/utilities.h");
-    @cInclude("printf/printf.h");
 });
 
 const limine = @import("limine");
@@ -284,24 +284,19 @@ export fn uacpi_kernel_vlog(
     args: *std.builtin.VaList,
 ) callconv(.C) void {
     var buffer: [256]u8 = undefined;
-    var length: usize = @intCast(C.vsnprintf_(&buffer, buffer.len, fmt, @ptrCast(args)));
-
-    // zig std logging inserts its own newline
+    var length: usize = @intCast(C.npf_vsnprintf(&buffer, buffer.len, fmt, @ptrCast(args)));
     if (buffer[length - 1] == '\n') {
-        buffer[length - 1] = 0;
         length -= 1;
     }
 
-    const level_str = switch (level) {
-        C.UACPI_LOG_DEBUG => "debug",
-        C.UACPI_LOG_TRACE => "trace",
-        C.UACPI_LOG_INFO => "info",
-        C.UACPI_LOG_WARN => "warn",
-        C.UACPI_LOG_ERROR => "error",
-        else => "invalid",
-    };
-
-    logger.info("uacpi-{s}: {s}", .{ level_str, buffer[0..length] });
+    const message = buffer[0..length];
+    switch (level) {
+        C.UACPI_LOG_DEBUG, C.UACPI_LOG_TRACE => logger.debug("{s}", .{message}),
+        C.UACPI_LOG_INFO => logger.info("{s}", .{message}),
+        C.UACPI_LOG_WARN => logger.warn("{s}", .{message}),
+        C.UACPI_LOG_ERROR => logger.err("{s}", .{message}),
+        else => unreachable,
+    }
 }
 
 export fn uacpi_kernel_get_ticks() callconv(.C) C.uacpi_u64 {
@@ -474,56 +469,4 @@ export fn uacpi_kernel_schedule_work(
 export fn uacpi_kernel_wait_for_work_completion() callconv(.C) C.uacpi_status {
     logger.warn("uacpi_kernel_wait_for_work_completion is a stub", .{});
     return C.UACPI_STATUS_OK;
-}
-
-export fn strlen(s: [*]const c_char) callconv(.C) usize {
-    var len: usize = 0;
-
-    while (s[len] != 0) {
-        len += 1;
-    }
-
-    return len;
-}
-
-export fn strcmp(s1: [*]const c_char, s2: [*]const c_char) callconv(.C) i32 {
-    var i: usize = 0;
-
-    while (s1[i] != 0 and s2[i] != 0) {
-        if (s1[i] != s2[i]) {
-            return s1[i] - s2[i];
-        }
-
-        i += 1;
-    }
-
-    return s1[i] - s2[i];
-}
-
-export fn strnlen(s: [*]const c_char, maxlen: usize) callconv(.C) usize {
-    var len: usize = 0;
-
-    while (len < maxlen) {
-        if (s[len] == 0) {
-            break;
-        }
-
-        len += 1;
-    }
-
-    return len;
-}
-
-export fn strncmp(s1: [*]const c_char, s2: [*]const c_char, n: usize) callconv(.C) i32 {
-    for (0..n) |i| {
-        if (s1[i] == 0 or s2[i] == 0) {
-            return s1[i] - s2[i];
-        }
-
-        if (s1[i] != s2[i]) {
-            return s1[i] - s2[i];
-        }
-    }
-
-    return 0;
 }

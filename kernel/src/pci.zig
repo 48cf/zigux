@@ -364,7 +364,7 @@ pub fn init() !void {
             .end_bus = entry.end_bus,
         };
         logger.info(
-            "Found PCI segment {X:0>4} with base address 0x{X:0>16} and bus range {d}-{d}",
+            "Found PCI segment {X:0>4} with base address 0x{X} and bus range {d}-{d}",
             .{ entry.segment, entry.address, entry.start_bus, entry.end_bus },
         );
     }

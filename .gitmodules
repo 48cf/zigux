@@ -4,9 +4,9 @@
 [submodule "kernel/uacpi"]
 	path = kernel/uacpi
 	url = https://github.com/UltraOS/uACPI.git
-[submodule "kernel/printf"]
-	path = kernel/printf
-	url = https://github.com/eyalroz/printf
 [submodule "kernel/flanterm"]
 	path = kernel/flanterm
 	url = https://github.com/mintsuki/flanterm.git
+[submodule "kernel/nanoprintf"]
+	path = kernel/nanoprintf
+	url = https://github.com/charlesnicholson/nanoprintf.git

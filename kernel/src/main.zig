@@ -249,8 +249,3 @@ pub fn log(
         } ++ args,
     ) catch unreachable;
 }
-
-export fn putchar_(ch: u8) callconv(.C) void {
-    _ = ch;
-    @panic("This function should never be called!");
-}

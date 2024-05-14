@@ -40,6 +40,9 @@ pub fn build(b: *std.Build) !void {
 
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
 
+    // implementation for some standard library functions
+    kernel.addCSourceFile(.{ .file = .{ .path = "./src/runtime.c" } });
+
     // mlibc includes
     kernel.addIncludePath(.{ .path = "../pkgs/mlibc-headers/usr/include" });
     kernel.addIncludePath(.{ .path = "../pkgs/linux-headers/usr/include" });
@@ -70,14 +73,7 @@ pub fn build(b: *std.Build) !void {
     } });
 
     // printf includes
-    kernel.addIncludePath(.{ .path = "./printf/src" });
-
-    // printf sources
-    kernel.defineCMacro("PRINTF_ALIAS_STANDARD_FUNCTION_NAMES", "1");
-    kernel.defineCMacro("PRINTF_ALIAS_STANDARD_FUNCTION_NAMES_HARD", "1");
-    kernel.defineCMacro("PRINTF_SUPPORT_DECIMAL_SPECIFIERS", "0");
-    kernel.defineCMacro("PRINTF_SUPPORT_EXPONENTIAL_SPECIFIERS", "0");
-    kernel.addCSourceFiles(.{ .files = &.{"./printf/src/printf/printf.c"} });
+    kernel.addIncludePath(.{ .path = "./nanoprintf" });
 
     // flanterm includes
     kernel.addIncludePath(.{ .path = "./flanterm" });
