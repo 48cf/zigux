@@ -13,7 +13,7 @@ limine_dir="host-pkgs/limine/usr/local/"
 rm -rf iso_root
 mkdir -p iso_root
 mkdir -p iso_root/EFI/BOOT
-cp pkgs/kernel/usr/bin/kernel iso_root/
+cp pkgs/kernel/usr/bin/zigux iso_root/
 cp $limine_dir/share/limine/limine-bios.sys iso_root/
 cp $limine_dir/share/limine/limine-bios-cd.bin iso_root/
 cp $limine_dir/share/limine/limine-uefi-cd.bin iso_root/
@@ -33,7 +33,7 @@ SERIAL=yes
 
 :kernel
     PROTOCOL=limine
-    KERNEL_PATH=boot:///kernel
+    KERNEL_PATH=boot:///zigux
     MODULE_PATH=\$boot:///initramfs.tar.gz
 EOF
 

@@ -20,72 +20,84 @@ const target = blk: {
 };
 
 pub fn build(b: *std.Build) !void {
-    const optimize = b.standardOptimizeOption(.{});
+    // Get dependencies
+    const flanterm = b.dependency("flanterm", .{});
     const limine = b.dependency("limine", .{});
+    const nanoprintf = b.dependency("nanoprintf", .{});
+    const uacpi = b.dependency("uacpi", .{});
+
+    // Build the kernel
+    const optimize = b.standardOptimizeOption(.{});
     const kernel = b.addExecutable(.{
-        .name = "kernel",
-        .pic = true,
-        .code_model = .kernel,
+        .name = "zigux",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
+        .code_model = .kernel,
+        .omit_frame_pointer = false,
+        .pic = true,
     });
 
+    kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
+    kernel.root_module.addImport("limine", limine.module("limine"));
     kernel.root_module.red_zone = false;
     kernel.root_module.stack_check = false;
-    kernel.root_module.omit_frame_pointer = false;
     kernel.want_lto = false;
 
-    kernel.root_module.addImport("limine", limine.module("limine"));
+    // Install the kernel as an artifact
+    b.installArtifact(kernel);
 
-    kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
-
-    // implementation for some standard library functions
+    // Compile implementation of some standard library functions
     kernel.addCSourceFile(.{ .file = .{ .path = "./src/runtime.c" } });
 
-    // mlibc includes
+    // Add mlibc include paths
     kernel.addIncludePath(.{ .path = "../pkgs/mlibc-headers/usr/include" });
     kernel.addIncludePath(.{ .path = "../pkgs/linux-headers/usr/include" });
 
-    // uacpi includes
-    kernel.addIncludePath(.{ .path = "./uacpi/include" });
+    // Get dependency paths
+    const flanterm_path = flanterm.builder.build_root.path.?;
+    const nanoprintf_path = nanoprintf.builder.build_root.path.?;
+    const uacpi_path = uacpi.builder.build_root.path.?;
 
-    // uacpi sources
-    kernel.defineCMacro("UACPI_SIZED_FREES", "1");
-    kernel.addCSourceFiles(.{ .files = &.{
-        "./uacpi/source/tables.c",
-        "./uacpi/source/types.c",
-        "./uacpi/source/uacpi.c",
-        "./uacpi/source/utilities.c",
-        "./uacpi/source/interpreter.c",
-        "./uacpi/source/opcodes.c",
-        "./uacpi/source/namespace.c",
-        "./uacpi/source/stdlib.c",
-        "./uacpi/source/shareable.c",
-        "./uacpi/source/opregion.c",
-        "./uacpi/source/default_handlers.c",
-        "./uacpi/source/io.c",
-        "./uacpi/source/notify.c",
-        "./uacpi/source/sleep.c",
-        "./uacpi/source/registers.c",
-        "./uacpi/source/resources.c",
-        "./uacpi/source/event.c",
-    } });
-
-    // printf includes
-    kernel.addIncludePath(.{ .path = "./nanoprintf" });
-
-    // flanterm includes
-    kernel.addIncludePath(.{ .path = "./flanterm" });
-
-    // flanterm sources
+    // Add flanterm include path and source files
+    kernel.addIncludePath(.{ .path = flanterm_path });
     kernel.addCSourceFiles(.{
-        .files = &.{
-            "./flanterm/flanterm.c",
-            "./flanterm/backends/fb.c",
-        },
+        .root = .{ .path = flanterm_path },
+        .files = &.{ "flanterm.c", "backends/fb.c" },
         .flags = &.{"-fno-sanitize=undefined"},
     });
 
-    b.installArtifact(kernel);
+    // Add nanoprintf include path
+    kernel.addIncludePath(.{ .path = nanoprintf_path });
+
+    // Add uACPI include path and source files
+    kernel.addIncludePath(.{
+        .path = try std.fs.path.join(b.allocator, &.{ uacpi_path, "include" }),
+    });
+
+    kernel.addCSourceFiles(.{
+        .root = .{ .path = uacpi_path },
+        .files = &.{
+            "source/tables.c",
+            "source/types.c",
+            "source/uacpi.c",
+            "source/utilities.c",
+            "source/interpreter.c",
+            "source/opcodes.c",
+            "source/namespace.c",
+            "source/stdlib.c",
+            "source/shareable.c",
+            "source/opregion.c",
+            "source/default_handlers.c",
+            "source/io.c",
+            "source/notify.c",
+            "source/sleep.c",
+            "source/registers.c",
+            "source/resources.c",
+            "source/event.c",
+        },
+    });
+
+    // Enable sized frees in uACPI
+    kernel.defineCMacro("UACPI_SIZED_FREES", "1");
 }
