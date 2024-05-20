@@ -11,13 +11,9 @@
             .url = "https://github.com/limine-bootloader/limine-zig/archive/c94d35f1f116e9e8a7943f30712901760c3d7d96.tar.gz",
             .hash = "1220889cec612d653c31a4063d20daa9ec382ac23f76e9cc60a778b0ad17377bafa1",
         },
-        .nanoprintf = .{
-            .url = "https://github.com/charlesnicholson/nanoprintf/archive/0489631e95164bd0700075c0bffc6b603956302f.tar.gz",
-            .hash = "122079a63917cb2a4e725166b54279ebcc0ac0748308e483d335abf8dc8ef13d6807",
-        },
         .uacpi = .{
-            .url = "https://github.com/UltraOS/uACPI/archive/8660b1ce0f33e3bcb86ebf22d70e0d69d5999504.tar.gz",
-            .hash = "1220117f6291cb5a7504a58fdd02610fdcd9b3a7cf2409a6020f5cad4d8d69cf588e",
+            .url = "https://github.com/UltraOS/uACPI/archive/edc5e219eb7ccefcfc8d0618018fabd51e83444f.tar.gz",
+            .hash = "122047c9a1f3df967b94ef86a426b2207774dc63bb941f00f70a2a5400b2df898b3f",
         },
     },
 }

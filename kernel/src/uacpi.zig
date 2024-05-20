@@ -1,7 +1,6 @@
 const logger = std.log.scoped(.uacpi);
 
 const C = @cImport({
-    @cInclude("nanoprintf.h");
     @cInclude("uacpi/acpi.h");
     @cInclude("uacpi/event.h");
     @cInclude("uacpi/notify.h");
@@ -272,29 +271,14 @@ export fn uacpi_kernel_free(mem: ?*anyopaque, size: C.uacpi_size) callconv(.C) v
     }
 }
 
-export fn uacpi_kernel_log(level: C.uacpi_log_level, fmt: [*c]const C.uacpi_u8, ...) callconv(.C) void {
-    var ap = @cVaStart();
-    defer @cVaEnd(&ap);
-    uacpi_kernel_vlog(level, fmt, &ap);
-}
-
-export fn uacpi_kernel_vlog(
-    level: C.uacpi_log_level,
-    fmt: [*c]const C.uacpi_u8,
-    args: *std.builtin.VaList,
-) callconv(.C) void {
-    var buffer: [256]u8 = undefined;
-    var length: usize = @intCast(C.npf_vsnprintf(&buffer, buffer.len, fmt, @ptrCast(args)));
-    if (buffer[length - 1] == '\n') {
-        length -= 1;
-    }
-
-    const message = buffer[0..length];
+export fn uacpi_kernel_log(level: C.uacpi_log_level, message: [*c]const C.uacpi_u8) callconv(.C) void {
+    const length = std.mem.len(message);
+    const msg = message[0 .. length - 1];
     switch (level) {
-        C.UACPI_LOG_DEBUG, C.UACPI_LOG_TRACE => logger.debug("{s}", .{message}),
-        C.UACPI_LOG_INFO => logger.info("{s}", .{message}),
-        C.UACPI_LOG_WARN => logger.warn("{s}", .{message}),
-        C.UACPI_LOG_ERROR => logger.err("{s}", .{message}),
+        C.UACPI_LOG_DEBUG, C.UACPI_LOG_TRACE => logger.debug("{s}", .{msg}),
+        C.UACPI_LOG_INFO => logger.info("{s}", .{msg}),
+        C.UACPI_LOG_WARN => logger.warn("{s}", .{msg}),
+        C.UACPI_LOG_ERROR => logger.err("{s}", .{msg}),
         else => unreachable,
     }
 }

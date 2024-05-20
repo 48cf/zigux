@@ -23,7 +23,6 @@ pub fn build(b: *std.Build) !void {
     // Get dependencies
     const flanterm = b.dependency("flanterm", .{});
     const limine = b.dependency("limine", .{});
-    const nanoprintf = b.dependency("nanoprintf", .{});
     const uacpi = b.dependency("uacpi", .{});
 
     // Build the kernel
@@ -47,16 +46,12 @@ pub fn build(b: *std.Build) !void {
     // Install the kernel as an artifact
     b.installArtifact(kernel);
 
-    // Compile implementation of some standard library functions
-    kernel.addCSourceFile(.{ .file = .{ .path = "./src/runtime.c" } });
-
     // Add mlibc include paths
     kernel.addIncludePath(.{ .path = "../pkgs/mlibc-headers/usr/include" });
     kernel.addIncludePath(.{ .path = "../pkgs/linux-headers/usr/include" });
 
     // Get dependency paths
     const flanterm_path = flanterm.builder.build_root.path.?;
-    const nanoprintf_path = nanoprintf.builder.build_root.path.?;
     const uacpi_path = uacpi.builder.build_root.path.?;
 
     // Add flanterm include path and source files
@@ -66,9 +61,6 @@ pub fn build(b: *std.Build) !void {
         .files = &.{ "flanterm.c", "backends/fb.c" },
         .flags = &.{"-fno-sanitize=undefined"},
     });
-
-    // Add nanoprintf include path
-    kernel.addIncludePath(.{ .path = nanoprintf_path });
 
     // Add uACPI include path and source files
     kernel.addIncludePath(.{
